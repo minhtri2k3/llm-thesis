@@ -1,0 +1,11 @@
+agno>=2.2.10
+pypdf
+exa_py
+qdrant-client
+langchain-qdrant
+langchain-community
+langchain
+langchain-text-splitters
+streamlit
+ollama
+beautifulsoup4
