@@ -9,3 +9,5 @@ langchain-text-splitters
 streamlit
 ollama
 beautifulsoup4
+langchain-google-cloud-sql-pg
+langchain-google-vertexai

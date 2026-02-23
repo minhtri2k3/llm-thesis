@@ -8,9 +8,8 @@ from agno.agent import Agent
 from agno.models.ollama import Ollama
 from langchain_community.document_loaders import PyPDFLoader, WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from langchain_google_cloud_sql_pg import PostgresEngine, PostgresVectorStore
+import asyncio
 from langchain_core.embeddings import Embeddings
 from agno.tools.exa import ExaTools
 from agno.knowledge.embedder.ollama import OllamaEmbedder
@@ -131,18 +130,39 @@ if st.session_state.use_web_search:
     )
     search_domains = [d.strip() for d in custom_domains.split(",") if d.strip()]
 
-# Utility Functions
-def init_qdrant() -> QdrantClient | None:
-    """Initialize Qdrant client with local Docker setup.
-
-    Returns:
-        QdrantClient: The initialized Qdrant client if successful.
-        None: If the initialization fails.
-    """
+def init_cloud_sql() -> PostgresEngine:
+    """Initialize Google Cloud SQL Postgres engine."""
     try:
-        return QdrantClient(url="http://localhost:6333")
+        # We need an event loop for the async engine initialization
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        # Standard Postgres connection string pointing to local cloud-sql-proxy.
+        # Password URL-encoded from: 4hrEEZZ5=M”1FXkE string
+        import urllib.parse
+        encoded_pass = urllib.parse.quote('4hrEEZZ5=M"1FXkE')
+        connection_url = f"postgresql+asyncpg://dev-playground:{encoded_pass}@127.0.0.1:5432/agentic-rag"
+        
+        engine = PostgresEngine.from_engine_args(
+            connection_url,
+        )
+        # Initialize the vector table (catching error if it already exists)
+        from sqlalchemy.exc import ProgrammingError
+        try:
+            loop.run_until_complete(engine.ainit_vectorstore_table(
+                table_name=COLLECTION_NAME.replace("-", "_"),
+                vector_size=1024
+            ))
+        except ProgrammingError as e:
+            if "already exists" not in str(e):
+                raise
+        
+        return engine
     except Exception as e:
-        st.error(f"🔴 Qdrant connection failed: {str(e)}")
+        st.error(f"🔴 Cloud SQL connection failed: {str(e)}")
         return None
 
 
@@ -205,32 +225,18 @@ def process_web(url: str) -> List:
 
 
 # Vector Store Management
-def create_vector_store(client, texts):
+def create_vector_store(engine, texts):
     """Create and initialize vector store with documents."""
     try:
-        # Create collection if needed
-        try:
-            client.create_collection(
-                collection_name=COLLECTION_NAME,
-                vectors_config=VectorParams(
-                    size=1024,  
-                    distance=Distance.COSINE
-                )
-            )
-            st.success(f"📚 Created new collection: {COLLECTION_NAME}")
-        except Exception as e:
-            if "already exists" not in str(e).lower():
-                raise e
-        
         # Initialize vector store
-        vector_store = QdrantVectorStore(
-            client=client,
-            collection_name=COLLECTION_NAME,
-            embedding=OllamaEmbedderr()
+        vector_store = PostgresVectorStore.create_sync(
+            engine=engine,
+            table_name=COLLECTION_NAME.replace("-", "_"),
+            embedding_service=OllamaEmbedderr()
         )
         
         # Add documents
-        with st.spinner('📤 Uploading documents to Qdrant...'):
+        with st.spinner('📤 Uploading documents to Cloud SQL...'):
             vector_store.add_documents(texts)
             st.success("✅ Documents stored successfully!")
             return vector_store
@@ -238,6 +244,7 @@ def create_vector_store(client, texts):
     except Exception as e:
         st.error(f"🔴 Vector store error: {str(e)}")
         return None
+
 
 def get_web_search_agent() -> Agent:
     """Initialize a web search agent."""
@@ -309,12 +316,12 @@ with toggle_col:
 
 # Check if RAG is enabled 
 if st.session_state.rag_enabled:
-    qdrant_client = init_qdrant()
+    cloud_sql_engine = init_cloud_sql()
     
     # --- Document Upload Section (Moved to Main Area) ---
     with st.expander("📁 Upload Documents or URLs for RAG", expanded=False):
-        if not qdrant_client:
-            st.warning("⚠️ Please configure Qdrant API Key and URL in the sidebar to enable document processing.")
+        if not cloud_sql_engine:
+            st.warning("⚠️ Please configure Cloud SQL backend to enable document processing.")
         else:
             uploaded_files = st.file_uploader(
                 "Upload PDF files", 
@@ -338,14 +345,14 @@ if st.session_state.rag_enabled:
                 
                 if all_texts:
                     with st.spinner("Creating vector store..."):
-                        st.session_state.vector_store = create_vector_store(qdrant_client, all_texts)
+                        st.session_state.vector_store = create_vector_store(cloud_sql_engine, all_texts)
 
             if url_input:
                 if url_input not in st.session_state.processed_documents:
                     with st.spinner(f"Scraping and processing {url_input}..."):
                         texts = process_web(url_input)
                         if texts:
-                            st.session_state.vector_store = create_vector_store(qdrant_client, texts)
+                            st.session_state.vector_store = create_vector_store(cloud_sql_engine, texts)
                             st.session_state.processed_documents.append(url_input)
                 else:
                     st.write(f"🔗 {url_input} already processed.")
