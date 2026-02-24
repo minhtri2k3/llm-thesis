@@ -5,64 +5,81 @@
 
 from typing import List, Optional
 import streamlit as st
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
-from langchain_qdrant import QdrantVectorStore
+import asyncio
+from langchain_google_cloud_sql_pg import PostgresEngine, PostgresVectorStore
 
-from config import QDRANT_URL, COLLECTION_NAME, VECTOR_SIZE
+from config import COLLECTION_NAME, VECTOR_SIZE
 from core.embedder import OllamaEmbedderr
 
 
-def init_qdrant() -> Optional[QdrantClient]:
+def init_cloud_sql() -> Optional[PostgresEngine]:
     """
-    Kết nối tới Qdrant local (Docker).
+    Kết nối tới Google Cloud SQL PostgreSQL database thông qua cloud-sql-proxy.
     Trả về None nếu kết nối thất bại.
     """
     try:
-        return QdrantClient(url=QDRANT_URL)
+        import sys
+        # asyncpg requires the SelectorEventLoop on Windows, otherwise it throws WinError 10054
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+        # We need an event loop for the async engine initialization
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        # Initialize Google Cloud SQL Python Connector natively
+        engine = loop.run_until_complete(PostgresEngine.afrom_instance(
+            project_id="dev-playground-0126",
+            region="us-central1",
+            instance="dev-playground-db-instance",
+            database="agentic-rag",
+            user="dev-playground",
+            password='4hrEEZZ5=M"1FXkE',
+        ))
+        # Initialize the vector table (catching error if it already exists)
+        from sqlalchemy.exc import ProgrammingError
+        try:
+            loop.run_until_complete(engine.ainit_vectorstore_table(
+                table_name=COLLECTION_NAME.replace("-", "_"),
+                vector_size=VECTOR_SIZE
+            ))
+        except ProgrammingError as e:
+            if "already exists" not in str(e):
+                raise
+        
+        return engine
     except Exception as e:
-        st.error(f"🔴 Qdrant connection failed: {str(e)}")
+        st.error(f"🔴 Cloud SQL connection failed: {str(e)}")
         return None
 
 
 def create_vector_store(
-    client: QdrantClient,
+    engine: PostgresEngine,
     texts: List,
     collection_name: str = COLLECTION_NAME,
-) -> Optional[QdrantVectorStore]:
+) -> Optional[PostgresVectorStore]:
     """
-    Tạo collection (nếu chưa có) và nạp documents vào Qdrant.
+    Khởi tạo vector store và nạp documents vào Google Cloud SQL.
 
     Args:
-        client: QdrantClient đã khởi tạo.
+        engine: PostgresEngine đã khởi tạo.
         texts: Danh sách LangChain Document đã được chunk.
-        collection_name: Tên collection trong Qdrant.
+        collection_name: Tên collection trong Cloud SQL.
 
     Returns:
-        QdrantVectorStore nếu thành công, None nếu lỗi.
+        PostgresVectorStore nếu thành công, None nếu lỗi.
     """
     try:
-        # Tạo collection mới nếu chưa tồn tại
-        try:
-            client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=VECTOR_SIZE,
-                    distance=Distance.COSINE,
-                ),
-            )
-            st.success(f"📚 Đã tạo collection mới: {collection_name}")
-        except Exception as e:
-            if "already exists" not in str(e).lower():
-                raise e  # Lỗi thật sự, không phải "đã tồn tại"
-
-        vector_store = QdrantVectorStore(
-            client=client,
-            collection_name=collection_name,
-            embedding=OllamaEmbedderr(),
+        vector_store = PostgresVectorStore.create_sync(
+            engine=engine,
+            table_name=collection_name.replace("-", "_"),
+            embedding_service=OllamaEmbedderr(),
         )
 
-        with st.spinner("📤 Đang upload documents lên Qdrant..."):
+        with st.spinner("📤 Đang upload documents lên Cloud SQL..."):
             vector_store.add_documents(texts)
             st.success("✅ Documents đã được lưu thành công!")
 
@@ -74,7 +91,7 @@ def create_vector_store(
 
 
 def retrieve_documents(
-    vector_store: QdrantVectorStore,
+    vector_store: PostgresVectorStore,
     query: str,
     threshold: float,
     top_k: int = 5,
@@ -83,7 +100,7 @@ def retrieve_documents(
     Tìm kiếm documents liên quan theo similarity score threshold.
 
     Args:
-        vector_store: QdrantVectorStore đã khởi tạo.
+        vector_store: PostgresVectorStore đã khởi tạo.
         query: Câu hỏi của người dùng.
         threshold: Ngưỡng similarity (0.0 – 1.0).
         top_k: Số lượng kết quả tối đa.

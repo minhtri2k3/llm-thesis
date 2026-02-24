@@ -10,7 +10,7 @@ import streamlit as st
 
 from core.agents import get_rag_agent, get_web_search_agent
 
-from core.vector_store import create_vector_store, retrieve_documents, init_qdrant
+from core.vector_store import create_vector_store, retrieve_documents, init_cloud_sql
 from loaders.pdf_loader import process_pdf
 from loaders.web_loader import process_web
 
@@ -25,11 +25,11 @@ def render_document_upload():
     Render phần upload PDF / URL trong expander.
     Chỉ hiển thị khi RAG mode đang bật.
     """
-    qdrant_client = init_qdrant()
+    cloud_sql_engine = init_cloud_sql()
 
     with st.expander("📁 Upload Documents hoặc URL cho RAG", expanded=False):
-        if not qdrant_client:
-            st.warning("⚠️ Không kết nối được Qdrant. Kiểm tra Docker đang chạy.")
+        if not cloud_sql_engine:
+            st.warning("⚠️ Không kết nối được Cloud SQL. Kiểm tra proxy đang chạy.")
             return
 
         uploaded_files = st.file_uploader(
@@ -69,7 +69,7 @@ def render_document_upload():
         if all_texts:
             with st.spinner("Đang tạo vector store..."):
                 st.session_state.vector_store = create_vector_store(
-                    qdrant_client, all_texts
+                    cloud_sql_engine, all_texts
                 )
 
         if st.session_state.vector_store:
