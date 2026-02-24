@@ -9,10 +9,8 @@
 - **Python 3.8+**: Ensure you have Python installed (`brew install python`).
 - **Google Cloud SQL Auth Proxy**: Since the current code connects to Google Cloud SQL (PostgreSQL), you need to run the Cloud SQL proxy.
   ```bash
-  curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.11.0/cloud-sql-proxy.darwin.arm64
-  chmod +x cloud-sql-proxy
+  brew install --cask google-cloud-sdk
   ```
-  *(Note: Use `darwin.amd64` instead of `darwin.arm64` if you are on an Intel Mac).*
 
 ## 2. Prepare the Environment
 Open your terminal and run:
@@ -47,7 +45,19 @@ The application relies on a Google Cloud SQL instance instead of a typical local
 gcloud auth application-default login
 
 # Start the proxy (replace with the correct instance connection name if needed)
-./cloud-sql-proxy dev-playground-0126:us-central1:dev-playground-db-instance
+~/cloud-sql-proxy \
+  --port=5432 \
+  dev-playground-0126:us-central1:dev-playground-db-instance
+
+```
+
+Optional: 
+```
+mv ~/cloud-sql-proxy /usr/local/bin/cloud-sql-proxy 
+```
+Then you can 
+```
+cloud-sql-proxy --port=5432 dev-playground-0126:us-central1:dev-playground-db-instance
 ```
 *(Leave this terminal tab open).*
 
@@ -56,5 +66,19 @@ Open a new terminal tab, navigate to your project directory, activate your envir
 
 ```bash
 source venv/bin/activate
+streamlit run app.py
+```
+
+## 6. Troubleshooting SSL Certificate Errors
+If you see an error like:
+
+`SSL: CERTIFICATE_VERIFY_FAILED`
+
+run these commands in the same terminal where you start the app:
+
+```bash
+pip install certifi
+export SSL_CERT_FILE=$(python -m certifi)
+export REQUESTS_CA_BUNDLE=$SSL_CERT_FILE
 streamlit run app.py
 ```
