@@ -28,6 +28,7 @@ def process_web(url: str) -> List:
         Danh sách LangChain Document sau khi chunk. Trả về [] nếu lỗi.
     """
     try:
+        print(f"[DEBUG][WEB] Starting scrape for URL: {url}")
         loader = WebBaseLoader(
             web_paths=(url,),
             bs_kwargs=dict(
@@ -35,6 +36,7 @@ def process_web(url: str) -> List:
             ),
         )
         documents = loader.load()
+        print(f"[DEBUG][WEB] Loaded {len(documents)} raw documents from {url}")
 
         # Gắn metadata nguồn
         for doc in documents:
@@ -50,7 +52,9 @@ def process_web(url: str) -> List:
             chunk_size=CHUNK_SIZE,
             chunk_overlap=CHUNK_OVERLAP,
         )
-        return splitter.split_documents(documents)
+        chunks = splitter.split_documents(documents)
+        print(f"[DEBUG][WEB] Split into {len(chunks)} chunks for URL: {url}")
+        return chunks
 
     except Exception as e:
         st.error(f"🌐 Web processing error: {str(e)}")

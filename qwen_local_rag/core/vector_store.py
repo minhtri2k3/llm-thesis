@@ -31,6 +31,7 @@ def init_cloud_sql() -> Optional[PostgresEngine]:
             asyncio.set_event_loop(loop)
             
         # Initialize Google Cloud SQL Python Connector natively
+        print("[DEBUG][DB] Initializing Cloud SQL engine...")
         engine = loop.run_until_complete(PostgresEngine.afrom_instance(
             project_id="dev-playground-0126",
             region="us-central1",
@@ -49,9 +50,10 @@ def init_cloud_sql() -> Optional[PostgresEngine]:
         except ProgrammingError as e:
             if "already exists" not in str(e):
                 raise
-        
+        print("[DEBUG][DB] Cloud SQL engine and vector table ready.")
         return engine
     except Exception as e:
+        print(f"[DEBUG][DB] Cloud SQL connection failed: {e}")
         st.error(f"🔴 Cloud SQL connection failed: {str(e)}")
         return None
 
@@ -73,6 +75,7 @@ def create_vector_store(
         PostgresVectorStore nếu thành công, None nếu lỗi.
     """
     try:
+        print(f"[DEBUG][VEC] Creating vector store '{collection_name}' with {len(texts)} docs")
         vector_store = PostgresVectorStore.create_sync(
             engine=engine,
             table_name=collection_name.replace("-", "_"),
@@ -81,6 +84,7 @@ def create_vector_store(
 
         with st.spinner("📤 Đang upload documents lên Cloud SQL..."):
             vector_store.add_documents(texts)
+            print(f"[DEBUG][VEC] Successfully added {len(texts)} docs to vector store '{collection_name}'")
             st.success("✅ Documents đã được lưu thành công!")
 
         return vector_store
