@@ -11,3 +11,8 @@ ollama
 beautifulsoup4
 langchain-google-cloud-sql-pg
 langchain-google-vertexai
+psycopg2-binary
+google-generativeai
+kagglehub
+tqdm
+Pillow

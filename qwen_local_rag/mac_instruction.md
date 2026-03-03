@@ -27,6 +27,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+If you already created `venv` before new dependencies were added:
+
+```bash
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
 ## 3. Pull Models in Ollama
 Make sure the Ollama app is open and running in your Mac menu bar.
 
@@ -43,6 +50,7 @@ The application relies on a Google Cloud SQL instance instead of a typical local
 ```bash
 # Login to Google Cloud
 gcloud auth application-default login
+gcloud auth application-default set-quota-project dev-playground-0126
 
 # Start the proxy (replace with the correct instance connection name if needed)
 ~/cloud-sql-proxy \
@@ -61,7 +69,36 @@ cloud-sql-proxy --port=5432 dev-playground-0126:us-central1:dev-playground-db-in
 ```
 *(Leave this terminal tab open).*
 
-## 5. Run the Application
+## 5. Configure DB env for pre-processing script
+The `pre_processing/processing_data.py` script now requires environment variables (no hardcoded DB credentials):
+
+```bash
+export PGDATABASE="agentic-rag"
+export PGUSER="dev-playground"
+export PGPASSWORD="<your-db-password>"
+export PGHOST="127.0.0.1"   # optional
+export PGPORT="5432"        # optional
+```
+
+Run diagnostics:
+
+```bash
+source qwen_local_rag/.env && python3 qwen_local_rag/pre_processing/processing_data.py doctor
+```
+
+If diagnostics pass, initialize DB tables:
+
+```bash
+python3 qwen_local_rag/pre_processing/processing_data.py init-db
+```
+
+Ingest Kaggle clothing data directly into Cloud SQL:
+
+```bash
+python3 qwen_local_rag/pre_processing/processing_data.py ingest-kaggle
+```
+
+## 6. Run the Application
 Open a new terminal tab, navigate to your project directory, activate your environment, and start Streamlit:
 
 ```bash
@@ -69,7 +106,28 @@ source venv/bin/activate
 streamlit run app.py
 ```
 
-## 6. Troubleshooting SSL Certificate Errors
+## 7. Cloud SQL auth troubleshooting
+If proxy shows:
+
+`invalid_grant` or `invalid_rapt`
+
+this means ADC re-authentication is required.
+
+Recovery steps:
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project dev-playground-0126
+~/cloud-sql-proxy --port=5432 dev-playground-0126:us-central1:dev-playground-db-instance
+source qwen_local_rag/.env && python3 qwen_local_rag/pre_processing/processing_data.py doctor
+```
+
+Error mapping:
+- `invalid_rapt`: Re-auth required for current ADC account.
+- `connection refused`: Proxy is not listening on `127.0.0.1:5432`.
+- `server closed the connection unexpectedly`: Proxy accepted local connection but could not connect upstream (often ADC/IAM).
+
+## 8. Troubleshooting SSL Certificate Errors
 If you see an error like:
 
 `SSL: CERTIFICATE_VERIFY_FAILED`
