@@ -1,0 +1,35 @@
+# Dependencies
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+
+# Models (large files — downloaded at runtime)
+models/
+
+# Data volumes
+pgdata/
+qdrant_data/
+
+# Logs
+*.log

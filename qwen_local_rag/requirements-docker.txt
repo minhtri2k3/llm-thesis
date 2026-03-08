@@ -1,0 +1,35 @@
+# Core
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+gradio>=4.0.0
+pydantic>=2.0.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# Vector DB
+qdrant-client>=1.7.0
+
+# ML / Embedding
+torch>=2.1.0
+open-clip-torch>=2.24.0
+transformers>=4.36.0
+huggingface-hub>=0.20.0
+sentence-transformers>=2.2.0
+
+# Search
+rank-bm25>=0.2.2
+rapidfuzz>=3.5.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Gemini
+google-generativeai>=0.3.0
+
+# Data
+tqdm>=4.66.0
+kagglehub>=0.2.0
+
+# Utilities
+python-dotenv>=1.0.0
