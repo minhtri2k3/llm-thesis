@@ -1,11 +1,10 @@
 """
 Database-first fashion preprocessing pipeline.
 
-This replaces the old Colab + Google Drive + CSV workflow with Cloud SQL
-(PostgreSQL via the existing Google database/proxy setup).
+Connects to local PostgreSQL (Docker Compose or native).
 
 Main capabilities:
-1. Initialize processing tables in Google Cloud SQL.
+1. Initialize processing tables in PostgreSQL.
 2. Upsert fashion items into `fashion_items`.
 3. Generate caption/color for items that are still missing enrichment fields.
 
@@ -23,9 +22,6 @@ from __future__ import annotations
 import argparse
 import csv
 import os
-import shutil
-import socket
-import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -38,18 +34,16 @@ from PIL import Image
 from tqdm import tqdm
 
 
-DEFAULT_DB_HOST = "127.0.0.1"
+DEFAULT_DB_HOST = "localhost"
 DEFAULT_DB_PORT = 5432
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
-GCP_PROJECT_ID = "dev-playground-0126"
-INSTANCE_CONNECTION_NAME = "dev-playground-0126:us-central1:dev-playground-db-instance"
 REQUIRED_DB_ENV = ("PGDATABASE", "PGUSER", "PGPASSWORD")
 KAGGLE_DATASET_DEFAULT = "agrigorev/clothing-dataset-full"
 EXCLUDED_LABELS = {"Not sure", "Skip", "Other"}
 
 
 @dataclass
-class GoogleDatabaseConfig:
+class DatabaseConfig:
     host: str = field(default_factory=lambda: os.getenv("PGHOST", DEFAULT_DB_HOST))
     port: int = field(default_factory=lambda: int(os.getenv("PGPORT", str(DEFAULT_DB_PORT))))
     database: Optional[str] = field(default_factory=lambda: os.getenv("PGDATABASE"))
@@ -59,15 +53,15 @@ class GoogleDatabaseConfig:
 
 def required_env_template() -> str:
     return (
-        'export PGDATABASE="agentic-rag"\n'
-        'export PGUSER="dev-playground"\n'
+        'export PGDATABASE="fashion_rag"\n'
+        'export PGUSER="fashion_user"\n'
         'export PGPASSWORD="<your-db-password>"\n'
-        'export PGHOST="127.0.0.1"\n'
+        'export PGHOST="localhost"\n'
         'export PGPORT="5432"'
     )
 
 
-def validate_required_db_env(config: GoogleDatabaseConfig) -> tuple[bool, list[str]]:
+def validate_required_db_env(config: DatabaseConfig) -> tuple[bool, list[str]]:
     missing: list[str] = []
     if not config.database:
         missing.append("PGDATABASE")
@@ -84,106 +78,15 @@ def print_missing_env_help(missing: list[str]) -> None:
     print(required_env_template())
 
 
-def check_proxy_socket(host: str, port: int, timeout_sec: float = 2.0) -> tuple[bool, str]:
-    try:
-        with socket.create_connection((host, port), timeout=timeout_sec):
-            return True, f"Proxy socket reachable at {host}:{port}"
-    except OSError as exc:
-        return False, str(exc)
 
 
-def check_gcloud_exists() -> tuple[bool, str]:
-    gcloud_path = shutil.which("gcloud")
-    if gcloud_path:
-        return True, f"Found gcloud at {gcloud_path}"
-    return False, "gcloud command not found in PATH"
 
-
-def check_adc_token(timeout_sec: int = 8) -> tuple[bool, str]:
-    try:
-        result = subprocess.run(
-            ["gcloud", "auth", "application-default", "print-access-token"],
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-            check=False,
-        )
-    except FileNotFoundError:
-        return False, "gcloud command is unavailable"
-    except subprocess.TimeoutExpired:
-        return False, f"Timed out after {timeout_sec}s while retrieving ADC token"
-
-    stderr = (result.stderr or "").strip()
-    stdout = (result.stdout or "").strip()
-    if result.returncode != 0:
-        detail = stderr or stdout or f"gcloud exited with status {result.returncode}"
-        return False, detail
-    if not stdout:
-        return False, "gcloud returned success but no access token was produced"
-    return True, "ADC access token retrieval successful"
-
-
-def classify_connection_error(error_text: str) -> str:
-    lower = error_text.lower()
-    if "connection refused" in lower:
-        return "proxy_not_listening"
-    if "does not support ssl, but ssl was required" in lower:
-        return "ssl_mode_mismatch"
-    if "server closed the connection unexpectedly" in lower:
-        return "proxy_upstream_failure"
-    auth_markers = (
-        "invalid_grant",
-        "invalid_rapt",
-        "password authentication failed",
-        "authentication failed",
-    )
-    if any(marker in lower for marker in auth_markers):
-        return "auth_failure"
-    return "unknown"
-
-
-def remediation_commands(config: GoogleDatabaseConfig) -> list[str]:
-    return [
-        "gcloud auth application-default login",
-        f"gcloud auth application-default set-quota-project {GCP_PROJECT_ID}",
-        (
-            f"~/cloud-sql-proxy --port={config.port} {INSTANCE_CONNECTION_NAME}"
-            if config.host == "127.0.0.1"
-            else f"cloud-sql-proxy --port={config.port} {INSTANCE_CONNECTION_NAME}"
-        ),
-        "python3 qwen_local_rag/pre_processing/processing_data.py doctor",
-    ]
-
-
-def print_connection_failure_help(error_text: str, config: GoogleDatabaseConfig) -> None:
-    category = classify_connection_error(error_text)
-    print("[FAIL] PostgreSQL connection failed.")
-
-    if category == "proxy_not_listening":
-        print("Diagnosis: Cloud SQL proxy is not listening on the configured host/port.")
-    elif category == "proxy_upstream_failure":
-        print("Diagnosis: Proxy accepted connection but failed upstream (often ADC/IAM issues).")
-    elif category == "ssl_mode_mismatch":
-        print("Diagnosis: SSL mode mismatch for local proxy (client requires SSL, proxy expects non-SSL local traffic).")
-        print("Fix: set `PGSSLMODE=disable` (or unset it) when connecting via `127.0.0.1:5432` through cloud-sql-proxy.")
-    elif category == "auth_failure":
-        print("Diagnosis: Authentication failure (ADC token or DB credential issue).")
-    else:
-        print("Diagnosis: Unknown connectivity issue.")
-
-    print(f"Raw error: {error_text}")
-    print("Recommended recovery commands:")
-    for cmd in remediation_commands(config):
-        print(f"  {cmd}")
-
-
-def check_postgres_login(config: GoogleDatabaseConfig) -> tuple[bool, str]:
+def check_postgres_login(config: DatabaseConfig) -> tuple[bool, str]:
     env_ok, missing = validate_required_db_env(config)
     if not env_ok:
         return False, f"Missing env vars: {', '.join(missing)}"
 
     try:
-        print(f"[DEBUG] Attempting psycopg2.connect(host={config.host!r}, port={config.port}, dbname={config.database!r}, user={config.user!r}, sslmode={os.getenv('PGSSLMODE', 'not set')!r})")
         conn = psycopg2.connect(
             host=config.host,
             port=config.port,
@@ -194,13 +97,9 @@ def check_postgres_login(config: GoogleDatabaseConfig) -> tuple[bool, str]:
         )
         with conn.cursor() as cur:
             cur.execute("SELECT 1;")
-            result = cur.fetchone()
-            print(f"[DEBUG] SELECT 1 returned: {result}")
         conn.close()
         return True, "PostgreSQL login + SELECT 1 successful"
     except Exception as exc:
-        import traceback
-        print(f"[DEBUG] Full traceback:\n{traceback.format_exc()}")
         return False, str(exc)
     
 
@@ -210,63 +109,46 @@ def print_check(name: str, ok: bool, detail: str) -> None:
     print(f"[{status}] {name}: {detail}")
 
 
-def run_doctor(config: GoogleDatabaseConfig) -> int:
-    failed = False
-    missing_env_failed = False
-    
+def run_doctor(config: DatabaseConfig) -> int:
+    """Run connectivity diagnostics for PostgreSQL (local/Docker)."""
     print("=" * 60)
-    print("[DEBUG] Resolved GoogleDatabaseConfig:")
+    print("Fashion Agent — Database Diagnostics")
     print(f"  PGHOST     = {config.host!r}")
     print(f"  PGPORT     = {config.port!r}")
     print(f"  PGDATABASE = {config.database!r}")
     print(f"  PGUSER     = {config.user!r}")
-    print(f"  PGPASSWORD = {'***' if config.password else 'NOT SET'} (len={len(config.password) if config.password else 0})")
-    print(f"  PGSSLMODE  = {os.getenv('PGSSLMODE', 'NOT SET')!r}")
+    print(f"  PGPASSWORD = {'***' if config.password else 'NOT SET'}")
     print("=" * 60)
-
-    ok, detail = check_gcloud_exists()
-    print_check("gcloud_available", ok, detail)
-    failed = failed or (not ok)
-
-    if ok:
-        adc_ok, adc_detail = check_adc_token(timeout_sec=8)
-        print_check("adc_access_token", adc_ok, adc_detail)
-        failed = failed or (not adc_ok)
-        if not adc_ok and ("invalid_grant" in adc_detail.lower() or "invalid_rapt" in adc_detail.lower()):
-            print("Hint: `invalid_rapt` means re-authentication is required for your ADC account.")
-    else:
-        print_check("adc_access_token", False, "Skipped because gcloud is unavailable")
-        failed = True
-
-    socket_ok, socket_detail = check_proxy_socket(config.host, config.port)
-    print_check("proxy_socket", socket_ok, socket_detail)
-    failed = failed or (not socket_ok)
 
     env_ok, missing = validate_required_db_env(config)
     if not env_ok:
-        missing_env_failed = True
-        print_check("postgres_login", False, f"Missing env vars: {', '.join(missing)}")
+        print_check("env_vars", False, f"Missing: {', '.join(missing)}")
         print_missing_env_help(missing)
-        failed = True
-    else:
-        pg_ok, pg_detail = check_postgres_login(config)
-        print_check("postgres_login", pg_ok, pg_detail)
-        failed = failed or (not pg_ok)
-        if not pg_ok:
-            print_connection_failure_help(pg_detail, config)
-
-    if failed:
         print("Doctor result: FAIL")
-        return 2 if missing_env_failed else 1
+        return 2
+
+    print_check("env_vars", True, "All required env vars present")
+
+    pg_ok, pg_detail = check_postgres_login(config)
+    print_check("postgres_login", pg_ok, pg_detail)
+    if not pg_ok:
+        print("[FAIL] PostgreSQL connection failed.")
+        print(f"  Error: {pg_detail}")
+        print("  Tips:")
+        print("    - Is PostgreSQL running? (docker compose up -d postgres)")
+        print(f"    - Is it reachable at {config.host}:{config.port}?")
+        print("    - Are PGUSER / PGPASSWORD correct?")
+        print("Doctor result: FAIL")
+        return 1
 
     print("Doctor result: PASS")
     return 0
 
 
-class GoogleDatabase:
+class FashionDatabase:
     """Lightweight PostgreSQL client for the fashion preprocessing pipeline."""
 
-    def __init__(self, config: GoogleDatabaseConfig) -> None:
+    def __init__(self, config: DatabaseConfig) -> None:
         self.config = config
         self.conn: Optional[psycopg2.extensions.connection] = None
 
@@ -506,7 +388,7 @@ def resolve_image_path(row: dict, images_dir: Optional[Path]) -> Path:
 
 
 def process_missing_captions(
-    db: GoogleDatabase,
+    db: FashionDatabase,
     processor: GeminiFashionProcessor,
     images_dir: Optional[Path],
     limit: int,
@@ -540,7 +422,7 @@ def process_missing_captions(
 
 
 def process_missing_colors(
-    db: GoogleDatabase,
+    db: FashionDatabase,
     processor: GeminiFashionProcessor,
     images_dir: Optional[Path],
     limit: int,
@@ -631,11 +513,11 @@ def load_kaggle_rows_for_upsert(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Cloud SQL-based fashion data processing.")
+    parser = argparse.ArgumentParser(description="Fashion data preprocessing pipeline (PostgreSQL).")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("doctor", help="Run Cloud SQL connectivity diagnostics (gcloud, ADC, proxy, login).")
-    sub.add_parser("init-db", help="Create required tables in Google Cloud SQL.")
+    sub.add_parser("doctor", help="Run PostgreSQL connectivity diagnostics.")
+    sub.add_parser("init-db", help="Create required tables in PostgreSQL.")
 
     add_item = sub.add_parser("upsert-item", help="Insert/update one fashion item row.")
     add_item.add_argument("--image-id", required=True, help="Unique item/image id.")
@@ -645,7 +527,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest_kaggle = sub.add_parser(
         "ingest-kaggle",
-        help="Download Kaggle clothing dataset and upsert items into Cloud SQL.",
+        help="Download Kaggle clothing dataset and upsert items into PostgreSQL.",
     )
     ingest_kaggle.add_argument(
         "--dataset",
@@ -713,7 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    config = GoogleDatabaseConfig()
+    config = DatabaseConfig()
 
     if args.command == "doctor":
         sys.exit(run_doctor(config))
@@ -723,20 +605,14 @@ def main() -> None:
         print_missing_env_help(missing)
         sys.exit(2)
 
-    socket_ok, socket_detail = check_proxy_socket(config.host, config.port)
-    if not socket_ok:
-        print_check("proxy_socket", False, socket_detail)
-        print("Diagnosis: proxy not reachable, aborting before DB connect.")
-        print("Recommended recovery commands:")
-        for cmd in remediation_commands(config):
-            print(f"  {cmd}")
-        sys.exit(1)
-
-    db = GoogleDatabase(config)
+    db = FashionDatabase(config)
     try:
         db.connect()
     except psycopg2.OperationalError as exc:
-        print_connection_failure_help(str(exc), config)
+        print(f"[FAIL] PostgreSQL connection failed: {exc}")
+        print("  Tips:")
+        print("    - Is PostgreSQL running? (docker compose up -d postgres)")
+        print(f"    - Is it reachable at {config.host}:{config.port}?")
         sys.exit(1)
 
     try:
