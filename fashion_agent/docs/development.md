@@ -1,162 +1,213 @@
-# Fashion Agent RAG — Development Guide
+# 🔧 Development Guide — Fashion Agent
 
 ## Yêu cầu hệ thống
 
-- **Docker Desktop** (đã bật)
-- **Python 3.11+** (cho dev local)
-- **uv** (Python package manager)
+| Yêu cầu | Phiên bản |
+|----------|-----------|
+| Docker + Docker Compose | v24+ |
+| Python (nếu dev local) | 3.11+ |
+| RAM | ≥8GB (khuyến nghị 16GB) |
+| Disk | ~5GB (models + images) |
+| Gemini API Key | [Lấy tại đây](https://aistudio.google.com/apikey) |
 
 ---
 
-## Quick Start (3 bước)
+## 🚀 Cách 1: Chạy bằng Docker (Khuyến nghị)
 
-### 1. Khởi động databases
+### Bước 1: Cấu hình môi trường
 
 ```bash
-cd qwen_local_rag
+cd fashion_agent
+
+# Copy file .env mẫu
+cp .env.example .env
+
+# Sửa .env: điền GEMINI_API_KEY và PG_PASSWORD
+```
+
+### Bước 2: Khởi động databases
+
+```bash
+# Khởi động PostgreSQL + Qdrant
+docker compose up -d postgres qdrant
+
+# Kiểm tra trạng thái (chờ cả hai healthy)
+docker compose ps
+```
+
+### Bước 3: Build và chạy API
+
+```bash
+# Build + chạy Fashion API (lần đầu ~5-10 phút)
+docker compose up -d --build fashion-api
+
+# Xem logs realtime
+docker compose logs -f fashion-api
+```
+
+### Bước 4: Truy cập
+
+Mở trình duyệt tại: **http://localhost:8000**
+
+---
+
+## 🖥️ Cách 2: Chạy Local (cho dev)
+
+### Bước 1: Cài dependencies
+
+```bash
+cd fashion_agent
+pip install -r requirements-docker.txt
+```
+
+### Bước 2: Chạy databases bằng Docker
+
+```bash
 docker compose up -d postgres qdrant
 ```
 
-Kiểm tra healthy:
-```bash
-docker compose ps
-# Cả 2 phải hiện "healthy"
-```
-
-### 2. Nạp dữ liệu (chỉ cần chạy 1 lần)
+### Bước 3: Set biến môi trường
 
 ```bash
-# Tạo venv + cài dependencies
-~/.local/bin/uv venv
-~/.local/bin/uv pip install psycopg2-binary tqdm Pillow kagglehub
-
-# Set env vars
 export PGHOST=localhost PGPORT=5432
 export PGDATABASE=fashion_rag PGUSER=fashion_user
-export PGPASSWORD='**REDACTED_DB_PASSWORD**'
-
-# Kiểm tra kết nối
-.venv/bin/python pre_processing/processing_data.py doctor
-
-# Tạo tables
-.venv/bin/python pre_processing/processing_data.py init-db
-
-# Nạp dữ liệu từ Kaggle (6.5GB download, chạy 1 lần)
-.venv/bin/python pre_processing/processing_data.py ingest-kaggle --limit 50
+export PGPASSWORD=<your_password>
+export GEMINI_API_KEY=<your_api_key>
+export QDRANT_HOST=localhost QDRANT_PORT=6333
 ```
 
-### 3. Index vectors + chạy API
+### Bước 4: Chạy server
 
 ```bash
-# Cài thêm ML deps
-~/.local/bin/uv pip install qdrant-client open-clip-torch transformers \
-  huggingface-hub rank-bm25 torch rapidfuzz sentence-transformers \
-  accelerate google-generativeai fastapi uvicorn gradio
-
-# Set thêm env vars
-export QDRANT_HOST=localhost QDRANT_PORT=6333
-export GEMINI_API_KEY=**REDACTED_GEMINI_API_KEY**
-
-# Index dữ liệu vào Qdrant (chạy 1 lần)
-.venv/bin/python -m indexing.build_index init
-.venv/bin/python -m indexing.build_index build --batch-size 16
-
-# Kiểm tra index
-.venv/bin/python -m indexing.build_index status
-# → PostgreSQL items: 50, Qdrant vectors: 50
-
-# CHẠY API SERVER
-.venv/bin/python -m api.main
+python -m api.main
 ```
-
-Mở trình duyệt: **http://localhost:8000** → Gradio Chat UI
 
 ---
 
-## Các lệnh hay dùng
+## 📦 Nạp dữ liệu (Lần đầu tiên)
 
-### Chạy với Docker (production-like)
+Sau khi databases đã chạy, cần nạp dữ liệu vào hệ thống:
+
+### Bước 1: Ingestion — Kaggle → PostgreSQL + Gemini Enrichment
 
 ```bash
-# Chạy 3 services (không cần Cloudflare)
-docker compose up -d postgres qdrant fashion-api
+# Nạp dữ liệu Kaggle, sinh caption + detect color bằng Gemini
+python -m pre_processing.processing_data
+```
 
-# Xem status
+> ⚠️ **Lưu ý**: Bước này tốn thời gian vì gọi Gemini API cho từng ảnh (batch 20 items/lần).
+
+### Bước 2: Indexing — PostgreSQL → Qdrant + BM25
+
+```bash
+# Encode ảnh bằng FashionSigLIP → upsert Qdrant + build BM25
+python -m indexing.build_index
+```
+
+> ⚠️ **Lưu ý**: Lần đầu sẽ tải model FashionSigLIP (~1GB).
+
+---
+
+## 🐳 Docker Commands
+
+```bash
+# Xem trạng thái tất cả services
 docker compose ps
 
-# Xem logs
-docker logs fashion-api -f
+# Xem logs realtime
+docker compose logs -f fashion-api
 
-# Dừng tất cả
+# Dừng tất cả services
 docker compose down
 
-# Dừng + xóa data
+# Dừng + xóa data (reset hoàn toàn)
 docker compose down -v
+
+# Rebuild sau khi sửa code
+docker compose up -d --build fashion-api
+
+# Chỉ chạy databases (cho dev local)
+docker compose up -d postgres qdrant
+
+# Xóa container cũ bị conflict
+docker rm -f fashion-qdrant fashion-postgres fashion-api
 ```
 
-### Chạy local (development)
+---
+
+## 🔑 Biến môi trường
+
+| Biến | Bắt buộc | Mô tả |
+|------|----------|-------|
+| `PG_PASSWORD` | ✅ | Mật khẩu PostgreSQL |
+| `GEMINI_API_KEY` | ✅ | Google Gemini API key |
+| `PGDATABASE` | ❌ | Tên database (default: `fashion_rag`) |
+| `PGUSER` | ❌ | User PostgreSQL (default: `fashion_user`) |
+| `QDRANT_API_KEY` | ❌ | Qdrant auth key (bỏ trống = no auth) |
+| `CF_TUNNEL_TOKEN` | ❌ | Cloudflare Tunnel token |
+| `DATASET_IMAGES_HOST_PATH` | ❌ | Đường dẫn ảnh Kaggle trên host |
+
+---
+
+## 🏗️ Docker Services
+
+| Service | Image | Port | Vai trò |
+|---------|-------|------|---------|
+| `postgres` | `postgres:16-alpine` | 5432 | Source of truth cho items + sessions |
+| `qdrant` | `qdrant/qdrant:latest` | 6333 | Vector DB cho semantic search |
+| `fashion-api` | Custom build | 8000 | FastAPI + Gradio app |
+| `cloudflared` | `cloudflare/cloudflared` | — | Public HTTPS tunnel |
+
+---
+
+## 🧪 Kiểm tra Health
 
 ```bash
-# Source env vars (mỗi terminal mới cần chạy lại)
-export PGHOST=localhost PGPORT=5432 PGDATABASE=fashion_rag
-export PGUSER=fashion_user PGPASSWORD='**REDACTED_DB_PASSWORD**'
-export QDRANT_HOST=localhost QDRANT_PORT=6333
-export GEMINI_API_KEY=**REDACTED_GEMINI_API_KEY**
+# PostgreSQL
+docker exec fashion-postgres pg_isready -U fashion_user -d fashion_rag
 
-# Chạy API server (cần PG + Qdrant đang chạy)
-.venv/bin/python -m api.main
+# Qdrant
+curl -s http://localhost:6333/healthz
 
-# Test health
-curl http://localhost:8000/health
+# Fashion API
+curl -s http://localhost:8000/health
 
-# Test chat
-curl -X POST http://localhost:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "tìm áo sơ mi trắng"}'
+# Qdrant Dashboard (xem collections)
+open http://localhost:6333/dashboard
 ```
 
-### Rebuild Docker image
+---
+
+## 🐛 Troubleshooting
+
+### Container name conflict
 
 ```bash
-docker compose build fashion-api
-docker compose up -d fashion-api
+# Lỗi: "container name is already in use"
+docker rm -f fashion-qdrant fashion-postgres fashion-api
+docker compose up -d
 ```
 
----
+### Port conflict
 
-## API Endpoints
-
-| Method | Path | Mô tả |
-|--------|------|--------|
-| `GET` | `/` | Gradio Chat UI |
-| `POST` | `/api/chat` | Agent chat — body: `{"message": "...", "session_id": "..."}` |
-| `GET` | `/api/products/{image_id}` | Chi tiết sản phẩm |
-| `GET` | `/api/images/{filename}` | Serve ảnh sản phẩm |
-| `GET` | `/health` | Health check (PG + Qdrant) |
-| `GET` | `/docs` | Swagger UI (auto-generated) |
-
----
-
-## Kiến trúc Pipeline
-
-```
-User Query
-  → Intent Classifier (Gemini)
-  → Clarification Gate (nếu query mơ hồ)
-  → Hybrid Search:
-      BM25 (keyword, top-20) + Vector ANN (FashionSigLIP, top-20)
-      → RRF Fusion (k=60)
-      → Soft Filter (RapidFuzz ≥60)
-      → BGE Reranker (top-6)
-  → Gemini Synthesis (Vietnamese response)
-  → Session Memory (PostgreSQL)
+```bash
+# Kiểm tra port đang dùng
+lsof -i :5432  # PostgreSQL
+lsof -i :6333  # Qdrant
+lsof -i :8000  # Fashion API
 ```
 
----
+### Model download chậm
 
-## Lưu ý
+```bash
+# Pre-download FashionSigLIP vào thư mục models/
+export HF_HOME=./models
+python -c "import open_clip; open_clip.create_model_and_transforms('hf-hub:Marqo/marqo-fashionSigLIP')"
+```
 
-- **Lần đầu chạy** sẽ download ~4GB models (FashionSigLIP 813MB + BGE Reranker 2.27GB). Models cache tại `./models/`
-- **Docker API container** cũng cần download models lần đầu — request đầu sẽ chậm ~2-3 phút
-- **RAM:** Cần ~8-10GB RAM khi chạy đầy đủ pipeline (2 models loaded)
-- **MPS:** Tự động dùng Apple Silicon GPU nếu chạy local trên Mac
+### Qdrant collection trống
+
+```bash
+# Chạy lại indexing
+python -m indexing.build_index
+```

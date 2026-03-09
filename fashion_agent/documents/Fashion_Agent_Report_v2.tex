@@ -1,0 +1,1005 @@
+\documentclass[12pt,a4paper]{report}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese,english]{babel}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{tocloft}
+\usepackage{amsmath}
+\usepackage{caption}
+
+\geometry{left=2.5cm,right=2cm,top=2.5cm,bottom=2.5cm}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+\lstdefinestyle{pythonstyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\small,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    language=Python,
+    frame=single,
+}
+\lstset{style=pythonstyle}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\leftmark}
+\fancyhead[R]{Fashion Agent Multimodal v2.0}
+\fancyfoot[C]{\thepage}
+
+\begin{document}
+
+% ===== TRANG BÌA =====
+\begin{titlepage}
+\centering
+\vspace*{1cm}
+{\Large KHOA CÔNG NGHỆ THÔNG TIN}\\[0.5cm]
+\rule{\textwidth}{1pt}\\[1cm]
+{\Huge\bfseries BÁO CÁO ĐỀ TÀI}\\[0.8cm]
+{\LARGE\bfseries FASHION AGENT MULTIMODAL}\\[0.5cm]
+{\Large Hệ thống tìm kiếm thời trang thông minh\\dựa trên RAG và kiến trúc Agent ReAct}\\[0.5cm]
+{\large PATH 1: Text-to-Image Search}\\[2cm]
+\begin{tabular}{ll}
+Sinh viên thực hiện: & [Tên sinh viên]\\
+MSSV: & [MSSV]\\
+Lớp: & [Tên lớp]\\
+Giảng viên hướng dẫn: & [Tên giảng viên]\\
+Học kỳ: & [HK / Năm học]\\
+\end{tabular}\\[2cm]
+{\large [Tên thành phố], [Tháng/Năm]}
+\end{titlepage}
+
+% ===== MỤC LỤC =====
+\tableofcontents
+\newpage
+
+% ===========================================================================
+% CHƯƠNG 1: TỔNG QUAN HỆ THỐNG
+% ===========================================================================
+\chapter{Tổng quan hệ thống}
+
+\section{Giới thiệu đề tài}
+Đề tài xây dựng một hệ thống tìm kiếm thời trang thông minh dựa trên hai công nghệ nền tảng: \textbf{Retrieval-Augmented Generation (RAG)} và \textbf{AI Agent với vòng lặp ReAct}. Hệ thống được phát triển qua hai phiên bản:
+
+\begin{itemize}
+    \item \textbf{RAG v1.0}: Pipeline cố định 9 bước, tìm kiếm sản phẩm thời trang bằng văn bản hoặc hình ảnh nhưng không có bộ nhớ ngữ cảnh.
+    \item \textbf{Agent v2.0}: Tích hợp kiến trúc Agent chủ động, phân loại ý định, hỏi làm rõ khi thiếu thông tin, và lưu trữ dữ liệu trên PostgreSQL.
+\end{itemize}
+
+Tài liệu này trình bày PATH 1 --- Text-to-Image Search: người dùng nhập truy vấn bằng văn bản tự nhiên (tiếng Việt hoặc tiếng Anh) và hệ thống trả về các sản phẩm thời trang phù hợp kèm tư vấn.
+
+\section{Lộ trình phát triển hệ thống}
+
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Phase 1} & \textbf{Phase 2} & \textbf{Phase 3} & \textbf{Phase 4}\\
+RAG v1.0 & Agent v2.0 & Scale & Advanced\\
+(Hoàn thành) & (Tài liệu này) & (Kế hoạch) & (Kế hoạch)\\
+\hline
+\end{tabular}
+\end{center}
+
+\section{So sánh RAG v1.0 và Agent v2.0}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Tiêu chí} & \textbf{RAG v1.0} & \textbf{Agent v2.0}\\
+\midrule
+Xử lý truy vấn & Pipeline cứng 9 bước & ReAct loop tự quyết định số bước\\
+Truy vấn mơ hồ & Tìm kiếm với thông tin thiếu & Hỏi lại người dùng để làm rõ\\
+Ngữ cảnh & Không nhớ giữa các lượt & MemoryAgent lưu sở thích phiên\\
+Lưu trữ & CSV cục bộ & PostgreSQL (triển khai server)\\
+Từ chối lịch sự & Không có & Phát hiện out-of-scope và từ chối\\
+Kết quả & Danh sách sản phẩm & Sản phẩm + lý luận + gợi ý phối đồ\\
+Embedding & FashionCLIP (512-d) & Marqo-FashionSigLIP (768-d)\\
+Query Expansion & Không có & Gemini sinh synonym queries\\
+Reranker & Không có & BGE Reranker v2-m3 (cross-encoder)\\
+\bottomrule
+\end{tabular}
+\caption{So sánh hai phiên bản hệ thống}
+\end{table}
+
+\section{Cấu trúc mã nguồn}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llr}
+\toprule
+\textbf{Module} & \textbf{File} & \textbf{LOC}\\
+\midrule
+API Layer & \texttt{api/main.py} & 376\\
+Agent Orchestrator & \texttt{agent/fashion\_agent.py} & 442\\
+Intent Classifier & \texttt{agent/intent\_classifier.py} & 126\\
+Clarification Gate & \texttt{agent/clarification\_gate.py} & 110\\
+Session Memory & \texttt{agent/memory.py} & 288\\
+Hybrid Search Engine & \texttt{search/search\_engine.py} & 294\\
+Query Expansion & \texttt{search/query\_expansion.py} & 106\\
+RRF Fusion & \texttt{search/fusion.py} & 72\\
+BGE Reranker & \texttt{search/reranker.py} & 115\\
+Indexing Pipeline & \texttt{indexing/build\_index.py} & 470\\
+Data Pre-processing & \texttt{pre\_processing/processing\_data.py} & 698\\
+\midrule
+\textbf{Tổng cộng} & & \textbf{3,097}\\
+\bottomrule
+\end{tabular}
+\caption{Cấu trúc mã nguồn production}
+\end{table}
+
+% ===========================================================================
+% CHƯƠNG 2: TIỀN XỬ LÝ DỮ LIỆU
+% ===========================================================================
+\chapter{Tiền xử lý dữ liệu}
+
+\section{Dataset và cấu trúc dữ liệu}
+Dữ liệu được lấy từ tập dataset \textbf{Clothing Dataset Full} (Kaggle), bao gồm hình ảnh thời trang được tổ chức với cấu trúc sau:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Cột} & \textbf{Kiểu} & \textbf{Mô tả}\\
+\midrule
+image & string & ID ảnh (tên file không có phần mở rộng)\\
+label & string & Nhãn danh mục: T-Shirt, Dress, Pants, \ldots\\
+color & string & Màu sắc chủ đạo của sản phẩm\\
+caption & string & Mô tả ngắn sinh bởi LLM (30--40 từ)\\
+\bottomrule
+\end{tabular}
+\caption{Cấu trúc dữ liệu fashion items}
+\end{table}
+
+\section{Làm sạch dữ liệu}
+
+\begin{tcolorbox}[title=Phương pháp: Lọc nhãn nhiễu và kiểm tra toàn vẹn]
+Loại bỏ các nhãn không rõ ràng (Not sure, Skip, Other), kiểm tra ảnh bị thiếu file, và xóa cột thừa.
+\end{tcolorbox}
+
+Trong source code production (\texttt{pre\_processing/processing\_data.py}), việc lọc nhãn nhiễu được thực hiện qua hằng số:
+
+\begin{lstlisting}[caption={Lọc nhãn nhiễu --- processing\_data.py}]
+EXCLUDED_LABELS = {"Not sure", "Skip", "Other"}
+
+def load_kaggle_rows_for_upsert(csv_path: str, images_dir: str):
+    """Nap du lieu tu Kaggle CSV, loc nhan nhieu."""
+    df = pd.read_csv(csv_path)
+    rows = []
+    for _, r in df.iterrows():
+        label = str(r.get("label", "")).strip()
+        if label in EXCLUDED_LABELS or not label:
+            continue  # Bo qua nhan khong ro rang
+        image_id = str(r["image"]).strip()
+        img_path = _find_image(image_id, images_dir)
+        if img_path is None:
+            continue  # Bo qua anh khong ton tai
+        rows.append({
+            "image_id": image_id,
+            "label": label,
+            "source": "kaggle",
+            "image_path": str(img_path),
+        })
+    return rows
+\end{lstlisting}
+
+\textbf{Giải thích tác vụ:}
+\begin{enumerate}
+    \item \texttt{EXCLUDED\_LABELS} --- Tập hợp các nhãn không có ý nghĩa thời trang rõ ràng.
+    \item Kiểm tra tệp ảnh tồn tại trước khi thêm vào danh sách.
+    \item Trả về danh sách \texttt{dict} sẵn sàng cho upsert vào PostgreSQL.
+\end{enumerate}
+
+\section{Sinh caption bằng LLM (Gemini)}
+
+Đây là bước quan trọng để bổ sung \textbf{semantic token} cho mỗi sản phẩm. Thay vì chỉ có nhãn danh mục đơn giản (T-Shirt), mỗi ảnh được Gemini mô tả chi tiết về cấu trúc trang phục, chất liệu, và kiểu dáng --- tạo ra văn bản giàu ngữ nghĩa cho việc tìm kiếm.
+
+\begin{tcolorbox}[title=Phương pháp: Multimodal Caption Generation]
+Gemini nhận đầu vào là ảnh thực tế của sản phẩm, sau đó sinh ra mô tả 30--40 từ tập trung vào: (1) chất liệu/kết cấu, (2) silhouette/kiểu dáng, (3) chi tiết cấu tạo, (4) phong cách tổng thể. Không đề cập màu sắc hay tên thương hiệu để đảm bảo tính khái quát.
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={Sinh caption thời trang bằng Gemini --- processing\_data.py}]
+class GeminiFashionProcessor:
+    """Xu ly anh thoi trang bang Gemini 2.5 Flash."""
+
+    CAPTION_PROMPT = """Write a 30-40 word fashion-centric description.
+Focus: 1. Fabric/Texture 2. Silhouette/Fit
+       3. Construction details 4. Overall aesthetic
+Rules: - Use professional fashion vocabulary
+       - NO colors, NO brand names
+       - Single paragraph only"""
+
+    COLOR_PROMPT = """Identify the primary color of this {label}.
+Rules: 1. Return only the color name(s) - max 3-4 words
+       2. Be specific: 'Charcoal Grey' not 'Grey'
+       3. Pattern: mention base + pattern type"""
+
+    def __init__(self, api_key: str = None):
+        import google.generativeai as genai
+        key = api_key or os.getenv("GEMINI_API_KEY")
+        genai.configure(api_key=key)
+        self.model = genai.GenerativeModel("gemini-2.5-flash")
+
+    def generate_caption(self, image_path: str) -> str | None:
+        img = Image.open(image_path)
+        response = self.model.generate_content(
+            [self.CAPTION_PROMPT, img])
+        return response.text.strip().replace("*", "")
+
+    def detect_color(self, image_path: str,
+                     label: str) -> str | None:
+        img = Image.open(image_path)
+        prompt = self.COLOR_PROMPT.format(label=label)
+        response = self.model.generate_content([prompt, img])
+        return response.text.strip().replace("*", "")
+\end{lstlisting}
+
+\textbf{Giải thích tác vụ:}
+\begin{itemize}
+    \item \textbf{Multimodal input}: Gemini nhận đồng thời prompt văn bản và ảnh sản phẩm → sinh mô tả ngữ nghĩa.
+    \item \textbf{Semantic token}: Caption kết quả là semantic token phong phú hơn nhãn ngắn, ví dụ: \textit{``relaxed-fit woven cotton pullover with ribbed crew neckline and hemline, drop shoulders, minimal seaming''}.
+    \item \textbf{Rate limiting}: Hệ thống xử lý batch 20 items/lần với \texttt{asyncio.sleep()} tránh rate limit.
+    \item \textbf{Checkpoint}: Commit PostgreSQL mỗi batch phòng khi bị ngắt kết nối.
+\end{itemize}
+
+\section{Nhận diện màu sắc bằng LLM}
+Màu sắc được phát hiện cụ thể và chi tiết (``Olive Green'' thay vì chỉ ``Green''), phục vụ cho bộ lọc mềm (soft filter) trong pipeline tìm kiếm. Hàm \texttt{detect\_color()} trong class \texttt{GeminiFashionProcessor} ở trên thực hiện nhiệm vụ này.
+
+% ===========================================================================
+% CHƯƠNG 3: KIẾN TRÚC RAG v1.0
+% ===========================================================================
+\chapter{Kiến trúc RAG v1.0 --- Nền tảng tìm kiếm}
+
+\section{Tổng quan cơ chế tìm kiếm}
+RAG (Retrieval-Augmented Generation) trong hệ thống này kết hợp hai phương pháp tìm kiếm bổ trợ nhau:
+
+\begin{itemize}
+    \item \textbf{BM25 Keyword Search}: Tìm chính xác theo tên category và màu sắc.
+    \item \textbf{Marqo-FashionSigLIP Vector Search}: Hiểu ngữ nghĩa, đồng nghĩa, mô tả đặc trưng.
+\end{itemize}
+
+\section{Marqo-FashionSigLIP Embedding --- Semantic Token}
+
+\subsection{Tại sao dùng FashionSigLIP thay vì FashionCLIP gốc?}
+\textbf{Marqo-FashionSigLIP} (\texttt{Marqo/marqo-fashionSigLIP}) là mô hình SigLIP-based được fine-tune trên dữ liệu thời trang, cho ra vector \textbf{768 chiều} (so với 512-d của FashionCLIP gốc). Mô hình sử dụng \texttt{open\_clip} library thay vì HuggingFace CLIPModel, hỗ trợ tốt hơn trên Apple MPS.
+
+\begin{lstlisting}[caption={Class FashionEmbedder --- indexing/build\_index.py}]
+class FashionEmbedder:
+    """Wraps Marqo-FashionSigLIP for image & text encoding."""
+    MODEL_NAME = "hf-hub:Marqo/marqo-fashionSigLIP"
+
+    def __init__(self, cache_dir=None):
+        import open_clip
+        self.model, _, self.preprocess = (
+            open_clip.create_model_and_transforms(
+                self.MODEL_NAME,
+                cache_dir=str(cache_dir) if cache_dir else None,
+        ))
+        self.tokenizer = open_clip.get_tokenizer(self.MODEL_NAME)
+        # Device selection: MPS (Apple Silicon) > CUDA > CPU
+        if torch.backends.mps.is_available():
+            self._device = "mps"
+        elif torch.cuda.is_available():
+            self._device = "cuda"
+        else:
+            self._device = "cpu"
+        self.model = self.model.to(self._device).eval()
+
+    def encode_image(self, image_path: str) -> list[float]:
+        """Chuyen anh thanh vector 768-d."""
+        img = Image.open(image_path).convert("RGB")
+        tensor = self.preprocess(img).unsqueeze(0).to(self._device)
+        with torch.no_grad():
+            feat = self.model.encode_image(tensor)
+            feat = feat / feat.norm(dim=-1, keepdim=True)
+        return feat[0].cpu().tolist()
+
+    def encode_text(self, text: str) -> list[float]:
+        """Chuyen van ban thanh vector 768-d."""
+        tokens = self.tokenizer([text]).to(self._device)
+        with torch.no_grad():
+            feat = self.model.encode_text(tokens)
+            feat = feat / feat.norm(dim=-1, keepdim=True)
+        return feat[0].cpu().tolist()
+\end{lstlisting}
+
+\textbf{Giải thích tác vụ:}
+\begin{itemize}
+    \item \texttt{open\_clip}: Thư viện embedding linh hoạt, hỗ trợ nhiều mô hình CLIP/SigLIP variants.
+    \item \textbf{Chuẩn hóa L2}: $\hat{v} = v / \|v\|_2$ đảm bảo dot product $\equiv$ cosine similarity.
+    \item \textbf{MPS priority}: Tận dụng Apple Silicon GPU cho tốc độ encoding nhanh hơn.
+    \item \textbf{768-d}: Vector dimension lớn hơn FashionCLIP (512-d) giúp biểu diễn ngữ nghĩa phong phú hơn.
+\end{itemize}
+
+\section{BM25 --- Tìm kiếm theo nhãn và màu sắc}
+BM25 (Best Match 25) được áp dụng trên nội dung ngắn \texttt{"label color"} --- ví dụ: ``T-Shirt Navy Blue'' --- cho phép tìm kiếm chính xác theo tên danh mục và màu sắc cụ thể.
+
+\begin{tcolorbox}[title=Phương pháp: Hybrid Search --- BM25 + FashionSigLIP]
+\begin{itemize}
+    \item BM25 mạnh ở: tìm chính xác tên category, màu sắc (``navy blue shirt'').
+    \item FashionSigLIP Vector mạnh ở: hiểu ngữ nghĩa, đồng nghĩa, mô tả đặc trưng (``slim fit cotton casual'').
+    \item RRF Fusion: kết hợp kết quả từ cả hai với hệ số $k = 60$, $\text{bm25\_weight}=1.0$, $\text{vec\_weight}=2.5$.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={BM25 content composition --- indexing/build\_index.py}]
+def compose_bm25_content(label: str, color: str) -> str:
+    """Tao noi dung cho BM25 index.
+    Chi dung label + color (KHONG dung caption)
+    de keyword matching chinh xac hon."""
+    parts = []
+    if label:
+        parts.append(label.strip())
+    if color:
+        parts.append(color.strip())
+    return " ".join(parts)
+\end{lstlisting}
+
+\section{RRF Fusion và Soft Relevance Scoring}
+
+\begin{lstlisting}[caption={Reciprocal Rank Fusion --- search/fusion.py}]
+@dataclass
+class NodeWithScore:
+    """Ket qua tim kiem voi metadata day du."""
+    image_id: str
+    label: str = ""
+    color: str = ""
+    caption: str = ""
+    image_path: str = ""
+    bm25_content: str = ""
+    score: float = 0.0
+
+def reciprocal_rank_fusion(
+    bm25_results: list[NodeWithScore],
+    vec_results: list[NodeWithScore],
+    k: int = 60,
+    bm25_weight: float = 1.0,
+    vec_weight: float = 2.5,
+) -> list[NodeWithScore]:
+    """Ket hop BM25 va Vector Search bang RRF."""
+    fused: dict[str, dict] = {}
+    for rank, node in enumerate(bm25_results):
+        nid = node.image_id
+        if nid not in fused:
+            fused[nid] = {"node": node, "score": 0.0}
+        fused[nid]["score"] += bm25_weight / (k + rank + 1)
+
+    for rank, node in enumerate(vec_results):
+        nid = node.image_id
+        if nid not in fused:
+            fused[nid] = {"node": node, "score": 0.0}
+        fused[nid]["score"] += vec_weight / (k + rank + 1)
+
+    sorted_items = sorted(
+        fused.values(), key=lambda x: x["score"], reverse=True)
+    for item in sorted_items:
+        item["node"].score = item["score"]
+    return [item["node"] for item in sorted_items]
+\end{lstlisting}
+
+\textbf{Giải thích tác vụ:}
+\begin{itemize}
+    \item \textbf{RRF}: Tránh phụ thuộc vào điểm tuyệt đối của từng retriever (khác đơn vị). Mỗi kết quả được xếp hạng theo vị trí (rank), công thức: $\text{score} = \sum \frac{w}{k + \text{rank} + 1}$
+    \item \textbf{vec\_weight = 2.5}: Vector search nhận trọng số cao hơn vì semantic matching phong phú hơn keyword matching.
+    \item \textbf{Soft filter}: \texttt{soft\_relevance\_filter()} dùng RapidFuzz để so sánh màu sắc/category một cách mềm dẻo (threshold = 60), không loại bỏ hoàn toàn kết quả không khớp chính xác.
+\end{itemize}
+
+% ===========================================================================
+% CHƯƠNG 4: TÍCH HỢP POSTGRESQL
+% ===========================================================================
+\chapter{Tích hợp PostgreSQL --- Triển khai Server}
+
+\section{Lý do chuyển từ CSV sang PostgreSQL}
+\begin{tcolorbox}[title=Lưu ý]
+CSV không phù hợp cho môi trường server vì: (1) không hỗ trợ truy cập đồng thời (concurrent access), (2) mất dữ liệu khi container khởi động lại, (3) không thể query có điều kiện hiệu quả. PostgreSQL giải quyết tất cả các vấn đề này, đồng thời cung cấp đầy đủ tính năng ACID.
+\end{tcolorbox}
+
+\section{Lược đồ cơ sở dữ liệu}
+
+\begin{lstlisting}[language=SQL,caption={Schema PostgreSQL cho Fashion Agent}]
+-- Bang san pham chinh
+CREATE TABLE IF NOT EXISTS fashion_items (
+    id            SERIAL PRIMARY KEY,
+    image_id      TEXT UNIQUE NOT NULL,
+    label         TEXT,
+    color         TEXT,
+    caption       TEXT,
+    source        TEXT DEFAULT 'kaggle',
+    image_path    TEXT,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Bang session nguoi dung
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id    TEXT PRIMARY KEY,
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    query_history JSONB DEFAULT '[]',
+    liked_items   JSONB DEFAULT '[]'
+);
+
+-- Bang tin nhan hoi thoai
+CREATE TABLE IF NOT EXISTS session_messages (
+    id            SERIAL PRIMARY KEY,
+    session_id    TEXT REFERENCES sessions(session_id),
+    role          TEXT NOT NULL,  -- 'user' hoac 'assistant'
+    content       TEXT NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+\end{lstlisting}
+
+\section{Lớp truy cập dữ liệu (Data Access Layer)}
+
+\begin{lstlisting}[caption={PostgreSQL Data Access Layer --- agent/memory.py}]
+import psycopg2
+
+def _get_conn():
+    """Ket noi PostgreSQL tu bien moi truong."""
+    return psycopg2.connect(
+        host=os.getenv("PGHOST", "localhost"),
+        port=int(os.getenv("PGPORT", "5432")),
+        dbname=os.getenv("PGDATABASE", "fashion_rag"),
+        user=os.getenv("PGUSER", "fashion_user"),
+        password=os.getenv("PGPASSWORD", ""),
+    )
+
+def create_session() -> str:
+    """Tao session moi, tra ve UUID."""
+    sid = str(uuid.uuid4())
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sessions (session_id) VALUES (%s)",
+                (sid,))
+        conn.commit()
+    return sid
+
+def get_preferences(session_id: str) -> dict:
+    """Trich xuat so thich tich luy tu lich su query."""
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT query_history FROM sessions "
+                "WHERE session_id = %s", (session_id,))
+            row = cur.fetchone()
+    if not row or not row[0]:
+        return {}
+    # Phan tich filters tu lich su de tim preferred colors/categories
+    history = row[0] if isinstance(row[0], list) else []
+    colors, categories = Counter(), Counter()
+    for entry in history:
+        filters = entry.get("filters", {})
+        if filters.get("color"):
+            colors[filters["color"]] += 1
+        if filters.get("category"):
+            categories[filters["category"]] += 1
+    return {
+        "preferred_colors": [c for c, _ in colors.most_common(3)],
+        "preferred_categories":
+            [c for c, _ in categories.most_common(3)],
+    }
+\end{lstlisting}
+
+\textbf{Giải thích tác vụ:}
+\begin{itemize}
+    \item \textbf{Environment-based connection}: Kết nối PostgreSQL qua biến môi trường, phù hợp Docker deployment.
+    \item \textbf{JSONB}: Lưu danh sách liked items và query history linh hoạt không cần thêm bảng phụ.
+    \item \textbf{Preference extraction}: Tự động tổng hợp top-3 colors và categories từ lịch sử query.
+\end{itemize}
+
+% ===========================================================================
+% CHƯƠNG 5: AGENT v2.0
+% ===========================================================================
+\chapter{Agent v2.0 --- PATH 1: Text-to-Image Search}
+
+\section{Kiến trúc tổng thể Agent}
+Agent v2.0 được xây dựng theo mô hình \textbf{Orchestrator + Sub-agents + ReAct Loop}. Thay vì chạy pipeline cố định, Gemini 2.5 Flash đóng vai trò Orchestrator: phân tích yêu cầu, lập kế hoạch, gọi các tool phù hợp, và tổng hợp kết quả.
+
+Luồng xử lý 5 bước:
+\begin{enumerate}
+    \item \textbf{Intent Classification} --- Phân loại ý định người dùng
+    \item \textbf{Clarification Gate} --- Hỏi làm rõ nếu mơ hồ
+    \item \textbf{Memory Agent} --- Nạp sở thích từ PostgreSQL
+    \item \textbf{ReAct Loop} --- Vòng lặp Plan→Execute→Observe (max 8 vòng)
+    \item \textbf{LLM Synthesis} --- Tổng hợp câu trả lời tự nhiên
+\end{enumerate}
+
+\section{Bước 1 --- Phân loại Intent (Router)}
+
+\begin{tcolorbox}[title=Phương pháp: LLM Few-shot Intent Classification]
+Gemini phân loại truy vấn thành 5 nhóm intent với điểm tin cậy (confidence score). Nếu confidence $< 0.6$, agent sẽ chuyển sang bước hỏi làm rõ thay vì tìm kiếm ngay.
+\end{tcolorbox}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Intent} & \textbf{Điều kiện} & \textbf{Hành động}\\
+\midrule
+text\_search & Tìm sản phẩm cụ thể & Tìm kiếm ngay\\
+outfit\_request & Yêu cầu gợi ý trang phục & Tìm + phối đồ\\
+follow\_up & Tham chiếu lượt trước & Dùng ngữ cảnh session\\
+out\_of\_scope & Không liên quan thời trang & Từ chối lịch sự\\
+unclear & Thông tin quá mơ hồ & Hỏi làm rõ\\
+\bottomrule
+\end{tabular}
+\caption{Bảng phân loại Intent}
+\end{table}
+
+\begin{lstlisting}[caption={Intent Classification --- agent/intent\_classifier.py}]
+@dataclass
+class ClassifiedIntent:
+    intent: str      # "text_search", "outfit_request", ...
+    confidence: float  # 0.0 - 1.0
+    filters: dict    # {category, color, style, occasion}
+    refined_query: str  # query tinh gon cho search
+
+INTENT_PROMPT = """Classify the user's message into intents:
+1. "text_search" - find specific fashion items
+2. "outfit_request" - fashion recommendations
+3. "follow_up" - following up on previous search
+4. "out_of_scope" - non-fashion topics
+5. "unclear" - too vague to classify
+
+## Few-shot examples:
+User: "tim ao so mi trang nam"
+-> {"intent": "text_search", "confidence": 0.95,
+    "filters": {"category": "Shirt", "color": "white"},
+    "refined_query": "white men shirt"}
+
+User: "goi y outfit cho buoi tiec cuoi tuan"
+-> {"intent": "outfit_request", "confidence": 0.9,
+    "filters": {"occasion": "weekend party"},
+    "refined_query": "party outfit weekend"}
+"""
+
+def classify_intent(query, history=None, api_key=None):
+    # Format last 4 messages for context
+    history_text = format_history(history[-4:])
+    prompt = INTENT_PROMPT.format(
+        history_text=history_text) + query
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return ClassifiedIntent(**data)
+\end{lstlisting}
+
+\textbf{Giải thích:}
+\begin{itemize}
+    \item \textbf{History-aware}: Sử dụng 4 tin nhắn gần nhất để hiểu context cho follow-up query.
+    \item \textbf{Trích xuất filters}: LLM tự động rút ra category, color, occasion ngay trong bước classification --- tiết kiệm một lần gọi LLM.
+    \item \textbf{Fallback}: Bất kỳ lỗi parse JSON nào đều trả về intent \texttt{text\_search} với \texttt{confidence=0.5}.
+\end{itemize}
+
+\section{Bước 2 --- Clarification Gate}
+
+\begin{tcolorbox}[title=Phương pháp: Proactive Clarification]
+Khi confidence $< 0.6$, Agent không đoán mà hỏi lại người dùng. Cơ chế này tránh tìm kiếm sai, lãng phí tài nguyên và trả về kết quả không liên quan.
+\end{tcolorbox}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Truy vấn mơ hồ} & \textbf{Câu hỏi làm rõ của Agent}\\
+\midrule
+``tôi muốn áo'' & ``Bạn muốn áo sơ mi, áo thun hay áo khoác?''\\
+``cái gì đẹp'' & ``Bạn đang tìm sản phẩm cho dịp nào?''\\
+``đồ đi tiệc'' & ``Tiệc trong nhà hay ngoài trời? Màu sắc gì?''\\
+``phong cách này'' & ``Bạn có thể mô tả cụ thể hơn không?''\\
+\bottomrule
+\end{tabular}
+\caption{Ví dụ Clarification Gate}
+\end{table}
+
+\begin{lstlisting}[caption={Clarification Gate --- agent/clarification\_gate.py}]
+@dataclass
+class ClarificationResult:
+    needs_clarification: bool
+    question: str = ""
+
+def check_clarification(query, history=None, api_key=None):
+    """LLM-based clarification gate.
+    Sinh cau hoi lam ro dong bang Gemini."""
+    prompt = CLARIFICATION_PROMPT.format(
+        query=query,
+        history_text=format_history(history))
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return ClarificationResult(
+        needs_clarification=True,
+        question=data.get("question", ""))
+\end{lstlisting}
+
+\section{Bước 3 --- Memory Agent (PostgreSQL)}
+
+\begin{lstlisting}[caption={Memory Agent --- agent/memory.py}]
+def log_query(session_id, query, intent, filters):
+    """Ghi lai lich su truy van vao PostgreSQL JSONB."""
+    entry = {
+        "query": query, "intent": intent,
+        "filters": filters, "ts": datetime.utcnow().isoformat()
+    }
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE sessions
+                SET query_history = query_history || %s::jsonb
+                WHERE session_id = %s
+            """, (json.dumps([entry]), session_id))
+        conn.commit()
+
+def add_liked_item(session_id, image_id, label, color):
+    """Luu san pham nguoi dung da thich."""
+    item = {"image_id": image_id,
+            "label": label, "color": color}
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE sessions
+                SET liked_items = liked_items || %s::jsonb
+                WHERE session_id = %s
+            """, (json.dumps([item]), session_id))
+        conn.commit()
+\end{lstlisting}
+
+\textbf{Giải thích:}
+\begin{itemize}
+    \item \textbf{JSONB append}: Sử dụng PostgreSQL JSONB concatenation (\texttt{||}) để thêm entry mới.
+    \item \textbf{Sở thích tích lũy}: Tự động tổng hợp category và màu yêu thích từ lịch sử.
+    \item \textbf{Giới hạn}: Giữ tối đa 20 query history và 50 liked items.
+\end{itemize}
+
+\section{Bước 4 --- Vòng lặp ReAct}
+
+\begin{tcolorbox}[title=Phương pháp: ReAct (Reason + Act) Loop]
+ReAct là vòng lặp trung tâm: Thought → Action → Observation → (lặp lại nếu cần, tối đa 8 vòng). Gemini vừa lý luận vừa chủ động chọn tool phù hợp dựa trên quan sát từng bước.
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={ReAct Loop --- agent/fashion\_agent.py}]
+MAX_REACT_ITERATIONS = 8
+LOW_CONFIDENCE_THRESHOLD = 0.5
+
+def chat(query, session_id=None, api_key=None):
+    """Main agent entry point - ReAct orchestrator."""
+    # ... (intent, clarify, memory setup) ...
+
+    search_query = intent_result.refined_query or query
+    all_products = []
+    observations = []
+    threshold = LOW_CONFIDENCE_THRESHOLD
+
+    for iteration in range(1, MAX_REACT_ITERATIONS + 1):
+        # THOUGHT: Planner quyet dinh tool
+        plan = _plan(
+            query=search_query,
+            intent=intent_result.intent,
+            preferences=preferences,
+            observations=observations,
+            iteration=iteration,
+            max_iter=MAX_REACT_ITERATIONS)
+
+        if not plan:  # Planner: "du ket qua roi"
+            break
+
+        # ACTION: Thuc thi toi da 2 tools/vong
+        for tool_call in plan[:2]:
+            tool_name = tool_call.get("tool", "search")
+            tool_args = tool_call.get("args", {})
+            obs, products = _execute_tool(
+                tool_name, tool_args, preferences)
+            observations.append(obs)
+            if products:
+                all_products = products
+
+        # OBSERVE: Kiem tra chat luong
+        if all_products and all_products[0].score > threshold:
+            break  # Ket qua du tot
+
+        # Ha nguong sau 4 vong
+        if iteration == 4:
+            threshold -= 0.2
+
+    # SYNTHESIZE response
+    answer, styling = _synthesize_response(
+        query, all_products, history, intent, preferences)
+    return AgentResponse(answer=answer, products=all_products,
+                         styling_suggestion=styling)
+\end{lstlisting}
+
+\textbf{3 tool khả dụng trong ReAct:}
+\begin{enumerate}
+    \item \texttt{search(query, top\_k)} --- Gọi hybrid search pipeline đầy đủ
+    \item \texttt{memory\_enrich(query, preferences)} --- Làm giàu query bằng sở thích user
+    \item \texttt{outfit\_hints(occasion, style)} --- Gemini sinh gợi ý phối đồ
+\end{enumerate}
+
+\textbf{Điều kiện dừng:}
+\begin{itemize}
+    \item Planner trả về \texttt{[]} (đủ kết quả)
+    \item Top product score $> \text{threshold}$ (0.5, hạ xuống 0.3 sau 4 vòng)
+    \item Đạt tối đa 8 iterations
+\end{itemize}
+
+\section{Bước 5 --- LLM Synthesis và Memory Update}
+
+\begin{lstlisting}[caption={LLM Synthesis --- agent/fashion\_agent.py}]
+SYNTHESIS_PROMPT = """You are a helpful fashion assistant.
+Based on search results and user query, provide a natural
+response in the same language as the user's query.
+
+User query: {query}
+Search results: {products_text}
+User preferences: {preferences_text}
+Conversation history: {history_text}
+
+Instructions:
+1. Respond in the same language (Vietnamese or English)
+2. Briefly describe top recommendations and why they match
+3. Include styling suggestions for outfit_request intent
+4. Keep response concise (2-4 sentences)
+5. Reference specific products by attributes
+
+Respond with JSON:
+{{"answer": "<response>",
+  "styling_suggestion": "<optional tips>"}}"""
+
+def _synthesize_response(query, products, history,
+                         intent, preferences):
+    """Gemini tong hop cau tra loi tu nhien."""
+    products_text = "\n".join(
+        f"{i}. {p.label} | {p.color} | {p.caption[:80]}"
+        for i, p in enumerate(products, 1))
+    prompt = SYNTHESIS_PROMPT.format(
+        query=query, products_text=products_text,
+        preferences_text=format_prefs(preferences),
+        history_text=format_history(history[-6:]))
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return data["answer"], data.get("styling_suggestion", "")
+\end{lstlisting}
+
+% ===========================================================================
+% CHƯƠNG 6: VÍ DỤ HOẠT ĐỘNG END-TO-END
+% ===========================================================================
+\chapter{Ví dụ hoạt động end-to-end}
+
+\section{Kịch bản: Tìm trang phục đi họp công ty}
+
+\subsection{Lượt 1 --- Truy vấn ban đầu}
+
+\begin{tcolorbox}[title=Diễn biến Lượt 1]
+\textbf{Người dùng:} ``Tôi muốn tìm một trang phục để đi họp trong công ty''
+
+\textbf{[Step 1 --- Intent Classification]}
+\begin{itemize}
+    \item Intent phân loại: \texttt{outfit\_request}
+    \item Confidence: 0.72 $\geq$ 0.6 → đủ để tiếp tục
+    \item Filters trích xuất: \{occasion: ``office''\}
+\end{itemize}
+
+\textbf{[Step 2 --- Memory Lookup (PostgreSQL)]}
+\begin{itemize}
+    \item Session mới → không có sở thích lưu trữ
+\end{itemize}
+
+\textbf{[Step 3 --- Orchestrator Planning]}\\
+Gemini tạo kế hoạch:
+\texttt{[\{``tool'': ``outfit\_hints'', ``occasion'': ``office''\}, \{``tool'': ``search'', ``query'': ``formal shirt office meeting''\}]}
+
+\textbf{[ReAct Loop --- Vòng 1-2]}\\
+Action: \texttt{outfit\_hints(occasion=``office'')} → categories = [Shirt, Pants, Shoes]\\
+Action: \texttt{search(``formal shirt office meeting'')} → 8 kết quả sau RRF + reranker
+
+\textbf{[LLM Synthesis --- Gemini]}\\
+Agent trả lời: ``Cho buổi họp công ty, tôi gợi ý bộ trang phục smart-casual: (1) Áo sơ mi cotton slim-fit --- thanh lịch, phù hợp môi trường chuyên nghiệp; (2) Quần tây chinos màu ghi hoặc navy; (3) Giày da kín mũi.''
+\end{tcolorbox}
+
+\subsection{Lượt 2 --- Follow-up với thông tin bổ sung}
+
+\begin{tcolorbox}[title=Diễn biến Lượt 2]
+\textbf{Người dùng:} ``Cho tôi áo sơ mi màu trắng, quần navy''
+
+\textbf{[Step 1]}: Intent: \texttt{follow\_up}, Confidence: 0.88\\
+Filters: \{category: ``Shirt'', color: ``White''\}
+
+\textbf{[Step 2]}: Memory Agent tải ngữ cảnh: dịp office
+
+\textbf{[ReAct Loop]}:\\
+BM25 khớp chính xác: ``Shirt White'' → rank cao nhất\\
+FashionSigLIP hiểu ngữ nghĩa: ``slim fit woven cotton formal shirt''
+
+\textbf{[Kết quả]}:\\
+Agent trả lời + gallery 6 ảnh: ``Đây là gợi ý: (1) Áo sơ mi trắng cotton slim-fit [SP1, SP2, SP3] (2) Quần tây navy blue chinos [SP4, SP5]. Combo trắng + navy rất phù hợp cho corporate.''
+\end{tcolorbox}
+
+\subsection{Kịch bản từ chối --- Sản phẩm không có trong database}
+
+\begin{tcolorbox}[title=Xử lý khi không tìm thấy kết quả]
+\textbf{Người dùng:} ``Tìm áo Gucci cho tôi''
+
+\textbf{[Intent]}: \texttt{text\_search}, confidence 0.91\\
+\textbf{[ReAct Loop]}: search ``Gucci luxury fashion'' → 0 kết quả có relevance $\geq 0.3$\\
+\textbf{[Fallback]}: Giảm threshold → vẫn không đủ tốt
+
+\textbf{Agent từ chối lịch sự:}\\
+``Rất tiếc, bộ sưu tập hiện tại chưa bao gồm sản phẩm thương hiệu Gucci. Tuy nhiên, tôi có thể tìm các sản phẩm có phong cách tương tự (luxury, minimalist, formal). Bạn có muốn thử không?''
+\end{tcolorbox}
+
+% ===========================================================================
+% CHƯƠNG 7: GIAO DIỆN VÀ TRIỂN KHAI
+% ===========================================================================
+\chapter{Giao diện và triển khai}
+
+\section{Giao diện Gradio}
+
+\begin{lstlisting}[caption={Gradio Chat Interface --- api/main.py}]
+def create_gradio_app(app):
+    """Tao Gradio UI tich hop FastAPI."""
+    with gr.Blocks(
+        theme=gr.themes.Monochrome(),
+        title="Fashion Agent v2.0"
+    ) as demo:
+        gr.Markdown("## Fashion Agent v2.0")
+        session_state = gr.State({"session_id": None})
+        chatbot = gr.Chatbot(label="Fashion Assistant",
+                             height=500)
+        with gr.Row():
+            msg = gr.Textbox(
+                placeholder="Tim ao so mi xanh cho buoi hop...",
+                label="Cau hoi", scale=5)
+            send = gr.Button("Gui", variant="primary")
+
+        gallery = gr.Gallery(label="San pham tim thay",
+                             columns=3, height=300)
+        styling_box = gr.Textbox(label="Goi y phoi do")
+
+        gr.Examples(inputs=msg, examples=[
+            ["Tim trang phuc di hop cong ty"],
+            ["Ao so mi mau trang, quan navy"],
+            ["red dress suitable for party"],
+        ])
+    return demo
+\end{lstlisting}
+
+\section{Cấu hình triển khai Docker}
+
+\begin{lstlisting}[language=bash,caption={Docker Compose --- 4 services}]
+# docker-compose.yml
+services:
+  postgres:       # PostgreSQL 16 Alpine (:5432)
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fashion_rag
+      POSTGRES_USER: fashion_user
+
+  qdrant:         # Qdrant Vector DB (:6333)
+    image: qdrant/qdrant:latest
+
+  fashion-api:    # FastAPI + Gradio (:8000)
+    build: .
+    environment:
+      PGHOST: postgres
+      QDRANT_HOST: qdrant
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    volumes:
+      - ./models:/app/models    # HuggingFace cache
+      - ./images:/app/images:ro # Product images
+    depends_on:
+      postgres: {condition: service_healthy}
+      qdrant:   {condition: service_healthy}
+
+  cloudflared:    # Cloudflare Tunnel (public URL)
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Biến môi trường (.env)}]
+# PostgreSQL
+PGDATABASE=fashion_rag
+PGUSER=fashion_user
+PG_PASSWORD=your_secure_password
+
+# API Keys
+GEMINI_API_KEY=your_gemini_api_key
+QDRANT_API_KEY=optional_qdrant_key
+CF_TUNNEL_TOKEN=cloudflare_tunnel_token
+
+# Paths
+DATASET_IMAGES_HOST_PATH=./images
+\end{lstlisting}
+
+% ===========================================================================
+% CHƯƠNG 8: ĐÁNH GIÁ VÀ KẾT LUẬN
+% ===========================================================================
+\chapter{Đánh giá và Kết luận}
+
+\section{Chỉ số đánh giá}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Metric} & \textbf{Ý nghĩa} & \textbf{RAG v1.0} & \textbf{Agent v2.0}\\
+\midrule
+Recall@5 (PATH 1) & Top-5 đúng category/color & $\geq$85\% & $\geq$88\%\\
+MRR & Vị trí kết quả đúng đầu tiên & $\geq$0.75 & $\geq$0.80\\
+Hit Rate@5 & $\geq$1 kết quả đúng trong top-5 & $\geq$90\% & $\geq$93\%\\
+Task Completion & Không crash, có kết quả & N/A & $\geq$95\%\\
+Faithfulness & Không bịa thông tin & N/A & $\geq$0.87\\
+Latency P95 & Tổng thời gian ReAct loop & $<$15s & $<$15s\\
+\bottomrule
+\end{tabular}
+\caption{Chỉ số đánh giá hệ thống}
+\end{table}
+
+\section{Điểm mạnh thiết kế}
+\begin{enumerate}
+    \item \textbf{Intent-first}: Agent xác định intent trước khi hành động → tránh tìm kiếm sai.
+    \item \textbf{Clarification gate}: Với query mơ hồ, hỏi thêm thay vì đoán → chất lượng cao hơn.
+    \item \textbf{Graceful degradation}: Từ chối lịch sự khi không có sản phẩm, kèm gợi ý thay thế.
+    \item \textbf{Hybrid retrieval}: BM25 + FashionSigLIP + RRF tận dụng điểm mạnh của cả hai.
+    \item \textbf{PostgreSQL}: Persistent, scalable, hỗ trợ concurrent access tốt hơn CSV.
+    \item \textbf{Semantic token (caption)}: LLM sinh mô tả phong phú → embedding hiểu sâu hơn nhãn ngắn.
+    \item \textbf{Query Expansion}: Gemini sinh synonym queries → tăng recall cho short queries.
+    \item \textbf{Cross-encoder Reranker}: BGE v2-m3 rerank kết quả → precision cao hơn.
+\end{enumerate}
+
+\section{Rủi ro và hướng giải quyết}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Rủi ro} & \textbf{Mức độ} & \textbf{Giải pháp}\\
+\midrule
+Latency cao (nhiều Gemini calls) & Cao & Parallel tool calls, cache expansion\\
+Hallucination LLM & Cao & RAGAS faithfulness $\geq$0.87, fallback\\
+BM25 rebuild khi khởi động & Thấp & Serialize BM25 index ra disk\\
+Cold start PostgreSQL & Thấp & Connection pooling\\
+Gemini API rate limit & Trung bình & Batch processing, exponential backoff\\
+\bottomrule
+\end{tabular}
+\caption{Ma trận rủi ro và giải pháp}
+\end{table}
+
+\section{Kết luận}
+Đề tài đã xây dựng thành công hệ thống tìm kiếm thời trang đa phương thức theo lộ trình hai giai đoạn rõ ràng. Giai đoạn RAG v1.0 thiết lập nền tảng tìm kiếm hybrid với FashionCLIP 2.0 và BM25, trong khi Agent v2.0 PATH 1 nâng cấp lên kiến trúc chủ động với vòng lặp ReAct, phân loại intent, clarification gate, và persistent memory qua PostgreSQL.
+
+Phiên bản v2.0 đã cải tiến đáng kể so với v1.0:
+\begin{itemize}
+    \item \textbf{Embedding}: Nâng cấp từ FashionCLIP (512-d) lên Marqo-FashionSigLIP (768-d).
+    \item \textbf{Query Expansion}: Thêm Gemini-powered synonym expansion cho short queries.
+    \item \textbf{Reranker}: Tích hợp BGE Reranker v2-m3 cross-encoder để tăng precision.
+    \item \textbf{Deployment}: Docker Compose stack 4 services (PostgreSQL + Qdrant + FastAPI + Cloudflare Tunnel).
+\end{itemize}
+
+\textbf{Hướng phát triển tiếp theo:}
+\begin{itemize}
+    \item \textbf{Phase 3}: Mở rộng dataset lên 15K--100K sản phẩm, fine-tune reranker, Redis session cache.
+    \item \textbf{Phase 4}: Virtual Try-on (IDM-VTON), fine-tune FashionSigLIP trên dữ liệu riêng, A/B testing.
+    \item \textbf{PATH 2}: Tìm kiếm bằng hình ảnh (Image-to-Image) với Composed Search.
+\end{itemize}
+
+\end{document}

@@ -1,137 +1,252 @@
-# 🐋 Qwen 3 Local RAG Reasoning Agent
+# 🛍️ Fashion Agent Multimodal
 
-This RAG Application demonstrates how to build a powerful Retrieval-Augmented Generation (RAG) system using locally running Qwen 3 and Gemma 3 models via Ollama. It combines document processing, vector search, and web search capabilities to provide accurate, context-aware responses to user queries. Built with Agno v2.0.
+> Hệ thống tìm kiếm thời trang thông minh dựa trên **RAG** (Retrieval-Augmented Generation) và kiến trúc **Agent ReAct** — PATH 1: Text-to-Image Search.
 
-## Features
+![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green?logo=fastapi)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)
+![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-red)
+![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-purple?logo=google)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 
-- **🧠 Multiple Local LLM Options**:
+---
 
-  - Qwen3 (1.7b, 8b) - Alibaba's latest language models
-  - Gemma3 (1b, 4b) - Google's efficient language models with multimodal capabilities
-  - DeepSeek (1.5b) - Alternative model option
-- **📚 Comprehensive RAG System**:
+## 📋 Mục lục
 
-  - Upload and process PDF documents
-  - Extract content from web URLs
-  - Intelligent chunking and embedding
-  - Similarity search with adjustable threshold
-- **🌐 Web Search Integration**:
+- [Tổng quan](#-tổng-quan)
+- [Tính năng chính](#-tính-năng-chính)
+- [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
+- [Tech Stack](#-tech-stack)
+- [Cấu trúc dự án](#-cấu-trúc-dự-án)
+- [Hướng dẫn cài đặt & chạy](docs/development.md)
+- [Lộ trình phát triển](#-lộ-trình-phát-triển)
+- [License](#-license)
 
-  - Fallback to web search when document knowledge is insufficient
-  - Configurable domain filtering
-  - Source attribution in responses
-- **🔄 Flexible Operation Modes**:
+---
 
-  - Toggle between RAG and direct LLM interaction
-  - Force web search when needed
-  - Adjust similarity thresholds for document retrieval
-- **💾 Vector Database Integration**:
+## 🎯 Tổng quan
 
-  - Qdrant vector database for efficient similarity search
-  - Persistent storage of document embeddings
-- **🔧 Agno v2.0 Framework**:
+Fashion Agent là hệ thống **AI Agent** giúp người dùng tìm kiếm sản phẩm thời trang bằng ngôn ngữ tự nhiên (tiếng Việt / tiếng Anh). Thay vì pipeline cố định, Agent chủ động:
 
-  - Uses Agno v2.0 Knowledge embedder system
-  - Debug mode for enhanced development experience
-  - Modern agent architecture with improved tool integration
+1. **Hiểu ý định** — phân loại query thành 5 intent types
+2. **Hỏi lại khi mơ hồ** — không đoán mò, hỏi câu hỏi làm rõ
+3. **Nhớ sở thích** — lưu trữ preferences qua PostgreSQL sessions
+4. **Tự lập kế hoạch** — ReAct loop (Reason → Act → Observe), tối đa 8 vòng
+5. **Trả lời tự nhiên** — Gemini tổng hợp câu trả lời + gợi ý phối đồ
 
-## How to Get Started
+### So sánh RAG v1.0 → Agent v2.0
 
-### Prerequisites
+| Tiêu chí | RAG v1.0 | Agent v2.0 |
+|----------|----------|------------|
+| Xử lý truy vấn | Pipeline cứng 9 bước | ReAct loop tự quyết định |
+| Truy vấn mơ hồ | Tìm với thông tin thiếu | Hỏi lại người dùng |
+| Ngữ cảnh | Không nhớ giữa các lượt | MemoryAgent lưu sở thích phiên |
+| Lưu trữ | CSV cục bộ | PostgreSQL (triển khai server) |
+| Từ chối lịch sự | Không có | Phát hiện out-of-scope |
+| Kết quả | Danh sách sản phẩm | Sản phẩm + lý luận + gợi ý phối đồ |
+| Embedding | FashionCLIP (512-d) | Marqo-FashionSigLIP (768-d) |
+| Query Expansion | Không có | Gemini sinh synonym queries |
+| Reranker | Không có | BGE Reranker v2-m3 (cross-encoder) |
 
-- [Ollama](https://ollama.ai/) installed locally
-- Python 3.8+
-- Qdrant running locally (via Docker) for vector storage
-- Exa API key (optional, for web search capability)
-- Agno v2.0 installed
+---
 
-### Installation
+## ✨ Tính năng chính
 
-1. Clone the GitHub repository
+### 🔍 Hybrid Search Pipeline (7 stages)
 
-```bash
-git clone https://github.com/Shubhamsaboo/awesome-llm-apps.git
-cd rag_tutorials/qwen_local_rag
+```
+Query Expansion (Gemini) → BM25 (top-20) + Vector (top-20)
+    → Dedup Merge → RRF Fusion → Soft Filter → BGE Rerank → Top-6
 ```
 
-2. Install the required dependencies:
+- **BM25**: Tìm chính xác theo category + màu sắc (`rank_bm25`)
+- **Vector Search**: Semantic matching bằng [Marqo-FashionSigLIP](https://huggingface.co/Marqo/marqo-fashionSigLIP) (768-d) trên Qdrant
+- **RRF Fusion**: Kết hợp kết quả từ cả hai retriever (k=60, vec_weight=2.5)
+- **Soft Filter**: RapidFuzz fuzzy matching trên color + label
+- **BGE Reranker**: Cross-encoder reranking cho precision cao
 
-```bash
-pip install -r requirements.txt
+### 🤖 Agent ReAct Loop
+
+```
+① Intent Classify (Gemini) 
+    → ② Clarification Gate (nếu unclear)
+    → ③ Memory Load (preferences từ PostgreSQL)
+    → ④ ReAct Loop: Plan → Execute → Observe (max 8 vòng)
+    → ⑤ Synthesize (Gemini → answer + styling tips)
 ```
 
-3. Pull the required models using Ollama:
+### 🧠 5 Intent Types
 
-```bash
-ollama pull qwen3:1.7b # Or any other model you want to use
-ollama pull snowflake-arctic-embed # For embeddings
+| Intent | Mô tả | Hành động |
+|--------|--------|-----------|
+| `text_search` | Tìm sản phẩm cụ thể | Tìm kiếm ngay |
+| `outfit_request` | Gợi ý trang phục | Tìm + phối đồ |
+| `follow_up` | Tham chiếu lượt trước | Dùng ngữ cảnh session |
+| `out_of_scope` | Không liên quan thời trang | Từ chối lịch sự |
+| `unclear` | Mơ hồ (confidence < 0.6) | Hỏi làm rõ |
+
+### 💾 Session Memory (PostgreSQL)
+
+- Lưu lịch sử query + liked items qua JSONB
+- Tự tổng hợp top-3 preferred colors/categories
+- Hỗ trợ multi-turn conversation
+
+---
+
+## 🏗️ Kiến trúc hệ thống
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Gradio UI (:8000)                   │
+│                   FastAPI Backend                       │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  ┌──────────┐   ┌────────────────┐   ┌──────────────┐  │
+│  │  Intent   │──▶│ Clarification  │──▶│   Memory     │  │
+│  │Classifier │   │    Gate        │   │   Agent      │  │
+│  │ (Gemini)  │   │  (Gemini)      │   │ (PostgreSQL) │  │
+│  └──────────┘   └────────────────┘   └──────────────┘  │
+│        │                                                │
+│        ▼                                                │
+│  ┌─────────────────────────────────────────────┐        │
+│  │           ReAct Loop (max 8 iter)           │        │
+│  │  ┌──────────────────────────────────────┐   │        │
+│  │  │ Plan (Gemini) → Execute → Observe    │   │        │
+│  │  └──────────────────────────────────────┘   │        │
+│  │  Tools:                                     │        │
+│  │    • search(query) → Hybrid Search Pipeline │        │
+│  │    • memory_enrich(query, prefs)            │        │
+│  │    • outfit_hints(occasion, style)          │        │
+│  └─────────────────────────────────────────────┘        │
+│        │                                                │
+│        ▼                                                │
+│  ┌──────────────────────────────────────────┐           │
+│  │        Hybrid Search Pipeline            │           │
+│  │  Query Expansion → BM25 + Vector ANN    │           │
+│  │    → RRF Fusion → Soft Filter → Rerank  │           │
+│  └──────────────────────────────────────────┘           │
+│        │                      │                         │
+├────────┼──────────────────────┼─────────────────────────┤
+│        ▼                      ▼                         │
+│  ┌──────────┐          ┌──────────────┐                 │
+│  │  Qdrant  │          │  PostgreSQL  │                 │
+│  │ (Vectors)│          │   (Items +   │                 │
+│  │  :6333   │          │   Sessions)  │                 │
+│  └──────────┘          │    :5432     │                 │
+│                        └──────────────┘                 │
+└─────────────────────────────────────────────────────────┘
 ```
 
-4. Run Qdrant locally through Docker:
+### Data Flow
 
-```bash
-docker pull qdrant/qdrant
-
-docker run -p 6333:6333 -p 6334:6334 \
-    -v "$(pwd)/qdrant_storage:/qdrant/storage:z" \
-    qdrant/qdrant
+```
+Phase 0 (Offline): Kaggle CSV → PostgreSQL → Gemini Enrichment (caption + color)
+Phase 1 (Offline): PostgreSQL → FashionSigLIP encode → Qdrant upsert + BM25 build
+Phase 2 (Runtime): User Query → Agent ReAct → Hybrid Search → LLM Synthesis → Response
 ```
 
-5. Get your API keys (optional):
+---
 
-   - Exa API key (for web search fallback capability)
-   
-6. Run the application:
+## 🛠️ Tech Stack
 
-```bash
-streamlit run qwen_local_rag_agent.py
+| Layer | Technology | Vai trò |
+|-------|-----------|---------|
+| **LLM** | Gemini 2.5 Flash | Intent, Planning, Synthesis, Caption |
+| **Embedding** | Marqo-FashionSigLIP (768-d) | Semantic vector encoding |
+| **Vector DB** | Qdrant | ANN search, persistent storage |
+| **Keyword Search** | rank_bm25 (BM25Okapi) | Exact category + color matching |
+| **Reranker** | BAAI/bge-reranker-v2-m3 | Cross-encoder precision boost |
+| **Fuzzy Match** | RapidFuzz | Soft relevance filtering |
+| **Database** | PostgreSQL 16 | Items, sessions, messages |
+| **API** | FastAPI + Gradio | REST API + Chat UI |
+| **Deployment** | Docker Compose (4 services) | PostgreSQL, Qdrant, App, Cloudflare |
+| **Tunnel** | Cloudflare Tunnel | Public HTTPS access |
+
+---
+
+## 📁 Cấu trúc dự án
+
+```
+fashion_agent/
+├── api/
+│   └── main.py              # FastAPI + Gradio UI (376 LOC)
+├── agent/
+│   ├── fashion_agent.py     # ReAct orchestrator (442 LOC)
+│   ├── intent_classifier.py # LLM intent classification (126 LOC)
+│   ├── clarification_gate.py # Proactive clarification (110 LOC)
+│   └── memory.py            # PostgreSQL session memory (288 LOC)
+├── search/
+│   ├── search_engine.py     # Hybrid search pipeline (294 LOC)
+│   ├── query_expansion.py   # Gemini query expansion (106 LOC)
+│   ├── fusion.py            # RRF Fusion (72 LOC)
+│   └── reranker.py          # BGE cross-encoder reranker (115 LOC)
+├── indexing/
+│   └── build_index.py       # FashionSigLIP + Qdrant indexing (470 LOC)
+├── pre_processing/
+│   └── processing_data.py   # Kaggle → PostgreSQL + Gemini enrichment (698 LOC)
+├── documents/
+│   ├── Fashion_Agent_Report.pdf
+│   └── Fashion_Agent_Report_v2.tex
+├── docker-compose.yml       # 4-service stack
+├── Dockerfile               # Multi-stage build
+├── requirements-docker.txt  # Python dependencies
+├── .env.example             # Environment template
+└── README.md                # ← Bạn đang đây
 ```
 
-## How It Works
+**Tổng cộng: ~3,097 LOC** (11 Python files production)
 
-1. **Document Processing**:
+---
 
-   - PDF files are processed using PyPDFLoader
-   - Web content is extracted using WebBaseLoader
-   - Documents are split into chunks with RecursiveCharacterTextSplitter
-   - Metadata is added to track source types and timestamps
+## 🗺️ Lộ trình phát triển
 
-2. **Vector Database**:
+| Phase | Trạng thái | Nội dung |
+|-------|-----------|----------|
+| **Phase 1** — RAG v1.0 | ✅ Hoàn thành | Pipeline 9 bước, FashionCLIP, CSV |
+| **Phase 2** — Agent v2.0 | ✅ Hoàn thành | ReAct loop, PostgreSQL, FashionSigLIP, Docker |
+| **Phase 3** — Scale | 📋 Kế hoạch | Dataset 15K→100K, Redis cache, fine-tune reranker |
+| **Phase 4** — Advanced | 📋 Kế hoạch | Virtual Try-on (IDM-VTON), PATH 2: Image-to-Image |
 
-   - Document chunks are embedded using Ollama's embedding models via Agno's OllamaEmbedder
-   - Embeddings are stored in Qdrant vector database
-   - Similarity search retrieves relevant documents based on query with configurable threshold
+---
 
-3. **Query Processing**:
+## 📊 Chỉ số đánh giá (mục tiêu)
 
-   - User queries are analyzed to determine the best information source
-   - System checks document relevance using similarity threshold
-   - Falls back to web search if no relevant documents are found (when enabled)
-   - Supports forced web search mode via toggle
+| Metric | RAG v1.0 | Agent v2.0 |
+|--------|----------|------------|
+| Recall@5 | ≥85% | ≥88% |
+| MRR | ≥0.75 | ≥0.80 |
+| Hit Rate@5 | ≥90% | ≥93% |
+| Task Completion | N/A | ≥95% |
+| Faithfulness | N/A | ≥0.87 |
+| Latency P95 | <15s | <15s |
 
-4. **Response Generation**:
+---
 
-   - Local LLM (Qwen/Gemma/DeepSeek) generates responses based on retrieved context
-   - Agno agents use debug mode for enhanced visibility into tool calls
-   - Sources are cited and displayed to the user
-   - Web search results are clearly indicated when used
-   - Reasoning process is displayed for reasoning models
+## ⚠️ Rủi ro đã xác định
 
-## Configuration Options
+| Rủi ro | Mức độ | Giải pháp |
+|--------|--------|-----------|
+| Latency cao (nhiều Gemini calls) | Cao | Parallel tool calls, cache expansion |
+| Hallucination LLM | Cao | RAGAS faithfulness ≥0.87, fallback |
+| BM25 rebuild khi khởi động | Thấp | Serialize BM25 index ra disk |
+| Gemini API rate limit | Trung bình | Batch processing, exponential backoff |
 
-- **Model Selection**: Choose between different Qwen, Gemma, and DeepSeek models
-- **RAG Mode**: Toggle between RAG-enabled and direct LLM interaction
-- **Search Tuning**: Adjust similarity threshold (0.0-1.0) for document retrieval
-- **Web Search**: Enable/disable web search fallback and configure domain filtering
-- **Debug Mode**: Agents use debug mode by default for better visibility into tool calls and execution flow
+---
 
-## Use Cases
+## 🔧 Hướng dẫn cài đặt & chạy
 
-- **Document Q&A**: Ask questions about your uploaded documents
-- **Research Assistant**: Combine document knowledge with web search
-- **Local Privacy**: Process sensitive documents without sending data to external APIs
-- **Offline Operation**: Run advanced AI capabilities with limited or no internet access
+Xem chi tiết tại 👉 [docs/development.md](docs/development.md)
 
-## Requirements
+---
 
-See `requirements.txt` for the complete list of dependencies.
+## 📝 License
+
+Dự án phục vụ mục đích nghiên cứu và học tập.
+
+---
+
+## 👤 Tác giả
+
+- **Sinh viên**: [Tên sinh viên]
+- **MSSV**: [MSSV]
+- **Giảng viên hướng dẫn**: [Tên giảng viên]
