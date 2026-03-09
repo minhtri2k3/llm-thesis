@@ -1,57 +1,138 @@
 # 🔧 Development Guide — Fashion Agent
 
+Hướng dẫn từng bước để **clone → cài đặt → chạy** hệ thống Fashion Agent RAG Pipeline.
+
+---
+
 ## Yêu cầu hệ thống
 
 | Yêu cầu | Phiên bản |
 |----------|-----------|
 | Docker + Docker Compose | v24+ |
 | Python (nếu dev local) | 3.11+ |
+| Git | 2.39+ |
 | RAM | ≥8GB (khuyến nghị 16GB) |
 | Disk | ~5GB (models + images) |
 | Gemini API Key | [Lấy tại đây](https://aistudio.google.com/apikey) |
 
 ---
 
-## 🚀 Cách 1: Chạy bằng Docker (Khuyến nghị)
+## 🚀 Quick Start — Từ đầu đến chạy (5 bước)
 
-### Bước 1: Cấu hình môi trường
+### Bước 1: Clone repository
 
 ```bash
-cd fashion_agent
-
-# Copy file .env mẫu
-cp .env.example .env
-
-# Sửa .env: điền GEMINI_API_KEY và PG_PASSWORD
+git clone https://github.com/minhtri2k3/llm-thesis.git
+cd llm-thesis/fashion_agent
 ```
 
-### Bước 2: Khởi động databases
+### Bước 2: Cấu hình môi trường
+
+```bash
+# Copy file .env mẫu
+cp .env.example .env
+```
+
+Mở file `.env` và điền giá trị:
+
+```dotenv
+# BẮT BUỘC — Mật khẩu PostgreSQL (tùy chọn, tự đặt)
+PG_PASSWORD=your_secure_password_here
+
+# BẮT BUỘC — API key Google Gemini
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# TÙY CHỌN — Cloudflare Tunnel token (bỏ trống nếu không dùng)
+CF_TUNNEL_TOKEN=
+```
+
+### Bước 3: Khởi động databases
 
 ```bash
 # Khởi động PostgreSQL + Qdrant
 docker compose up -d postgres qdrant
 
-# Kiểm tra trạng thái (chờ cả hai healthy)
+# Chờ cả hai healthy (~15 giây)
 docker compose ps
 ```
 
-### Bước 3: Build và chạy API
+Kết quả mong đợi:
+
+```
+NAME               STATUS
+fashion-postgres   Up (healthy)
+fashion-qdrant     Up (healthy)
+```
+
+### Bước 4: Build và chạy API
 
 ```bash
-# Build + chạy Fashion API (lần đầu ~5-10 phút)
+# Build + chạy Fashion API (lần đầu ~5-10 phút do tải models)
 docker compose up -d --build fashion-api
 
-# Xem logs realtime
+# Xem logs realtime (Ctrl+C để thoát)
 docker compose logs -f fashion-api
 ```
 
-### Bước 4: Truy cập
+Chờ đến khi thấy:
 
-Mở trình duyệt tại: **http://localhost:8000**
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+### Bước 5: Truy cập
+
+Mở trình duyệt: **http://localhost:8000**
+
+> 🎉 Done! Fashion Agent đang chạy.
 
 ---
 
-## 🖥️ Cách 2: Chạy Local (cho dev)
+## 📦 Nạp dữ liệu (Lần đầu tiên)
+
+Sau khi API server đã chạy, cần nạp dữ liệu vào hệ thống.
+
+### Chuẩn bị dataset
+
+1. Tải dataset từ [Kaggle - Fashion Product Images](https://www.kaggle.com/datasets/paramaggarwal/fashion-product-images-dataset) hoặc dataset tự chuẩn bị.
+2. Giải nén và đặt ảnh vào folder `images/` trong folder `fashion_agent/`.
+
+### Bước 1: Ingestion — Kaggle → PostgreSQL + Gemini Enrichment
+
+```bash
+# Exec vào container
+docker exec -it fashion-api bash
+
+# Nạp dữ liệu Kaggle, sinh caption + detect color bằng Gemini
+python -m pre_processing.processing_data
+```
+
+> ⚠️ **Lưu ý**: Bước này tốn thời gian vì gọi Gemini API cho từng ảnh (batch 20 items/lần).
+> Mỗi ảnh = 2 Gemini calls (1 caption + 1 color detection).
+
+### Bước 2: Indexing — PostgreSQL → Qdrant + BM25
+
+```bash
+# Vẫn trong container fashion-api
+python -m indexing.build_index
+```
+
+> ⚠️ **Lưu ý**: Lần đầu sẽ tải model FashionSigLIP (~1GB) vào folder `models/`.
+
+### Kiểm tra dữ liệu đã nạp
+
+```bash
+# Kiểm tra Qdrant collections
+curl -s http://localhost:6333/collections | python3 -m json.tool
+
+# Kiểm tra PostgreSQL (số items)
+docker exec fashion-postgres psql -U fashion_user -d fashion_rag \
+  -c "SELECT count(*) FROM fashion_items;"
+```
+
+---
+
+## 🖥️ Chạy Local (cho phát triển)
 
 ### Bước 1: Cài dependencies
 
@@ -81,30 +162,6 @@ export QDRANT_HOST=localhost QDRANT_PORT=6333
 ```bash
 python -m api.main
 ```
-
----
-
-## 📦 Nạp dữ liệu (Lần đầu tiên)
-
-Sau khi databases đã chạy, cần nạp dữ liệu vào hệ thống:
-
-### Bước 1: Ingestion — Kaggle → PostgreSQL + Gemini Enrichment
-
-```bash
-# Nạp dữ liệu Kaggle, sinh caption + detect color bằng Gemini
-python -m pre_processing.processing_data
-```
-
-> ⚠️ **Lưu ý**: Bước này tốn thời gian vì gọi Gemini API cho từng ảnh (batch 20 items/lần).
-
-### Bước 2: Indexing — PostgreSQL → Qdrant + BM25
-
-```bash
-# Encode ảnh bằng FashionSigLIP → upsert Qdrant + build BM25
-python -m indexing.build_index
-```
-
-> ⚠️ **Lưu ý**: Lần đầu sẽ tải model FashionSigLIP (~1GB).
 
 ---
 
@@ -178,6 +235,31 @@ open http://localhost:6333/dashboard
 
 ---
 
+## 🧩 Kiến trúc module
+
+```
+agent/
+├── intent_classifier.py     # 1 LLM call → intent + 6 slots
+├── slot_completeness.py     # check_slot_completeness, merge_slots
+├── clarification_gate.py    # generic clarification (cho unclear/outfit)
+├── fashion_agent.py         # ReAct orchestrator + slot flow
+└── memory.py                # PostgreSQL session management
+
+search/
+├── search_engine.py         # 7-stage hybrid pipeline
+├── query_expansion.py       # Gemini synonym expansion
+├── fusion.py                # RRF 3-source fusion
+└── reranker.py              # BGE cross-encoder
+
+indexing/
+└── build_index.py           # SigLIP encode → Qdrant + BM25
+
+pre_processing/
+└── processing_data.py       # Kaggle ingestion + Gemini enrichment
+```
+
+---
+
 ## 🐛 Troubleshooting
 
 ### Container name conflict
@@ -209,5 +291,12 @@ python -c "import open_clip; open_clip.create_model_and_transforms('hf-hub:Marqo
 
 ```bash
 # Chạy lại indexing
-python -m indexing.build_index
+docker exec -it fashion-api python -m indexing.build_index
+```
+
+### Gemini API lỗi 429 (rate limit)
+
+```bash
+# Giảm batch size trong processing_data.py
+# Hoặc chờ 1 phút rồi chạy lại
 ```
