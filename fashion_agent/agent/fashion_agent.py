@@ -1,7 +1,7 @@
 """
 Fashion Agent — main orchestrator.
 
-Ties together intent classification, clarification, memory, search, and
+Ties together intent classification, slot-based clarification, memory, search, and
 Gemini synthesis into a single `chat()` function.
 """
 
@@ -12,7 +12,14 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-from agent.intent_classifier import classify_intent, ClassifiedIntent
+from agent.intent_classifier import classify_intent, ClassifiedIntent, ExtractedSlots
+from agent.slot_completeness import (
+    check_slot_completeness,
+    generate_targeted_question,
+    merge_slots,
+    should_reset_slots,
+    compose_refined_query_from_slots,
+)
 from agent.clarification_gate import check_clarification
 from agent.memory import (
     create_session,
@@ -300,6 +307,11 @@ def _execute_tool(
 
 MAX_REACT_ITERATIONS = 8
 LOW_CONFIDENCE_THRESHOLD = 0.5
+MAX_CLARIFICATION_TURNS = 3
+
+# In-memory storage for accumulated slots per session
+# Key: session_id, Value: ExtractedSlots
+_session_accumulated_slots: dict[str, ExtractedSlots] = {}
 
 
 def chat(
@@ -310,7 +322,8 @@ def chat(
     """
     Main agent entry point — ReAct orchestrator.
 
-    Orchestrates: intent → clarify → memory → ReAct(plan→execute→observe) → synthesize.
+    Orchestrates: intent → slot check → clarify if needed → memory →
+    ReAct(plan→execute→observe) → synthesize.
     """
     # Get or create session
     if session_id and session_exists(session_id):
@@ -324,7 +337,7 @@ def chat(
     # Load history
     history = get_history(session_id, limit=20)
 
-    # Step 1: Intent classification (history-aware)
+    # Step 1: Intent classification + slot extraction (single LLM call)
     intent_result = classify_intent(query, history=history, api_key=api_key)
 
     # Step 2: Handle out_of_scope intent
@@ -337,24 +350,79 @@ def chat(
             intent="out_of_scope",
         )
 
-    # Step 3: Clarification gate (confidence-based + LLM)
-    if intent_result.confidence < 0.6 or intent_result.intent == "unclear":
-        clarification = check_clarification(query, history=history, api_key=api_key)
-        if clarification.needs_clarification:
-            add_message(session_id, "assistant", clarification.question)
-            return AgentResponse(
-                answer=clarification.question,
-                session_id=session_id,
-                intent="unclear",
-                reasoning=f"Low confidence ({intent_result.confidence:.2f}). Asking for clarification.",
-            )
+    # Step 3: Slot-based completeness check (text_search only)
+    if intent_result.intent == "text_search":
+        new_slots = intent_result.extracted_slots
+        accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
+
+        # Check for topic reset (new category = new search)
+        if should_reset_slots(accumulated, new_slots):
+            accumulated = ExtractedSlots()
+
+        # Merge new slots into accumulated
+        accumulated = merge_slots(accumulated, new_slots)
+        _session_accumulated_slots[session_id] = accumulated
+
+        # Check completeness
+        is_complete, missing = check_slot_completeness(accumulated)
+
+        if not is_complete:
+            # Count clarification turns in this conversation flow
+            clarify_count = _count_clarification_turns(history)
+
+            if clarify_count < MAX_CLARIFICATION_TURNS:
+                # Ask targeted question about missing slots
+                question = generate_targeted_question(
+                    slots=accumulated,
+                    missing_slots=missing,
+                    history=history,
+                    api_key=api_key,
+                )
+                add_message(session_id, "assistant", question)
+                return AgentResponse(
+                    answer=question,
+                    session_id=session_id,
+                    intent="clarification",
+                    reasoning=f"Slot completeness insufficient. Missing: {', '.join(missing)}. "
+                              f"Clarification turn {clarify_count + 1}/{MAX_CLARIFICATION_TURNS}.",
+                )
+            # Max clarification reached — proceed with what we have
+
+        # Use slot-composed query for better search alignment
+        search_query = compose_refined_query_from_slots(accumulated)
+        if not search_query.strip():
+            search_query = intent_result.refined_query or query
+
+    elif intent_result.intent == "follow_up":
+        # Follow-up: merge with accumulated slots from previous turns
+        new_slots = intent_result.extracted_slots
+        accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
+        accumulated = merge_slots(accumulated, new_slots)
+        _session_accumulated_slots[session_id] = accumulated
+
+        # Compose query from merged slots if available
+        slot_query = compose_refined_query_from_slots(accumulated)
+        search_query = slot_query if slot_query.strip() else (intent_result.refined_query or query)
+
+    else:
+        # outfit_request, unclear: use existing flow
+        if intent_result.confidence < 0.6 or intent_result.intent == "unclear":
+            clarification = check_clarification(query, history=history, api_key=api_key)
+            if clarification.needs_clarification:
+                add_message(session_id, "assistant", clarification.question)
+                return AgentResponse(
+                    answer=clarification.question,
+                    session_id=session_id,
+                    intent="unclear",
+                    reasoning=f"Low confidence ({intent_result.confidence:.2f}). Asking for clarification.",
+                )
+        search_query = intent_result.refined_query or query
 
     # Step 3.5: Log query to memory & load preferences
     log_query(session_id, query, intent_result.intent, intent_result.filters)
     preferences = get_preferences(session_id)
 
     # Step 4: ReAct loop — plan → execute → observe
-    search_query = intent_result.refined_query or query
     all_products: list[NodeWithScore] = []
     reasoning_steps: list[str] = []
     observations: list[str] = []
@@ -440,3 +508,23 @@ def chat(
         intent=intent_result.intent,
     )
 
+
+def _count_clarification_turns(history: list[Message]) -> int:
+    """Count consecutive clarification turns (assistant messages that are questions).
+
+    Looks backward from the most recent messages to count how many times
+    the agent asked for clarification vs gave search results.
+    """
+    count = 0
+    # Walk backward through history, counting assistant messages that look like questions
+    for msg in reversed(history):
+        if msg.role == "assistant":
+            # Check if this message was a clarification (contains question marks)
+            if "?" in msg.content or "không?" in msg.content:
+                count += 1
+            else:
+                break  # Found a non-question assistant message — stop counting
+        elif msg.role == "user":
+            # User message between clarifications — continue counting
+            continue
+    return count
