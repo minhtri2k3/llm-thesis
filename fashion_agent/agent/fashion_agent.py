@@ -255,12 +255,13 @@ def _execute_tool(
     args: dict,
     preferences: dict,
     api_key: Optional[str] = None,
+    filters: Optional[dict] = None,
 ) -> tuple[str, list[NodeWithScore]]:
     """Execute a single tool call and return (observation, products)."""
     if tool_name == "search":
         search_q = args.get("query", "")
         top_k = args.get("top_k", 6)
-        products = hybrid_search(search_q, top_k=top_k)
+        products = hybrid_search(search_q, top_k=top_k, filters=filters)
         if products:
             summaries = [f"{p.label}({p.color}, score={p.score:.3f})" for p in products[:3]]
             obs = f"Search '{search_q}' → {len(products)} results: {', '.join(summaries)}"
@@ -382,7 +383,7 @@ def chat(
 
             reasoning_steps.append(f"Action: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:100]})")
 
-            obs, products = _execute_tool(tool_name, tool_args, preferences, api_key)
+            obs, products = _execute_tool(tool_name, tool_args, preferences, api_key, filters=intent_result.filters)
             observations.append(obs)
             reasoning_steps.append(f"Observation: {obs[:150]}")
 

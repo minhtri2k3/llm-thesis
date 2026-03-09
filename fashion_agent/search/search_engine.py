@@ -1,8 +1,9 @@
 """
-Hybrid search engine: BM25 + Vector → RRF Fusion → Soft Filter → BGE Rerank.
+Hybrid search engine: BM25 + Text Vector + Image Vector → 3-way RRF Fusion → Filter → BGE Rerank.
 
 Provides a single `search()` function that orchestrates the full pipeline.
 Includes Gemini-powered query expansion for improved recall on short queries.
+Aligned with notebook architecture (RAG_clothes_FashionCLIP2).
 """
 
 from __future__ import annotations
@@ -27,9 +28,11 @@ COLLECTION_NAME = "fashion_products"
 
 BM25_TOP_K = 20
 VECTOR_TOP_K = 20
+TEXT_VEC_TOP_K = 20
 RRF_K = 60
-BM25_WEIGHT = 1.0
-VEC_WEIGHT = 2.5
+BM25_WEIGHT = 2.5
+IMG_VEC_WEIGHT = 1.0
+TEXT_VEC_WEIGHT = 1.5
 SOFT_FILTER_THRESHOLD = 60
 RERANK_TOP_K = 6
 
@@ -142,7 +145,7 @@ def bm25_retrieve(query: str, top_k: int = BM25_TOP_K) -> list[NodeWithScore]:
 
 
 def vector_retrieve(query: str, top_k: int = VECTOR_TOP_K) -> list[NodeWithScore]:
-    """Vector ANN search in Qdrant using FashionSigLIP query encoding."""
+    """Vector ANN search in Qdrant using FashionSigLIP image vector space."""
     from qdrant_client import QdrantClient
 
     embedder = _get_embedder()
@@ -158,9 +161,58 @@ def vector_retrieve(query: str, top_k: int = VECTOR_TOP_K) -> list[NodeWithScore
     results = client.query_points(
         collection_name=COLLECTION_NAME,
         query=query_vector,
+        using="image",
         limit=top_k,
         with_payload=True,
     )
+
+    nodes = []
+    for hit in results.points:
+        payload = hit.payload or {}
+        nodes.append(
+            NodeWithScore(
+                image_id=str(hit.id),
+                label=payload.get("label", ""),
+                color=payload.get("color", ""),
+                caption=payload.get("caption", ""),
+                image_path=payload.get("image_path", ""),
+                bm25_content=payload.get("bm25_content", ""),
+                score=hit.score,
+            )
+        )
+    return nodes
+
+
+def text_vector_retrieve(query: str, top_k: int = TEXT_VEC_TOP_K) -> list[NodeWithScore]:
+    """Vector ANN search in Qdrant using text named vector space.
+
+    Searches against text embeddings (label+color+caption encoded by SigLIP text encoder).
+    This captures semantic meaning from descriptions that image vectors may miss.
+    """
+    from qdrant_client import QdrantClient
+
+    embedder = _get_embedder()
+    query_vector = embedder.encode_text(query)
+
+    client = QdrantClient(
+        host=QDRANT_HOST,
+        port=QDRANT_PORT,
+        api_key=QDRANT_API_KEY,
+        timeout=30,
+    )
+
+    try:
+        results = client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=query_vector,
+            using="text",
+            limit=top_k,
+            with_payload=True,
+        )
+    except Exception as exc:
+        # Fallback: collection may not have text vector (old index)
+        print(f"  Warning: text vector search failed (old index?): {exc}")
+        return []
 
     nodes = []
     for hit in results.points:
@@ -225,29 +277,62 @@ def _dedup_merge(nodes: list[NodeWithScore]) -> list[NodeWithScore]:
     return list(seen.values())
 
 
+def _compute_filter_relevance(
+    node: NodeWithScore,
+    filters: dict[str, str],
+) -> float:
+    """Compute filter relevance score [0.0-1.0] based on intent filters.
+
+    When the intent classifier extracts category/color from the query,
+    we boost items that match and penalize those that don't.
+    """
+    from rapidfuzz import fuzz
+
+    scores = []
+
+    # Category match
+    cat = filters.get("category", "")
+    if cat and node.label:
+        cat_score = fuzz.ratio(cat.lower(), node.label.lower()) / 100.0
+        scores.append(cat_score)
+
+    # Color match
+    color = filters.get("color", "")
+    if color and node.color:
+        color_score = fuzz.ratio(color.lower(), node.color.lower()) / 100.0
+        scores.append(color_score)
+
+    if not scores:
+        return 1.0  # No filters to apply
+    return sum(scores) / len(scores)
+
+
 def search(
     query: str,
     top_k: int = RERANK_TOP_K,
     use_reranker: bool = True,
     use_soft_filter: bool = True,
     use_query_expansion: bool = True,
+    filters: Optional[dict[str, str]] = None,
 ) -> list[NodeWithScore]:
     """
-    Full hybrid search pipeline:
+    Full hybrid search pipeline (aligned with notebook architecture):
         0. Query Expansion (Gemini synonyms, short queries only)
         1. BM25 retrieve (top-20 per query)
-        2. Vector ANN retrieve (top-20 per query)
-        3. Dedup merge by image_id
-        4. RRF Fusion
-        5. Soft Relevance Filter (optional)
-        6. BGE Reranker (optional)
+        2. Image Vector ANN retrieve (top-20 per query)
+        3. Text Vector ANN retrieve (top-20 per query)
+        4. Dedup merge by image_id per source
+        5. 3-way RRF Fusion (BM25=2.5, text_vec=1.5, img_vec=1.0)
+        6. Filter-aware scoring / Soft Relevance Filter
+        7. BGE Reranker with score blending
 
     Args:
         query:                User search query.
         top_k:                Number of final results.
         use_reranker:         Whether to apply BGE reranker.
-        use_soft_filter:      Whether to apply fuzzy soft filter.
+        use_soft_filter:      Whether to apply soft filter.
         use_query_expansion:  Whether to expand query with synonyms.
+        filters:              Optional intent-extracted filters {"category": ..., "color": ...}.
 
     Returns:
         List of top-K NodeWithScore, ordered by relevance.
@@ -258,34 +343,45 @@ def search(
     else:
         queries = [query]
 
-    # Step 1 & 2: Multi-query dual retrieval
+    # Step 1-3: Multi-query triple retrieval
     all_bm25: list[NodeWithScore] = []
-    all_vec: list[NodeWithScore] = []
+    all_img_vec: list[NodeWithScore] = []
+    all_text_vec: list[NodeWithScore] = []
     for q in queries:
         all_bm25.extend(bm25_retrieve(q, top_k=BM25_TOP_K))
-        all_vec.extend(vector_retrieve(q, top_k=VECTOR_TOP_K))
+        all_img_vec.extend(vector_retrieve(q, top_k=VECTOR_TOP_K))
+        all_text_vec.extend(text_vector_retrieve(q, top_k=TEXT_VEC_TOP_K))
 
-    # Step 3: Dedup merge (keep highest score per image_id)
+    # Step 4: Dedup merge (keep highest score per image_id per source)
     bm25_deduped = _dedup_merge(all_bm25)
-    vec_deduped = _dedup_merge(all_vec)
+    img_vec_deduped = _dedup_merge(all_img_vec)
+    text_vec_deduped = _dedup_merge(all_text_vec)
 
-    # Step 4: RRF Fusion
+    # Step 5: 3-way RRF Fusion
     fused = reciprocal_rank_fusion(
         bm25_results=bm25_deduped,
-        vec_results=vec_deduped,
+        vec_results=img_vec_deduped,
+        text_vec_results=text_vec_deduped if text_vec_deduped else None,
         k=RRF_K,
         bm25_weight=BM25_WEIGHT,
-        vec_weight=VEC_WEIGHT,
+        vec_weight=IMG_VEC_WEIGHT,
+        text_vec_weight=TEXT_VEC_WEIGHT,
     )
 
-    # Step 5: Soft Filter (optional)
-    if use_soft_filter and fused:
+    # Step 6: Filter-aware scoring or Soft Filter
+    if filters and fused:
+        # Apply intent-based filter scoring
+        for node in fused:
+            relevance = _compute_filter_relevance(node, filters)
+            node.score *= relevance
+        fused.sort(key=lambda n: n.score, reverse=True)
+    elif use_soft_filter and fused:
+        # Fallback: RapidFuzz soft filter
         filtered = soft_relevance_filter(query, fused)
-        # If filter removes everything, keep original (safety net)
         if filtered:
             fused = filtered
 
-    # Step 6: Reranker (optional)
+    # Step 7: Reranker with score blending (optional)
     if use_reranker and fused:
         reranker = get_reranker(cache_dir=MODELS_DIR)
         return reranker.rerank(query, fused, top_k=top_k)

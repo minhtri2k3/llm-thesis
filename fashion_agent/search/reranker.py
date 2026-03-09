@@ -44,15 +44,18 @@ class BGEReranker:
         top_k: int = 6,
     ) -> list[NodeWithScore]:
         """
-        Rerank nodes using cross-encoder scoring.
+        Rerank nodes using cross-encoder scoring with score blending.
+
+        Blends reranker score with original RRF score:
+            final_score = 0.7 × normalized_reranker + 0.3 × original_rrf_score
 
         Args:
             query:  User search query.
-            nodes:  Candidate nodes to rerank.
+            nodes:  Candidate nodes to rerank (with RRF scores).
             top_k:  Number of top results to return.
 
         Returns:
-            Top-K nodes sorted by reranker score descending.
+            Top-K nodes sorted by blended score descending.
         """
         import torch
 
@@ -61,6 +64,9 @@ class BGEReranker:
 
         # Limit input to MAX_INPUT_DOCS to control latency
         candidates = nodes[: self.MAX_INPUT_DOCS]
+
+        # Save original RRF scores before reranking
+        original_scores = {node.image_id: node.score for node in candidates}
 
         # Build (query, document) pairs
         pairs = []
@@ -80,15 +86,28 @@ class BGEReranker:
         # Score
         with torch.no_grad():
             outputs = self.model(**inputs)
-            scores = outputs.logits.squeeze(-1).cpu().tolist()
+            raw_scores = outputs.logits.squeeze(-1).cpu().tolist()
 
         # Handle single item case
-        if isinstance(scores, float):
-            scores = [scores]
+        if isinstance(raw_scores, float):
+            raw_scores = [raw_scores]
 
-        # Assign scores and sort
-        for node, score in zip(candidates, scores):
-            node.score = score
+        # Normalize reranker scores to [0, 1] (min-max)
+        if len(raw_scores) > 1:
+            min_s = min(raw_scores)
+            max_s = max(raw_scores)
+            score_range = max_s - min_s
+            if score_range > 0:
+                normalized = [(s - min_s) / score_range for s in raw_scores]
+            else:
+                normalized = [1.0] * len(raw_scores)
+        else:
+            normalized = [1.0]  # Single candidate
+
+        # Blend: 0.7 × reranker + 0.3 × original RRF
+        for node, norm_score in zip(candidates, normalized):
+            orig = original_scores.get(node.image_id, 0.0)
+            node.score = 0.7 * norm_score + 0.3 * orig
 
         candidates.sort(key=lambda n: n.score, reverse=True)
         return candidates[:top_k]

@@ -112,23 +112,32 @@ def get_qdrant_client():
     )
 
 
-def init_collection(client) -> None:
-    """Create Qdrant collection if it doesn't exist."""
+def init_collection(client, force_recreate: bool = False) -> None:
+    """Create Qdrant collection with named vectors (image + text).
+
+    Uses named vector spaces so both image embeddings and text embeddings
+    can coexist in the same collection with shared payload.
+    """
     from qdrant_client.models import Distance, VectorParams
 
     collections = [c.name for c in client.get_collections().collections]
+
     if COLLECTION_NAME in collections:
-        print(f"Collection '{COLLECTION_NAME}' already exists. Skipping creation.")
-        return
+        if force_recreate:
+            print(f"Deleting existing collection '{COLLECTION_NAME}' for rebuild...")
+            client.delete_collection(collection_name=COLLECTION_NAME)
+        else:
+            print(f"Collection '{COLLECTION_NAME}' already exists. Skipping creation.")
+            return
 
     client.create_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(
-            size=VECTOR_SIZE,
-            distance=Distance.COSINE,
-        ),
+        vectors_config={
+            "image": VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+            "text": VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+        },
     )
-    print(f"Created collection '{COLLECTION_NAME}' (size={VECTOR_SIZE}, distance=Cosine).")
+    print(f"Created collection '{COLLECTION_NAME}' with named vectors (image={VECTOR_SIZE}, text={VECTOR_SIZE}).")
 
 
 def get_existing_point_ids(client) -> set[str]:
@@ -294,6 +303,26 @@ def compose_bm25_content(item: dict) -> str:
     return ". ".join(parts) + "." if parts else ""
 
 
+def compose_text_embed_content(item: dict) -> str:
+    """Compose text for SigLIP text embedding.
+
+    Uses label + color + caption to capture full semantic meaning.
+    This mirrors the notebook's text embedding approach where
+    full_description was included in embed metadata.
+    """
+    label = item.get("label", "")
+    color = item.get("color", "")
+    caption = item.get("caption", "")
+    parts = []
+    if label:
+        parts.append(label)
+    if color:
+        parts.append(color)
+    if caption:
+        parts.append(caption)
+    return ". ".join(parts) + "." if parts else ""
+
+
 # ---------------------------------------------------------------------------
 # Build command: PG → encode → Qdrant
 # ---------------------------------------------------------------------------
@@ -302,6 +331,7 @@ def run_build(
     cfg: DBConfig,
     batch_size: int = DEFAULT_BATCH_SIZE,
     cache_dir: Optional[Path] = None,
+    limit: Optional[int] = None,
 ) -> None:
     """Main build pipeline: read PG, encode, upsert to Qdrant."""
     from qdrant_client.models import PointStruct
@@ -313,6 +343,11 @@ def run_build(
     if not items:
         print("No items to index. Run data ingestion first.")
         return
+
+    # Apply limit for testing
+    if limit and limit < len(items):
+        items = items[:limit]
+        print(f"  Limited to {limit} items for testing.")
 
     print("=== Phase 2: Connecting to Qdrant ===")
     client = get_qdrant_client()
@@ -335,21 +370,28 @@ def run_build(
     # Process in batches
     points: list = []
     failed = 0
-    for i in tqdm(range(0, len(new_items), batch_size), desc="Encoding batches"):
+    for i in tqdm(range(0, len(new_items), batch_size), desc="Encoding image batches"):
         batch = new_items[i : i + batch_size]
         image_paths = [Path(item["image_path"]) for item in batch]
 
-        vectors = embedder.encode_images_batch(image_paths, batch_size=batch_size)
+        image_vectors = embedder.encode_images_batch(image_paths, batch_size=batch_size)
 
-        for item, vector in zip(batch, vectors):
-            if not vector:
+        for item, img_vec in zip(batch, image_vectors):
+            if not img_vec:
                 failed += 1
                 continue
+
+            # Encode text embedding: label + color + caption
+            text_content = compose_text_embed_content(item)
+            text_vec = embedder.encode_text(text_content)
 
             bm25_content = compose_bm25_content(item)
             point = PointStruct(
                 id=item["image_id"],
-                vector=vector,
+                vector={
+                    "image": img_vec,
+                    "text": text_vec,
+                },
                 payload={
                     "image_id": item["image_id"],
                     "label": item["label"],
@@ -434,6 +476,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_MODELS_DIR),
         help="Directory for cached HuggingFace models.",
     )
+    build_cmd.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of items to index (for testing).",
+    )
 
     sub.add_parser("status", help="Show item counts in PG vs Qdrant.")
 
@@ -454,6 +502,7 @@ def main() -> None:
             cfg=cfg,
             batch_size=args.batch_size,
             cache_dir=Path(args.models_dir),
+            limit=args.limit,
         )
         return
 
