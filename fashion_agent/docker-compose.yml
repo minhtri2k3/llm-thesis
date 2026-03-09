@@ -1,0 +1,109 @@
+# Fashion Agent RAG Pipeline — Docker Compose Stack
+# Self-hosted on M1 Mac 16GB RAM
+#
+# Services:
+#   - postgres:    PostgreSQL 16 (source of truth)
+#   - qdrant:      Qdrant vector database
+#   - fashion-api: FastAPI + Gradio app
+#   - cloudflared: Cloudflare Tunnel for public access
+#
+# Usage:
+#   docker compose up -d postgres qdrant   # start DBs only
+#   docker compose up -d                   # start all services
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fashion-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-fashion_rag}
+      POSTGRES_USER: ${PGUSER:-fashion_user}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - internal
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${PGUSER:-fashion_user} -d ${PGDATABASE:-fashion_rag}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: fashion-qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+    networks:
+      - internal
+    healthcheck:
+      test: [ "CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  fashion-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fashion-api
+    restart: unless-stopped
+    environment:
+      # PostgreSQL (Docker internal)
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${PGDATABASE:-fashion_rag}
+      PGUSER: ${PGUSER:-fashion_user}
+      PGPASSWORD: ${PG_PASSWORD:?PG_PASSWORD is required}
+      # Qdrant (Docker internal)
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      # Gemini API
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required}
+      # HuggingFace cache
+      HF_HOME: /app/models
+      TRANSFORMERS_CACHE: /app/models
+    volumes:
+      - ./models:/app/models
+      - ./images:/app/images:ro
+      - ${DATASET_IMAGES_HOST_PATH:-./images}:/app/dataset_images:ro
+    networks:
+      - internal
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: fashion-cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:?CF_TUNNEL_TOKEN is required}
+    networks:
+      - internal
+    depends_on:
+      - fashion-api
+
+volumes:
+  pgdata:
+    driver: local
+  qdrant_data:
+    driver: local
+
+networks:
+  internal:
+    driver: bridge
