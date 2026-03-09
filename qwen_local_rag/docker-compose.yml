@@ -75,6 +75,7 @@ services:
     volumes:
       - ./models:/app/models
       - ./images:/app/images:ro
+      - ${DATASET_IMAGES_HOST_PATH:-./images}:/app/dataset_images:ro
     networks:
       - internal
     ports:

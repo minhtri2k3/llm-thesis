@@ -30,8 +30,24 @@ from agent.memory import init_memory_tables
 # ---------------------------------------------------------------------------
 
 IMAGES_DIR = Path(os.getenv("IMAGES_DIR", "images"))
+DATASET_IMAGES_DIR = Path(os.getenv("DATASET_IMAGES_DIR", "/app/dataset_images"))
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
+
+
+def _convert_image_path(host_path: str) -> Optional[Path]:
+    """Convert host absolute image path to container path.
+
+    Extracts the basename (e.g. 'ea7b6656.jpg') and maps to
+    /app/dataset_images/ea7b6656.jpg. Returns None if file doesn't exist.
+    """
+    if not host_path:
+        return None
+    filename = os.path.basename(host_path)
+    container_path = DATASET_IMAGES_DIR / filename
+    if container_path.exists():
+        return container_path
+    return None
 
 # ---------------------------------------------------------------------------
 # FastAPI App
@@ -248,20 +264,37 @@ def create_gradio_app():
             session_id=session_id_state if session_id_state else None,
         )
 
-        # Format response
-        response = result.answer
+        # Build list of assistant messages (text + optional images)
+        messages: list[dict] = []
 
+        # 1. Text response
+        text_response = result.answer
         if result.styling_suggestion:
-            response += f"\n\n💡 **Styling tip:** {result.styling_suggestion}"
+            text_response += f"\n\n💡 **Styling tip:** {result.styling_suggestion}"
 
         if result.products:
-            response += "\n\n---\n### 🛍️ Sản phẩm tìm thấy:\n"
+            text_response += "\n\n---\n### 🛍️ Sản phẩm tìm thấy:\n"
             for i, p in enumerate(result.products, 1):
-                response += f"\n**{i}. {p.label}** — {p.color}\n"
-                response += f"   _{p.caption[:100]}..._\n" if len(p.caption) > 100 else f"   _{p.caption}_\n"
+                text_response += f"\n**{i}. {p.label}** — {p.color}\n"
+                if p.caption:
+                    cap = p.caption[:100] + "..." if len(p.caption) > 100 else p.caption
+                    text_response += f"   _{cap}_\n"
+
+        messages.append({"role": "assistant", "content": text_response})
+
+        # 2. Product images (graceful degradation: skip if file not found)
+        if result.products:
+            for p in result.products:
+                img_path = _convert_image_path(p.image_path)
+                if img_path is not None:
+                    alt = f"{p.label} — {p.color}" if p.color else p.label
+                    messages.append({
+                        "role": "assistant",
+                        "content": {"path": str(img_path), "alt_text": alt},
+                    })
 
         new_session_id = result.session_id
-        return response, new_session_id
+        return messages, new_session_id
 
     with gr.Blocks(
         title="🛍️ Fashion Agent",
@@ -289,8 +322,11 @@ def create_gradio_app():
             if not message.strip():
                 return "", history, session_id_state
 
-            response, new_session_id = respond(message, history, session_id_state)
-            history = history + [(message, response)]
+            assistant_msgs, new_session_id = respond(message, history, session_id_state)
+            # Add user message
+            history = history + [{"role": "user", "content": message}]
+            # Add all assistant messages (text + images)
+            history = history + assistant_msgs
             return "", history, new_session_id
 
         def clear_chat():

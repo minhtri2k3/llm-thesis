@@ -20,6 +20,8 @@ from agent.memory import (
     add_message,
     get_history,
     init_memory_tables,
+    log_query,
+    get_preferences,
     Message,
 )
 from search.search_engine import search as hybrid_search
@@ -64,6 +66,8 @@ User query: {query}
 Search results (top products):
 {products_text}
 
+User preferences: {preferences_text}
+
 Conversation history:
 {history_text}
 
@@ -73,6 +77,7 @@ Instructions:
 3. If this is a "recommend" intent, include styling suggestions.
 4. Keep the response concise (2-4 sentences for search, 3-5 for recommendations).
 5. Reference specific products by their attributes (category, color, style).
+6. If user preferences are available, personalize recommendations based on their preferred colors and categories.
 
 Respond with ONLY a JSON object:
 {{
@@ -87,6 +92,7 @@ def _synthesize_response(
     products: list[NodeWithScore],
     history: list[Message],
     intent: str,
+    preferences: Optional[dict] = None,
     api_key: Optional[str] = None,
     model_name: str = "gemini-2.5-flash",
 ) -> tuple[str, str]:
@@ -124,9 +130,19 @@ def _synthesize_response(
         history_lines.append(f"{msg.role}: {msg.content[:100]}")
     history_text = "\n".join(history_lines) if history_lines else "No prior conversation."
 
+    # Format preferences
+    prefs = preferences or {}
+    prefs_parts = []
+    if prefs.get("preferred_colors"):
+        prefs_parts.append(f"Preferred colors: {', '.join(prefs['preferred_colors'])}")
+    if prefs.get("preferred_categories"):
+        prefs_parts.append(f"Preferred categories: {', '.join(prefs['preferred_categories'])}")
+    preferences_text = "; ".join(prefs_parts) if prefs_parts else "No preferences yet."
+
     prompt = SYNTHESIS_PROMPT.format(
         query=query,
         products_text=products_text,
+        preferences_text=preferences_text,
         history_text=history_text,
     )
 
@@ -144,12 +160,144 @@ def _synthesize_response(
             return f"Tìm thấy {len(products)} sản phẩm: {', '.join(labels)}.", ""
         return "Không tìm thấy sản phẩm phù hợp.", ""
 
-
 # ---------------------------------------------------------------------------
-# Main chat function
+# ReAct Tool Registry & Orchestrator
 # ---------------------------------------------------------------------------
 
-MAX_REACT_ITERATIONS = 2
+TOOLS = {
+    "search": {
+        "description": "Search for fashion products using hybrid search (vector + BM25 + rerank).",
+        "params": ["query", "top_k"],
+    },
+    "memory_enrich": {
+        "description": "Enrich the query with user preferences from memory.",
+        "params": ["query", "preferences"],
+    },
+    "outfit_hints": {
+        "description": "Generate outfit/styling suggestions for an occasion.",
+        "params": ["occasion", "style"],
+    },
+}
+
+PLAN_PROMPT = """You are a fashion agent planner. Given the user query and context, decide which tools to call.
+
+Available tools:
+- search(query, top_k): Search for fashion products
+- memory_enrich(query, preferences): Enrich query with user preferences
+- outfit_hints(occasion, style): Get outfit styling suggestions
+
+Context:
+- User query: {query}
+- Intent: {intent}
+- User preferences: {preferences_text}
+- Previous observations: {observations_text}
+- Iteration: {iteration}/{max_iter}
+
+Respond with a JSON array of tool calls (1-2 tools max):
+[{{"tool": "search", "args": {{"query": "...", "top_k": 6}}}}]
+
+If observations are sufficient, respond with: []
+"""
+
+
+def _plan(
+    query: str,
+    intent: str,
+    preferences: dict,
+    observations: list[str],
+    iteration: int,
+    max_iter: int,
+    api_key: Optional[str] = None,
+    model_name: str = "gemini-2.5-flash",
+) -> list[dict]:
+    """Use Gemini to plan which tools to call next."""
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        return [{"tool": "search", "args": {"query": query, "top_k": 6}}]
+
+    key = api_key or os.getenv("GEMINI_API_KEY")
+    if not key:
+        return [{"tool": "search", "args": {"query": query, "top_k": 6}}]
+
+    genai.configure(api_key=key)
+    model = genai.GenerativeModel(model_name)
+
+    prefs_text = json.dumps(preferences) if preferences else "No preferences yet."
+    obs_text = "\n".join(observations[-3:]) if observations else "No observations yet."
+
+    prompt = PLAN_PROMPT.format(
+        query=query,
+        intent=intent,
+        preferences_text=prefs_text,
+        observations_text=obs_text,
+        iteration=iteration,
+        max_iter=max_iter,
+    )
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1]
+            text = text.rsplit("```", 1)[0]
+        plan = json.loads(text)
+        if isinstance(plan, list):
+            return plan
+    except Exception:
+        pass
+
+    return [{"tool": "search", "args": {"query": query, "top_k": 6}}]
+
+
+def _execute_tool(
+    tool_name: str,
+    args: dict,
+    preferences: dict,
+    api_key: Optional[str] = None,
+) -> tuple[str, list[NodeWithScore]]:
+    """Execute a single tool call and return (observation, products)."""
+    if tool_name == "search":
+        search_q = args.get("query", "")
+        top_k = args.get("top_k", 6)
+        products = hybrid_search(search_q, top_k=top_k)
+        if products:
+            summaries = [f"{p.label}({p.color}, score={p.score:.3f})" for p in products[:3]]
+            obs = f"Search '{search_q}' → {len(products)} results: {', '.join(summaries)}"
+        else:
+            obs = f"Search '{search_q}' → 0 results"
+        return obs, products
+
+    elif tool_name == "memory_enrich":
+        q = args.get("query", "")
+        enriched_parts = [q]
+        if preferences.get("preferred_colors"):
+            enriched_parts.append(f"preferred colors: {', '.join(preferences['preferred_colors'])}")
+        if preferences.get("preferred_categories"):
+            enriched_parts.append(f"preferred categories: {', '.join(preferences['preferred_categories'])}")
+        enriched = " ".join(enriched_parts)
+        return f"Enriched query: '{enriched}'", []
+
+    elif tool_name == "outfit_hints":
+        occasion = args.get("occasion", "casual")
+        style = args.get("style", "")
+        try:
+            import google.generativeai as genai
+            key = api_key or os.getenv("GEMINI_API_KEY")
+            if key:
+                genai.configure(api_key=key)
+                model = genai.GenerativeModel("gemini-2.5-flash")
+                prompt = f"Give a brief outfit suggestion for {occasion} occasion, {style} style. 2-3 items max. Respond as plain text."
+                response = model.generate_content(prompt)
+                return f"Outfit hints: {response.text.strip()[:200]}", []
+        except Exception:
+            pass
+        return f"Outfit hints: Consider a smart casual outfit for {occasion}.", []
+
+    return f"Unknown tool: {tool_name}", []
+
+
+MAX_REACT_ITERATIONS = 8
 LOW_CONFIDENCE_THRESHOLD = 0.5
 
 
@@ -159,25 +307,11 @@ def chat(
     api_key: Optional[str] = None,
 ) -> AgentResponse:
     """
-    Main agent entry point.
+    Main agent entry point — ReAct orchestrator.
 
-    Orchestrates: intent → clarify → memory → search → (ReAct) → synthesize.
-
-    Args:
-        query:       User message.
-        session_id:  Optional existing session ID. Creates new if None.
-        api_key:     Gemini API key override.
-
-    Returns:
-        AgentResponse with answer, products, and metadata.
+    Orchestrates: intent → clarify → memory → ReAct(plan→execute→observe) → synthesize.
     """
-    # Ensure memory tables exist
-    try:
-        init_memory_tables()
-    except Exception:
-        pass  # Tables may already exist
-
-    # Session management
+    # Get or create session
     if session_id and session_exists(session_id):
         pass
     else:
@@ -189,64 +323,94 @@ def chat(
     # Load history
     history = get_history(session_id, limit=20)
 
-    # Step 1: Intent classification
-    intent_result = classify_intent(query, api_key=api_key)
+    # Step 1: Intent classification (history-aware)
+    intent_result = classify_intent(query, history=history, api_key=api_key)
 
-    # Step 2: Handle chat intent (no search needed)
-    if intent_result.intent == "chat":
-        answer, _ = _synthesize_response(
-            query=query,
-            products=[],
-            history=history,
-            intent="chat",
-            api_key=api_key,
-        )
-        if not answer:
-            answer = "Xin chào! Tôi là Fashion Agent, trợ lý tìm kiếm thời trang. Bạn muốn tìm trang phục gì?"
+    # Step 2: Handle out_of_scope intent
+    if intent_result.intent == "out_of_scope":
+        answer = "Xin lỗi, tôi chỉ hỗ trợ tìm kiếm và tư vấn thời trang. Bạn muốn tìm trang phục gì không?"
         add_message(session_id, "assistant", answer)
         return AgentResponse(
             answer=answer,
             session_id=session_id,
-            intent="chat",
+            intent="out_of_scope",
         )
 
-    # Step 3: Clarification gate
-    clarification = check_clarification(query)
-    if clarification.needs_clarification and intent_result.intent == "clarify":
-        add_message(session_id, "assistant", clarification.question)
-        return AgentResponse(
-            answer=clarification.question,
-            session_id=session_id,
-            intent="clarify",
-            reasoning="Query too vague for meaningful search.",
-        )
+    # Step 3: Clarification gate (confidence-based + LLM)
+    if intent_result.confidence < 0.6 or intent_result.intent == "unclear":
+        clarification = check_clarification(query, history=history, api_key=api_key)
+        if clarification.needs_clarification:
+            add_message(session_id, "assistant", clarification.question)
+            return AgentResponse(
+                answer=clarification.question,
+                session_id=session_id,
+                intent="unclear",
+                reasoning=f"Low confidence ({intent_result.confidence:.2f}). Asking for clarification.",
+            )
 
-    # Step 4: Search with ReAct loop
+    # Step 3.5: Log query to memory & load preferences
+    log_query(session_id, query, intent_result.intent, intent_result.filters)
+    preferences = get_preferences(session_id)
+
+    # Step 4: ReAct loop — plan → execute → observe
     search_query = intent_result.refined_query or query
-    products: list[NodeWithScore] = []
+    all_products: list[NodeWithScore] = []
     reasoning_steps: list[str] = []
+    observations: list[str] = []
+    threshold = LOW_CONFIDENCE_THRESHOLD
 
-    for iteration in range(MAX_REACT_ITERATIONS):
-        reasoning_steps.append(f"Iteration {iteration + 1}: searching '{search_query}'")
-        products = hybrid_search(search_query, top_k=6)
+    for iteration in range(1, MAX_REACT_ITERATIONS + 1):
+        reasoning_steps.append(f"Thought (iter {iteration}): Planning next action for '{search_query}'")
 
-        if products and products[0].score > LOW_CONFIDENCE_THRESHOLD:
+        plan = _plan(
+            query=search_query,
+            intent=intent_result.intent,
+            preferences=preferences,
+            observations=observations,
+            iteration=iteration,
+            max_iter=MAX_REACT_ITERATIONS,
+            api_key=api_key,
+        )
+
+        if not plan:
+            reasoning_steps.append(f"Thought (iter {iteration}): Planner decided sufficient results. Stopping.")
+            break
+
+        for tool_call in plan[:2]:
+            tool_name = tool_call.get("tool", "search")
+            tool_args = tool_call.get("args", {})
+
+            reasoning_steps.append(f"Action: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:100]})")
+
+            obs, products = _execute_tool(tool_name, tool_args, preferences, api_key)
+            observations.append(obs)
+            reasoning_steps.append(f"Observation: {obs[:150]}")
+
+            if products:
+                all_products = products
+
+        if all_products and all_products[0].score > threshold:
             reasoning_steps.append(
-                f"High confidence (top score: {products[0].score:.3f}). Proceeding to synthesis."
+                f"Thought: High confidence (score={all_products[0].score:.3f} > {threshold:.1f}). Proceeding to synthesis."
             )
             break
 
-        if iteration < MAX_REACT_ITERATIONS - 1 and (not products or products[0].score <= LOW_CONFIDENCE_THRESHOLD):
-            # Refine query for next iteration
-            search_query = f"{query} {intent_result.filters.get('category', '')} fashion"
-            reasoning_steps.append(f"Low confidence. Refining query to: '{search_query}'")
+        if iteration == 4:
+            threshold -= 0.2
+            reasoning_steps.append(f"Thought: Lowering threshold to {threshold:.1f} after 4 iterations.")
 
-    # Step 5: Synthesize response
+        if iteration < MAX_REACT_ITERATIONS:
+            category = intent_result.filters.get("category", "")
+            search_query = f"{query} {category} fashion".strip()
+            reasoning_steps.append(f"Thought: Refining query to '{search_query}'")
+
+    # Step 5: Synthesize response (with preferences)
     answer, styling = _synthesize_response(
         query=query,
-        products=products,
+        products=all_products,
         history=history,
         intent=intent_result.intent,
+        preferences=preferences,
         api_key=api_key,
     )
 
@@ -260,7 +424,7 @@ def chat(
             caption=p.caption,
             score=p.score,
         )
-        for p in products
+        for p in all_products
     ]
 
     # Save assistant response
@@ -274,3 +438,4 @@ def chat(
         session_id=session_id,
         intent=intent_result.intent,
     )
+

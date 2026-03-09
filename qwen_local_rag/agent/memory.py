@@ -57,6 +57,12 @@ def init_memory_tables() -> None:
 
     CREATE INDEX IF NOT EXISTS idx_conv_history_session
         ON conversation_history(session_id, created_at);
+
+    -- Memory Agent: JSONB columns for preference tracking
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS liked_items JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS query_history JSONB NOT NULL DEFAULT '[]'::jsonb;
     """
     conn = _get_connection()
     try:
@@ -146,3 +152,136 @@ def get_history(session_id: str, limit: int = 20) -> list[Message]:
         for r in reversed(rows)  # chronological order
     ]
     return messages
+
+
+# ---------------------------------------------------------------------------
+# Memory Agent: preference tracking
+# ---------------------------------------------------------------------------
+
+
+def log_query(
+    session_id: str,
+    query: str,
+    intent: str,
+    filters: dict,
+) -> None:
+    """Append a query entry to the session's query_history JSONB array."""
+    entry = json.dumps({
+        "query": query,
+        "intent": intent,
+        "filters": filters,
+        "timestamp": datetime.now().isoformat(),
+    })
+    conn = _get_connection()
+    try:
+        with conn.cursor() as cur:
+            # Append to JSONB array, keep last 100 entries
+            cur.execute(
+                """
+                UPDATE user_sessions
+                SET query_history = (
+                    SELECT jsonb_agg(elem)
+                    FROM (
+                        SELECT elem
+                        FROM jsonb_array_elements(
+                            query_history || %s::jsonb
+                        ) AS elem
+                        ORDER BY elem->>'timestamp' DESC
+                        LIMIT 100
+                    ) sub
+                ),
+                updated_at = NOW()
+                WHERE session_id = %s;
+                """,
+                (entry, session_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_liked_item(session_id: str, image_id: str) -> None:
+    """Append an image_id to the session's liked_items JSONB array."""
+    conn = _get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE user_sessions
+                SET liked_items = liked_items || %s::jsonb,
+                    updated_at = NOW()
+                WHERE session_id = %s
+                AND NOT liked_items @> %s::jsonb;
+                """,
+                (json.dumps(image_id), session_id, json.dumps(image_id)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_preferences(session_id: str) -> dict:
+    """Analyze query_history and liked_items to extract user preferences.
+
+    Returns dict like:
+        {
+            "preferred_colors": ["white", "navy"],
+            "preferred_categories": ["Shirt", "Dress"],
+            "preferred_styles": ["formal"],
+        }
+    """
+    conn = _get_connection()
+    try:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(
+                "SELECT query_history, liked_items FROM user_sessions WHERE session_id = %s;",
+                (session_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        return {}
+
+    query_history = row["query_history"] or []
+    # liked_items = row["liked_items"] or []  # Future: correlate with product data
+
+    # Aggregate filters from query history
+    color_counts: dict[str, int] = {}
+    category_counts: dict[str, int] = {}
+    style_counts: dict[str, int] = {}
+
+    for entry in query_history:
+        if not isinstance(entry, dict):
+            continue
+        filters = entry.get("filters", {})
+        if not isinstance(filters, dict):
+            continue
+
+        color = filters.get("color", "").strip()
+        if color:
+            color_counts[color] = color_counts.get(color, 0) + 1
+
+        category = filters.get("category", "").strip()
+        if category:
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+        style = filters.get("style", "").strip()
+        if style:
+            style_counts[style] = style_counts.get(style, 0) + 1
+
+    # Get top 3 of each
+    def top_n(counts: dict[str, int], n: int = 3) -> list[str]:
+        return [k for k, _ in sorted(counts.items(), key=lambda x: -x[1])[:n]]
+
+    result = {}
+    if color_counts:
+        result["preferred_colors"] = top_n(color_counts)
+    if category_counts:
+        result["preferred_categories"] = top_n(category_counts)
+    if style_counts:
+        result["preferred_styles"] = top_n(style_counts)
+
+    return result
+
