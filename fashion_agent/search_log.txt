@@ -1,0 +1,99 @@
+/Users/letri/llm-thesis/fashion_agent/search/query_expansion.py:74: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+WARNING:huggingface_hub.utils._http:Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+`torch_dtype` is deprecated! Use `dtype` instead!
+
+==================================================
+Query: Shoes
+==================================================
+[query_expansion] 'Shoes' → ['Shoes', 'Footwear', 'Kicks']
+BM25 index loaded with 5096 documents.
+Loading Marqo/marqo-fashionSigLIP on device=mps ...
+Model loaded successfully. Device: mps
+Loading BGE Reranker on device=mps ...
+Loading weights:   0%|          | 0/393 [00:00<?, ?it/s]Loading weights:   2%|▏         | 7/393 [00:00<00:06, 55.97it/s]Loading weights:   3%|▎         | 13/393 [00:02<01:36,  3.92it/s]Loading weights: 100%|██████████| 393/393 [00:02<00:00, 139.16it/s]
+BGE Reranker loaded successfully.
+1. Shoes - Black
+   Score: 0.7073
+   Caption: A low-profile design features a composite upper, integrating smooth leather overlays with breathable...
+2. Shoes - Dark Brown
+   Score: 0.6912
+   Caption: These robust, mid-height lace-up footwear feature a smooth-grain upper with decorative vamp paneling...
+3. Shoes - Greige and Grey
+   Score: 0.6873
+   Caption: This athletic low-top showcases a multi-panel upper crafted from textured synthetic mesh and enginee...
+
+==================================================
+Query: Áo thun màu trắng
+==================================================
+[query_expansion] 'Áo thun màu trắng' → ['Áo thun màu trắng', 'Áo phông màu trắng', 'Áo thun trắng tinh']
+1. Longsleeve - White, Blush Pink, Burgundy
+   Score: 0.7045
+   Caption: A brushed-back knit forms this relaxed silhouette. It features a ribbed crew neck, dropped shoulders...
+2. Longsleeve - Burgundy with White patch
+   Score: 0.6860
+   Caption: This garment presents a relaxed silhouette crafted from a smooth knit. It features a classic crew ne...
+3. Longsleeve - Ochre Brown
+   Score: 0.5647
+   Caption: This soft-touch knit garment offers a relaxed silhouette with long sleeves. It features a neatly fin...
+
+==================================================
+Query: A dress for a summer beach party
+==================================================
+1. Dress - Red, Blue, Cream abstract
+   Score: 0.7048
+   Caption: Crafted from a fluid, abstract-printed textile, this garment showcases a fitted, ruched sweetheart b...
+2. Dress - Coral with White scalloped
+   Score: 0.5398
+   Caption: This sleeveless design features a lightweight woven fabrication with a fluid drape. The blouson bodi...
+3. Dress - Cream with Blue leaves
+   Score: 0.5214
+   Caption: This woven garment showcases a fitted bodice with wide straps and shaping bust darts. A full-button ...
+
+==================================================
+Query: Đồ mặc đi làm mùa đông
+==================================================
+1. Pants - Khaki
+   Score: 0.7074
+   Caption: Crafted from dense cotton twill with a matte finish, the garment presents a streamlined, regular-fit...
+2. T-Shirt - Heather Grey with Black text
+   Score: 0.5934
+   Caption: Crafted from a soft, heathered jersey knit, this relaxed-fit top features a finely ribbed crewneck a...
+3. Pants - Denim Blue
+   Score: 0.5900
+   Caption: This mid-rise twill denim piece features a slim-straight leg, subtly flaring to a raw-edge hem. Clas...
+
+==================================================
+Query: Black leather jacket with zippers
+==================================================
+[query_expansion] 'Black leather jacket with zippers' → ['Black leather jacket with zippers', 'Black leather moto jacket with zipper detailing', 'Black leather biker jacket with zip-front closure']
+1. Outwear - Black
+   Score: 0.7121
+   Caption: Supple leather forms this sleek, tailored outerwear piece. It features a stand collar, exposed front...
+2. Outwear - Black
+   Score: 0.6835
+   Caption: Supple leather shapes this form-fitting, hip-length design. It boasts a sleek band collar, exposed m...
+3. Outwear - Black
+   Score: 0.6816
+   Caption: This moto-inspired silhouette features a supple faux leather fabrication with subtle texture. Notche...
+
+==================================================
+Query: Áo khoác màu đen có túi
+==================================================
+1. Pants - Black
+   Score: 0.7073
+   Caption: Crafted from a structured, matte twill, these bottom-weight garments present a slim, tapered leg and...
+2. Blazer - Black
+   Score: 0.6406
+   Caption: A structured, tailored silhouette in a smooth suiting fabrication. This garment features notched lap...
+3. Blazer - Black
+   Score: 0.5952
+   Caption: A semi-fitted tailored piece crafted from a subtle textured fabrication. It features classic notched...

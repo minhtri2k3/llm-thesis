@@ -1,0 +1,69 @@
+/Users/letri/llm-thesis/fashion_agent/agent/intent_classifier.py:157: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+WARNING:huggingface_hub.utils._http:Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+`torch_dtype` is deprecated! Use `dtype` instead!
+
+==================================================
+User: Shoes
+==================================================
+Agent Reasoning: Slot completeness insufficient. Missing: color, fabric, fit, construction, aesthetic. Clarification turn 1/3.
+
+Agent Answer: Great! You're looking for shoes. To help me find the perfect pair, could you tell me a bit more about what you have in mind? For example, what color are you looking for (like white, black, or navy), what material do you prefer (such as leather, canvas, or suede), what style or type are you thinking of (like sneakers, heels, or boots), and what kind of occasion are they for (casual, formal, or everyday wear)?
+
+==================================================
+User: Áo thun màu trắng
+==================================================
+Agent Reasoning: Slot completeness insufficient. Missing: fabric, fit, construction, aesthetic. Clarification turn 1/3.
+
+Agent Answer: Tuyệt vời ạ! Bạn muốn áo có chất liệu gì (ví dụ: cotton, vải lanh), kiểu dáng như thế nào (ôm, rộng rãi hay dáng suông), có chi tiết đặc biệt nào không (như cổ tròn, cổ tim, có túi...) và bạn thích phong cách nào (năng động, tối giản hay lịch sự)?
+
+==================================================
+User: A dress for a summer beach party
+==================================================
+Agent Reasoning: Slot completeness insufficient. Missing: color, fabric, fit, construction. Clarification turn 1/3.
+
+Agent Answer: To help me find the perfect dress for you, could you tell me a bit more about what color you have in mind (like white, light blue, or a bright floral print), what material you prefer (like cotton or linen), what kind of fit you're looking for (such as a loose-fitting maxi or a more structured A-line), and any specific details you like (like a V-neck, ruffles, or an open back)?
+
+==================================================
+User: Đồ mặc đi làm mùa đông
+==================================================
+[query_expansion] 'winter work formal outfits' → ['winter work formal outfits', 'cold weather office professional attire', 'chilly season business smart ensembles']
+BM25 index loaded with 5096 documents.
+Loading Marqo/marqo-fashionSigLIP on device=mps ...
+Model loaded successfully. Device: mps
+Loading BGE Reranker on device=mps ...
+Loading weights:   0%|          | 0/393 [00:00<?, ?it/s]Loading weights:   2%|▏         | 9/393 [00:02<01:55,  3.33it/s]Loading weights: 100%|██████████| 393/393 [00:02<00:00, 144.86it/s]
+BGE Reranker loaded successfully.
+Agent Reasoning: Thought (iter 1): Planning next action for 'winter work outfits' → Action: search({"query": "winter work formal outfits", "top_k": 6}) → Observation: Search 'winter work formal outfits' → 6 results: Pants(Black, score=0.707), Blazer(Navy Blue, score=0.583), Blazer(Light Grey, score=0.518) → Action: outfit_hints({"occasion": "work", "style": "formal"}) → Observation: Outfit hints: Tailored blazer, dress shirt or blouse, tailored trousers or skirt. → Thought: High confidence (score=0.707 > 0.5). Proceeding to synthesis.
+
+Agent Answer: Chào bạn, tôi tìm thấy một số gợi ý đồ mặc đi làm mùa đông rất phù hợp đây. Bạn có thể tham khảo quần tây đen được may đo tinh tế, hoặc chọn áo blazer màu xanh navy hay xám nhạt để có vẻ ngoài chuyên nghiệp và ấm áp.
+
+Top Products Returned:
+  1. Pants - Black (Score: 0.7074)
+     Caption: Crafted from a refined, smooth woven, these tailored bottoms feature a streamlined, mid-rise silhoue...
+  2. Blazer - Navy Blue (Score: 0.5834)
+     Caption: Crafted from a smooth, structured twill, this tailored single-breasted silhouette boasts classic not...
+  3. Blazer - Light Grey (Score: 0.5178)
+     Caption: This finely woven worsted jacket features classic notch lapels and a three-button front. Its tailore...
+
+==================================================
+User: Black leather jacket with zippers
+==================================================
+Agent Reasoning: Slot completeness insufficient. Missing: fit, aesthetic. Clarification turn 1/3.
+
+Agent Answer: Great choice! To narrow down the options, could you tell me what kind of fit you're looking for – perhaps something ôm (slim-fit), rộng (oversized), or regular? And what's your preferred overall phong cách (style), like casual, edgy, minimalist, or something else?
+
+==================================================
+User: Áo khoác màu đen có túi
+==================================================
+Agent Reasoning: Slot completeness insufficient. Missing: fabric, fit, aesthetic. Clarification turn 1/3.
+
+Agent Answer: Tuyệt vời! Để mình tìm được chiếc áo khoác đen có túi ưng ý nhất cho bạn, bạn có thể cho mình biết thêm về chất liệu bạn muốn (như cotton, denim, da, hay len chẳng hạn), kiểu dáng bạn thích (dáng ôm, dáng rộng, hay dáng suông thông thường), và phong cách bạn đang tìm kiếm (casual, công sở, tối giản, hay cá tính) được không?
