@@ -179,8 +179,12 @@ async def get_product(image_id: str):
 
 @app.get("/api/images/{filename:path}")
 async def serve_image(filename: str):
-    """Serve product images."""
-    file_path = IMAGES_DIR / filename
+    """Serve product images from dataset or local images directory."""
+    # Try dataset images first (mounted from Kaggle dataset)
+    file_path = DATASET_IMAGES_DIR / filename
+    if not file_path.exists():
+        # Fallback to local images directory
+        file_path = IMAGES_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Image not found: {filename}")
     return FileResponse(str(file_path))
@@ -264,34 +268,41 @@ def create_gradio_app():
             session_id=session_id_state if session_id_state else None,
         )
 
-        # Build list of assistant messages (text + optional images)
         messages: list[dict] = []
-
-        # 1. Text response
         text_response = result.answer
         if result.styling_suggestion:
             text_response += f"\n\n💡 **Styling tip:** {result.styling_suggestion}"
 
         if result.products:
-            text_response += "\n\n---\n### 🛍️ Sản phẩm tìm thấy:\n"
-            for i, p in enumerate(result.products, 1):
-                text_response += f"\n**{i}. {p.label}** — {p.color}\n"
-                if p.caption:
-                    cap = p.caption[:100] + "..." if len(p.caption) > 100 else p.caption
-                    text_response += f"   _{cap}_\n"
+            # 1. Filter out completely invalid/junk products to avoid ugly UI
+            valid_products = []
+            for p in result.products:
+                if not p.image_path:
+                    continue
+                img_path = _convert_image_path(p.image_path)
+                if not img_path:
+                    continue
+                # If it's totally empty or missing label, ignore it
+                if not p.label or p.label.strip() == "":
+                    continue
+                valid_products.append((p, img_path))
+
+            # 2. Append markdown with html img tags to look nice and compact
+            if valid_products:
+                text_response += "\n\n---\n### 🛍️ Sản phẩm tìm thấy:\n\n"
+                for i, (p, img_path) in enumerate(valid_products, 1):
+                    color_str = f" — {p.color}" if p.color and p.color.strip() else ""
+                    text_response += f"**{i}. {p.label}**{color_str}\n"
+
+                    if p.caption and p.caption.strip():
+                        cap = p.caption[:150] + "..." if len(p.caption) > 150 else p.caption
+                        text_response += f"_{cap}_\n"
+                    
+                    filename = os.path.basename(p.image_path)
+                    # We use an HTML img tag so we can constrain the size. Gradio markdown supports this.
+                    text_response += f'<br><img src="/api/images/{filename}" width="220" style="border-radius: 8px; margin-bottom: 15px;" />\n\n'
 
         messages.append({"role": "assistant", "content": text_response})
-
-        # 2. Product images (graceful degradation: skip if file not found)
-        if result.products:
-            for p in result.products:
-                img_path = _convert_image_path(p.image_path)
-                if img_path is not None:
-                    alt = f"{p.label} — {p.color}" if p.color else p.label
-                    messages.append({
-                        "role": "assistant",
-                        "content": {"path": str(img_path), "alt_text": alt},
-                    })
 
         new_session_id = result.session_id
         return messages, new_session_id
@@ -305,7 +316,7 @@ def create_gradio_app():
 
         chatbot = gr.Chatbot(
             label="Fashion Agent Chat",
-            height=500,
+            height=600,
         )
 
         msg = gr.Textbox(
@@ -325,7 +336,7 @@ def create_gradio_app():
             assistant_msgs, new_session_id = respond(message, history, session_id_state)
             # Add user message
             history = history + [{"role": "user", "content": message}]
-            # Add all assistant messages (text + images)
+            # Add all assistant messages (text + inline images)
             history = history + assistant_msgs
             return "", history, new_session_id
 
