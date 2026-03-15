@@ -23,6 +23,11 @@ import argparse
 import csv
 import os
 import sys
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -560,7 +565,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument(
         "--limit",
         type=int,
-        default=200,
+        default=None,
         help="Max number of rows per run for each processing step.",
     )
     process.add_argument(
@@ -670,16 +675,16 @@ def main() -> None:
             )
             images_dir = Path(args.images_dir) if args.images_dir else None
 
-            if do_captions:
-                process_missing_captions(
+            if do_colors:
+                process_missing_colors(
                     db=db,
                     processor=processor,
                     images_dir=images_dir,
                     limit=args.limit,
                     sleep_seconds=args.sleep_seconds,
                 )
-            if do_colors:
-                process_missing_colors(
+            if do_captions:
+                process_missing_captions(
                     db=db,
                     processor=processor,
                     images_dir=images_dir,
