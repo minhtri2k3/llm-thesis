@@ -33,8 +33,8 @@ RRF_K = 60
 BM25_WEIGHT = 2.5
 IMG_VEC_WEIGHT = 1.0
 TEXT_VEC_WEIGHT = 1.5
+MIN_SCORE_THRESHOLD = 0.25  # Items below this blended score are filtered out
 SOFT_FILTER_THRESHOLD = 60
-RERANK_TOP_K = 3
 
 MODELS_DIR = Path(os.getenv("HF_HOME", "models"))
 
@@ -146,53 +146,12 @@ def bm25_retrieve(query: str, top_k: int = BM25_TOP_K) -> list[NodeWithScore]:
     return results
 
 
-def vector_retrieve(query: str, top_k: int = VECTOR_TOP_K) -> list[NodeWithScore]:
-    """Vector ANN search in Qdrant using FashionSigLIP image vector space."""
-    from qdrant_client import QdrantClient
-
-    embedder = _get_embedder()
-    query_vector = embedder.encode_text(query)
-
-    client = QdrantClient(
-        host=QDRANT_HOST,
-        port=QDRANT_PORT,
-        api_key=QDRANT_API_KEY,
-        timeout=30,
-        https=False,  # Use HTTP for local Docker connection
-        prefer_grpc=False,
-    )
-
-    results = client.query_points(
-        collection_name=COLLECTION_NAME,
-        query=query_vector,
-        using="image",
-        limit=top_k,
-        with_payload=True,
-    )
-
-    nodes = []
-    for hit in results.points:
-        payload = hit.payload or {}
-        nodes.append(
-            NodeWithScore(
-                image_id=str(hit.id),
-                label=payload.get("label", ""),
-                color=payload.get("color", ""),
-                caption=payload.get("caption", ""),
-                image_path=payload.get("image_path", ""),
-                bm25_content=payload.get("bm25_content", ""),
-                score=hit.score,
-            )
-        )
-    return nodes
-
-
-def text_vector_retrieve(query: str, top_k: int = TEXT_VEC_TOP_K) -> list[NodeWithScore]:
-    """Vector ANN search in Qdrant using text named vector space.
-
-    Searches against text embeddings (label+color+caption encoded by SigLIP text encoder).
-    This captures semantic meaning from descriptions that image vectors may miss.
-    """
+def _vector_retrieve(
+    query: str,
+    vector_name: str,
+    top_k: int,
+) -> list[NodeWithScore]:
+    """Core Qdrant ANN search parametrized by named vector space."""
     from qdrant_client import QdrantClient
 
     embedder = _get_embedder()
@@ -211,14 +170,16 @@ def text_vector_retrieve(query: str, top_k: int = TEXT_VEC_TOP_K) -> list[NodeWi
         results = client.query_points(
             collection_name=COLLECTION_NAME,
             query=query_vector,
-            using="text",
+            using=vector_name,
             limit=top_k,
             with_payload=True,
         )
     except Exception as exc:
-        # Fallback: collection may not have text vector (old index)
-        print(f"  Warning: text vector search failed (old index?): {exc}")
-        return []
+        if vector_name != "image":
+            # Non-image vectors may be absent in old indexes
+            print(f"  Warning: {vector_name} vector search failed (old index?): {exc}")
+            return []
+        raise
 
     nodes = []
     for hit in results.points:
@@ -235,6 +196,16 @@ def text_vector_retrieve(query: str, top_k: int = TEXT_VEC_TOP_K) -> list[NodeWi
             )
         )
     return nodes
+
+
+def vector_retrieve(query: str, top_k: int = VECTOR_TOP_K) -> list[NodeWithScore]:
+    """Vector ANN search using FashionSigLIP image vector space."""
+    return _vector_retrieve(query, vector_name="image", top_k=top_k)
+
+
+def text_vector_retrieve(query: str, top_k: int = TEXT_VEC_TOP_K) -> list[NodeWithScore]:
+    """Vector ANN search using text named vector space."""
+    return _vector_retrieve(query, vector_name="text", top_k=top_k)
 
 
 # ---------------------------------------------------------------------------
@@ -315,11 +286,13 @@ def _compute_filter_relevance(
 
 def search(
     query: str,
-    top_k: int = RERANK_TOP_K,
+    top_k: int = 6,
     use_reranker: bool = True,
     use_soft_filter: bool = True,
     use_query_expansion: bool = True,
     filters: Optional[dict[str, str]] = None,
+    min_score: float = MIN_SCORE_THRESHOLD,
+    min_results: int = 1,
 ) -> list[NodeWithScore]:
     """
     Full hybrid search pipeline (aligned with notebook architecture):
@@ -331,17 +304,23 @@ def search(
         5. 3-way RRF Fusion (BM25=2.5, text_vec=1.5, img_vec=1.0)
         6. Filter-aware scoring / Soft Relevance Filter
         7. BGE Reranker with score blending
+        8. Score threshold filter
 
     Args:
         query:                User search query.
-        top_k:                Number of final results.
+        top_k:                Max number of final results (hard cap).
         use_reranker:         Whether to apply BGE reranker.
         use_soft_filter:      Whether to apply soft filter.
         use_query_expansion:  Whether to expand query with synonyms.
         filters:              Optional intent-extracted filters {"category": ..., "color": ...}.
+        min_score:            Minimum blended score to keep (default 0.25).
+                              Set to 0.0 to disable threshold filtering.
+        min_results:          Always return at least this many results even
+                              if their score is below ``min_score``.
 
     Returns:
-        List of top-K NodeWithScore, ordered by relevance.
+        List of up to ``top_k`` NodeWithScore, ordered by relevance.
+        May return fewer than ``top_k`` if items fall below ``min_score``.
     """
     # Step 0: Query Expansion
     if use_query_expansion:
@@ -390,6 +369,17 @@ def search(
     # Step 7: Reranker with score blending (optional)
     if use_reranker and fused:
         reranker = get_reranker(cache_dir=MODELS_DIR)
-        return reranker.rerank(query, fused, top_k=top_k)
+        results = reranker.rerank(query, fused, top_k=top_k)
+    else:
+        results = fused[:top_k]
 
-    return fused[:top_k]
+    # Step 8: Score threshold filter
+    if min_score > 0 and results:
+        above = [r for r in results if r.score >= min_score]
+        # Guarantee at least min_results items
+        if len(above) >= min_results:
+            results = above
+        else:
+            results = results[:max(min_results, len(above))]
+
+    return results

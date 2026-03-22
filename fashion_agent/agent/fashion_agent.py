@@ -3,19 +3,30 @@ Fashion Agent — main orchestrator.
 
 Ties together intent classification, slot-based clarification, memory, search, and
 Gemini synthesis into a single `chat()` function.
+
+Architecture (v2 — direct routing, no ReAct loop):
+  1. classify_intent → single LLM call for intent + slots
+  2. slot gate → template clarification if incomplete (0 LLM)
+  3. _route_and_execute → deterministic routing to search/clarify
+  4. _synthesize_response → Gemini synthesis (1 LLM call)
 """
 
 from __future__ import annotations
 
 import json
-import os
+import logging
+import time
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Generator, Optional, Union
+
+from agent.utils import parse_llm_json, fallback_text_response, format_history_text
+from agent.prompts import SYNTHESIS_PROMPT, STREAM_SYNTHESIS_PROMPT
+from shared.llm import get_model
 
 from agent.intent_classifier import classify_intent, ClassifiedIntent, ExtractedSlots
 from agent.slot_completeness import (
     check_slot_completeness,
-    generate_targeted_question,
+    build_template_question,
     merge_slots,
     should_reset_slots,
     compose_refined_query_from_slots,
@@ -33,6 +44,8 @@ from agent.memory import (
 )
 from search.search_engine import search as hybrid_search
 from search.fusion import NodeWithScore
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -62,67 +75,49 @@ class AgentResponse:
         return asdict(self)
 
 
+@dataclass
+class ThinkingEvent:
+    """Emitted during orchestration to show pipeline progress to the user."""
+
+    step: str        # e.g. "start", "classify_done", "search_done"
+    detail: str      # human-readable detail text
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ThinkingToken:
+    """Gemini model thinking content (thought=True)."""
+
+    text: str
+
+
+@dataclass
+class ResponseToken:
+    """Gemini model response content (regular text)."""
+
+    text: str
+
+
+# Union type for synthesis stream output
+SynthesisChunk = Union[ThinkingToken, ResponseToken]
+
+
 # ---------------------------------------------------------------------------
-# Gemini synthesis
+# Synthesis context builder (shared between batch & stream)
 # ---------------------------------------------------------------------------
 
-SYNTHESIS_PROMPT = """You are a helpful fashion shopping assistant. Based on the search results and user query, provide a natural, helpful response in the same language as the user's query.
 
-User query: {query}
-
-Search results (top products):
-{products_text}
-
-User preferences: {preferences_text}
-
-Conversation history:
-{history_text}
-
-Instructions:
-1. Respond naturally in the same language as the user's query (Vietnamese or English).
-2. Briefly describe the top recommendations and why they match.
-3. If this is a "recommend" intent, include styling suggestions.
-4. Keep the response concise (2-4 sentences for search, 3-5 for recommendations).
-5. Reference specific products by their attributes (category, color, style).
-6. If user preferences are available, personalize recommendations based on their preferred colors and categories.
-
-Respond with ONLY a JSON object:
-{{
-    "answer": "<your natural language response>",
-    "styling_suggestion": "<optional styling tips, empty string if not applicable>"
-}}
-"""
-
-
-def _synthesize_response(
+def _build_synthesis_context(
     query: str,
-    products: list[NodeWithScore],
+    products: list,
     history: list[Message],
-    intent: str,
     preferences: Optional[dict] = None,
-    api_key: Optional[str] = None,
-    model_name: str = "gemini-2.5-flash",
-) -> tuple[str, str]:
-    """Use Gemini to synthesize a natural response from search results."""
-    try:
-        import google.generativeai as genai
-    except ImportError:
-        # Fallback if Gemini not available
-        if products:
-            labels = [p.label for p in products[:3]]
-            return f"Tìm thấy {len(products)} sản phẩm: {', '.join(labels)}.", ""
-        return "Không tìm thấy sản phẩm phù hợp.", ""
+) -> dict[str, str]:
+    """Format products, history, and preferences into text for synthesis prompts.
 
-    key = api_key or os.getenv("GEMINI_API_KEY")
-    if not key:
-        if products:
-            labels = [p.label for p in products[:3]]
-            return f"Tìm thấy {len(products)} sản phẩm: {', '.join(labels)}.", ""
-        return "Không tìm thấy sản phẩm phù hợp.", ""
-
-    genai.configure(api_key=key)
-    model = genai.GenerativeModel(model_name)
-
+    Returns:
+        Dict with keys ``products_text``, ``history_text``, ``preferences_text``.
+    """
     # Format products
     products_lines = []
     for i, p in enumerate(products, 1):
@@ -131,11 +126,7 @@ def _synthesize_response(
         )
     products_text = "\n".join(products_lines) if products_lines else "No products found."
 
-    # Format history
-    history_lines = []
-    for msg in history[-6:]:  # last 6 messages
-        history_lines.append(f"{msg.role}: {msg.content[:100]}")
-    history_text = "\n".join(history_lines) if history_lines else "No prior conversation."
+    history_text = format_history_text(history, limit=6)
 
     # Format preferences
     prefs = preferences or {}
@@ -146,344 +137,425 @@ def _synthesize_response(
         prefs_parts.append(f"Preferred categories: {', '.join(prefs['preferred_categories'])}")
     preferences_text = "; ".join(prefs_parts) if prefs_parts else "No preferences yet."
 
-    prompt = SYNTHESIS_PROMPT.format(
-        query=query,
-        products_text=products_text,
-        preferences_text=preferences_text,
-        history_text=history_text,
-    )
+    return {
+        "products_text": products_text,
+        "history_text": history_text,
+        "preferences_text": preferences_text,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Gemini synthesis
+# ---------------------------------------------------------------------------
+
+
+
+def _synthesize_response(
+    query: str,
+    products: list[NodeWithScore],
+    history: list[Message],
+    intent: str,
+    preferences: Optional[dict] = None,
+) -> tuple[str, str]:
+    """Use Gemini to synthesize a natural response from search results."""
+    try:
+        model = get_model()
+    except RuntimeError:
+        return fallback_text_response(products), ""
+
+    ctx = _build_synthesis_context(query, products, history, preferences)
+
+    prompt = SYNTHESIS_PROMPT.format(query=query, **ctx)
 
     try:
         response = model.generate_content(prompt)
-        text = response.text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0]
-        data = json.loads(text)
+        data = parse_llm_json(response.text)
         return data.get("answer", ""), data.get("styling_suggestion", "")
     except Exception:
-        if products:
-            labels = [p.label for p in products[:3]]
-            return f"Tìm thấy {len(products)} sản phẩm: {', '.join(labels)}.", ""
-        return "Không tìm thấy sản phẩm phù hợp.", ""
+        return fallback_text_response(products), ""
+
 
 # ---------------------------------------------------------------------------
-# ReAct Tool Registry & Orchestrator
+# Streaming Synthesis
 # ---------------------------------------------------------------------------
 
-TOOLS = {
-    "search": {
-        "description": "Search for fashion products using hybrid search (vector + BM25 + rerank).",
-        "params": ["query", "top_k"],
-    },
-    "memory_enrich": {
-        "description": "Enrich the query with user preferences from memory.",
-        "params": ["query", "preferences"],
-    },
-    "outfit_hints": {
-        "description": "Generate outfit/styling suggestions for an occasion.",
-        "params": ["occasion", "style"],
-    },
-}
-
-PLAN_PROMPT = """You are a fashion agent planner. Given the user query and context, decide which tools to call.
-
-Available tools:
-- search(query, top_k): Search for fashion products
-- memory_enrich(query, preferences): Enrich query with user preferences
-- outfit_hints(occasion, style): Get outfit styling suggestions
-
-Context:
-- User query: {query}
-- Intent: {intent}
-- User preferences: {preferences_text}
-- Previous observations: {observations_text}
-- Iteration: {iteration}/{max_iter}
-
-Respond with a JSON array of tool calls (1-2 tools max):
-[{{"tool": "search", "args": {{"query": "...", "top_k": 6}}}}]
-
-If observations are sufficient, respond with: []
-"""
-
-
-def _plan(
+def _synthesize_response_stream(
     query: str,
+    products: list[NodeWithScore],
+    history: list[Message],
     intent: str,
-    preferences: dict,
-    observations: list[str],
-    iteration: int,
-    max_iter: int,
-    api_key: Optional[str] = None,
-    model_name: str = "gemini-2.5-flash",
-) -> list[dict]:
-    """Use Gemini to plan which tools to call next."""
+    preferences: Optional[dict] = None,
+) -> Generator:
+    """Streaming version of synthesis — yields ``SynthesisChunk`` instances.
+
+    Uses ``stream=True`` with Gemini for token-by-token output.
+    Separates Gemini thinking tokens (``part.thought=True``) from
+    response tokens.
+
+    Yields:
+        ThinkingToken | ResponseToken: Chunks as they arrive from the LLM.
+    """
     try:
-        import google.generativeai as genai
-    except ImportError:
-        return [{"tool": "search", "args": {"query": query, "top_k": 6}}]
+        model = get_model()
+    except RuntimeError:
+        yield ResponseToken(fallback_text_response(products))
+        return
 
-    key = api_key or os.getenv("GEMINI_API_KEY")
-    if not key:
-        return [{"tool": "search", "args": {"query": query, "top_k": 6}}]
+    ctx = _build_synthesis_context(query, products, history, preferences)
 
-    genai.configure(api_key=key)
-    model = genai.GenerativeModel(model_name)
-
-    prefs_text = json.dumps(preferences) if preferences else "No preferences yet."
-    obs_text = "\n".join(observations[-3:]) if observations else "No observations yet."
-
-    prompt = PLAN_PROMPT.format(
-        query=query,
-        intent=intent,
-        preferences_text=prefs_text,
-        observations_text=obs_text,
-        iteration=iteration,
-        max_iter=max_iter,
-    )
+    prompt = STREAM_SYNTHESIS_PROMPT.format(query=query, **ctx)
 
     try:
-        response = model.generate_content(prompt)
-        text = response.text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0]
-        plan = json.loads(text)
-        if isinstance(plan, list):
-            return plan
-    except Exception:
-        pass
-
-    return [{"tool": "search", "args": {"query": query, "top_k": 6}}]
-
-
-def _execute_tool(
-    tool_name: str,
-    args: dict,
-    preferences: dict,
-    api_key: Optional[str] = None,
-    filters: Optional[dict] = None,
-) -> tuple[str, list[NodeWithScore]]:
-    """Execute a single tool call and return (observation, products)."""
-    if tool_name == "search":
-        search_q = args.get("query", "")
-        top_k = args.get("top_k", 6)
-        products = hybrid_search(search_q, top_k=top_k, filters=filters)
-        if products:
-            summaries = [f"{p.label}({p.color}, score={p.score:.3f})" for p in products[:3]]
-            obs = f"Search '{search_q}' → {len(products)} results: {', '.join(summaries)}"
-        else:
-            obs = f"Search '{search_q}' → 0 results"
-        return obs, products
-
-    elif tool_name == "memory_enrich":
-        q = args.get("query", "")
-        enriched_parts = [q]
-        if preferences.get("preferred_colors"):
-            enriched_parts.append(f"preferred colors: {', '.join(preferences['preferred_colors'])}")
-        if preferences.get("preferred_categories"):
-            enriched_parts.append(f"preferred categories: {', '.join(preferences['preferred_categories'])}")
-        enriched = " ".join(enriched_parts)
-        return f"Enriched query: '{enriched}'", []
-
-    elif tool_name == "outfit_hints":
-        occasion = args.get("occasion", "casual")
-        style = args.get("style", "")
-        try:
-            import google.generativeai as genai
-            key = api_key or os.getenv("GEMINI_API_KEY")
-            if key:
-                genai.configure(api_key=key)
-                model = genai.GenerativeModel("gemini-2.5-flash")
-                prompt = f"Give a brief outfit suggestion for {occasion} occasion, {style} style. 2-3 items max. Respond as plain text."
-                response = model.generate_content(prompt)
-                return f"Outfit hints: {response.text.strip()[:200]}", []
-        except Exception:
-            pass
-        return f"Outfit hints: Consider a smart casual outfit for {occasion}.", []
-
-    return f"Unknown tool: {tool_name}", []
+        response = model.generate_content(prompt, stream=True)
+        for chunk in response:
+            # Try iterating parts for thinking/response separation
+            if hasattr(chunk, "parts") and chunk.parts:
+                for part in chunk.parts:
+                    text = getattr(part, "text", None)
+                    if not text:
+                        continue
+                    if getattr(part, "thought", False):
+                        yield ThinkingToken(text)
+                    else:
+                        yield ResponseToken(text)
+            elif chunk.text:
+                # Fallback: SDK without parts support
+                yield ResponseToken(chunk.text)
+    except Exception as exc:
+        logger.warning("Streaming synthesis failed: %s", exc)
+        yield ResponseToken(fallback_text_response(products))
 
 
-MAX_REACT_ITERATIONS = 8
-LOW_CONFIDENCE_THRESHOLD = 0.5
+def _extract_styling_from_text(full_text: str) -> str:
+    """Extract styling suggestion from streamed text."""
+    for marker in ("💡 Styling tip:",):
+        if marker in full_text:
+            return full_text.split(marker, 1)[1].strip()
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Direct routing (replacement for ReAct loop)
+# ---------------------------------------------------------------------------
+
+OUT_OF_SCOPE_RESPONSE = (
+    "Sorry, I only help with fashion search and styling advice. "
+    "Would you like to look for any outfit?"
+)
+
 MAX_CLARIFICATION_TURNS = 3
 
-# In-memory storage for accumulated slots per session
+# In-memory storage for accumulated slots per session (auto-evicted after 30 min)
 # Key: session_id, Value: ExtractedSlots
-_session_accumulated_slots: dict[str, ExtractedSlots] = {}
+from cachetools import TTLCache
 
+_session_accumulated_slots: TTLCache = TTLCache(maxsize=100, ttl=1800)
+
+
+def _route_and_execute(
+    intent: str,
+    search_query: str,
+    session_id: str,
+    filters: Optional[dict] = None,
+) -> tuple[list[NodeWithScore], str]:
+    """Deterministic routing based on intent — no planner LLM call.
+
+    Routes:
+    - text_search / follow_up → ``hybrid_search(use_query_expansion=False)``
+    - outfit_request → search + outfit hint via LLM
+    - out_of_scope → empty products + template message
+    - unclear → empty products (caller handles clarification)
+
+    Returns:
+        (products, reasoning_text)
+    """
+    if intent in ("text_search", "follow_up"):
+        products = hybrid_search(
+            search_query,
+            top_k=6,
+            use_query_expansion=False,
+            filters=filters,
+        )
+        reasoning = f"Direct search '{search_query}' → {len(products)} results"
+        if products:
+            top = products[0]
+            reasoning += f" (top: {top.label}, score={top.score:.3f})"
+        return products, reasoning
+
+    if intent == "outfit_request":
+        products = hybrid_search(
+            search_query,
+            top_k=6,
+            use_query_expansion=False,
+            filters=filters,
+        )
+        reasoning = f"Outfit search '{search_query}' → {len(products)} results"
+        return products, reasoning
+
+    # out_of_scope / unclear — no products
+    return [], f"Intent '{intent}' — no search performed"
+
+
+# ---------------------------------------------------------------------------
+# Slot gate helper
+# ---------------------------------------------------------------------------
+
+
+def _resolve_search_query(
+    intent: str,
+    intent_result: ClassifiedIntent,
+    session_id: str,
+    history: list[Message],
+) -> tuple[str, str]:
+    """Resolve the search query and check if clarification is needed.
+
+    Handles slot merging, completeness checking, and query composition
+    for ``text_search`` and ``follow_up`` intents.
+
+    Returns:
+        (search_query, clarification_message)
+        ``clarification_message`` is non-empty when the caller should
+        return early with a clarification question.
+    """
+    if intent == "text_search":
+        new_slots = intent_result.extracted_slots
+        accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
+
+        if should_reset_slots(accumulated, new_slots):
+            accumulated = ExtractedSlots()
+
+        accumulated = merge_slots(accumulated, new_slots)
+        _session_accumulated_slots[session_id] = accumulated
+
+        is_complete, missing = check_slot_completeness(accumulated)
+        if not is_complete:
+            clarify_count = _count_clarification_turns(history)
+            if clarify_count < MAX_CLARIFICATION_TURNS:
+                question = build_template_question(
+                    missing_slots=missing, slots=accumulated,
+                )
+                reasoning = (
+                    f"Slots incomplete ({', '.join(missing)}). "
+                    f"Turn {clarify_count + 1}/{MAX_CLARIFICATION_TURNS}."
+                )
+                return "", question
+
+        search_query = compose_refined_query_from_slots(accumulated)
+        if not search_query.strip():
+            search_query = intent_result.refined_query or ""
+        return search_query, ""
+
+    if intent == "follow_up":
+        new_slots = intent_result.extracted_slots
+        accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
+        accumulated = merge_slots(accumulated, new_slots)
+        _session_accumulated_slots[session_id] = accumulated
+
+        slot_query = compose_refined_query_from_slots(accumulated)
+        search_query = slot_query if slot_query.strip() else (intent_result.refined_query or "")
+        return search_query, ""
+
+    # outfit_request, unclear, etc.
+    if intent_result.confidence < 0.6 or intent == "unclear":
+        clarification = check_clarification(
+            intent_result.refined_query or "", history=history,
+        )
+        if clarification.needs_clarification:
+            return "", clarification.question
+
+    return intent_result.refined_query or "", ""
+
+
+# ---------------------------------------------------------------------------
+# Orchestration (shared between chat and chat_stream)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class OrchestrateResult:
+    """Intermediate result from ``_orchestrate()``.
+
+    If ``clarification`` is non-empty, the caller should return early
+    with the clarification text and skip synthesis.
+    """
+
+    intent: str
+    session_id: str
+    products: list[NodeWithScore] = field(default_factory=list)
+    search_query: str = ""
+    clarification: str = ""
+    reasoning: str = ""
+    preferences: dict = field(default_factory=dict)
+    history: list[Message] = field(default_factory=list)
+    filters: dict = field(default_factory=dict)
+
+
+def _orchestrate(
+    query: str,
+    session_id: Optional[str] = None,
+) -> OrchestrateResult:
+    """Batch orchestration — consumes stream, returns final result.
+
+    Internally delegates to ``_orchestrate_stream()`` and discards
+    intermediate ``ThinkingEvent`` objects, keeping only the final
+    ``OrchestrateResult``.
+    """
+    result = None
+    for event in _orchestrate_stream(query, session_id):
+        if isinstance(event, OrchestrateResult):
+            result = event
+    if result is None:
+        raise RuntimeError("_orchestrate_stream() did not yield OrchestrateResult")
+    return result
+
+
+def _orchestrate_stream(
+    query: str,
+    session_id: Optional[str] = None,
+) -> Generator:
+    """Streaming orchestration — yields ThinkingEvent then OrchestrateResult.
+
+    Same logic as _orchestrate() but emits thinking events between steps
+    so the UI can show live progress. The final yield is always an
+    OrchestrateResult.
+    """
+    start_time = time.time()
+
+    # Immediate: yield thinking_start BEFORE any blocking work
+    yield ThinkingEvent("start", "🔍 Analyzing your question...")
+
+    # Session setup
+    if not (session_id and session_exists(session_id)):
+        session_id = create_session()
+
+    add_message(session_id, "user", query)
+    history = get_history(session_id, limit=20)
+
+    # Step 1: Intent classification (1 LLM call)
+    yield ThinkingEvent("classify", "Classifying intent...")
+    intent_result = classify_intent(query, history=history)
+    intent = intent_result.intent
+
+    slots_detail = ""
+    if intent_result.extracted_slots:
+        slots = intent_result.extracted_slots
+        parts = []
+        if slots.category:
+            parts.append(f"category={slots.category}")
+        if slots.color:
+            parts.append(f"color={slots.color}")
+        if slots.fabric:
+            parts.append(f"fabric={slots.fabric}")
+        if slots.fit:
+            parts.append(f"fit={slots.fit}")
+        slots_detail = f" | Slots: {', '.join(parts)}" if parts else ""
+
+    yield ThinkingEvent(
+        "classify_done",
+        f"Intent: {intent} (confidence: {intent_result.confidence:.2f}){slots_detail}",
+    )
+
+    # Step 2: Out-of-scope — early exit
+    if intent == "out_of_scope":
+        add_message(session_id, "assistant", OUT_OF_SCOPE_RESPONSE)
+        yield ThinkingEvent("done", f"Out of scope — {time.time() - start_time:.1f}s")
+        yield OrchestrateResult(
+            intent="out_of_scope",
+            session_id=session_id,
+            clarification=OUT_OF_SCOPE_RESPONSE,
+            history=history,
+            filters=intent_result.filters,
+        )
+        return
+
+    # Step 3: Slot gate + search query resolution
+    search_query, clarification = _resolve_search_query(
+        intent, intent_result, session_id, history,
+    )
+
+    if clarification:
+        add_message(session_id, "assistant", clarification)
+        yield ThinkingEvent("done", f"Need more information — {time.time() - start_time:.1f}s")
+        yield OrchestrateResult(
+            intent="clarification" if intent == "text_search" else "unclear",
+            session_id=session_id,
+            clarification=clarification,
+            reasoning=f"Clarification needed for '{intent}'.",
+            history=history,
+            filters=intent_result.filters,
+        )
+        return
+
+    # Fallback search query
+    if not search_query:
+        search_query = query
+
+    # Step 4: Log + preferences
+    log_query(session_id, query, intent, intent_result.filters)
+    preferences = get_preferences(session_id)
+
+    # Step 5: Route & execute search (0 LLM)
+    yield ThinkingEvent("search", f"Searching: '{search_query[:50]}'...")
+    products, reasoning = _route_and_execute(
+        intent=intent,
+        search_query=search_query,
+        session_id=session_id,
+        filters=intent_result.filters,
+    )
+    yield ThinkingEvent(
+        "search_done",
+        f"Tìm thấy {len(products)} sản phẩm — reranking...",
+    )
+
+    elapsed = time.time() - start_time
+    yield ThinkingEvent("done", f"Hoàn tất — {elapsed:.1f}s")
+
+    yield OrchestrateResult(
+        intent=intent,
+        session_id=session_id,
+        products=products,
+        search_query=search_query,
+        reasoning=reasoning,
+        preferences=preferences,
+        history=history,
+        filters=intent_result.filters,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 def chat(
     query: str,
     session_id: Optional[str] = None,
-    api_key: Optional[str] = None,
 ) -> AgentResponse:
+    """Main agent entry point — direct routing orchestrator.
+
+    Orchestrates: intent → slot gate → route & search → synthesize.
+    Typically costs 1-2 LLM calls (intent + synthesis).
     """
-    Main agent entry point — ReAct orchestrator.
+    result = _orchestrate(query, session_id)
 
-    Orchestrates: intent → slot check → clarify if needed → memory →
-    ReAct(plan→execute→observe) → synthesize.
-    """
-    # Get or create session
-    if session_id and session_exists(session_id):
-        pass
-    else:
-        session_id = create_session()
-
-    # Save user message
-    add_message(session_id, "user", query)
-
-    # Load history
-    history = get_history(session_id, limit=20)
-
-    # Step 1: Intent classification + slot extraction (single LLM call)
-    intent_result = classify_intent(query, history=history, api_key=api_key)
-
-    # Step 2: Handle out_of_scope intent
-    if intent_result.intent == "out_of_scope":
-        answer = "Xin lỗi, tôi chỉ hỗ trợ tìm kiếm và tư vấn thời trang. Bạn muốn tìm trang phục gì không?"
-        add_message(session_id, "assistant", answer)
+    # Early return for clarification / out-of-scope
+    if result.clarification:
         return AgentResponse(
-            answer=answer,
-            session_id=session_id,
-            intent="out_of_scope",
+            answer=result.clarification,
+            session_id=result.session_id,
+            intent=result.intent,
+            reasoning=result.reasoning,
         )
 
-    # Step 3: Slot-based completeness check (text_search only)
-    if intent_result.intent == "text_search":
-        new_slots = intent_result.extracted_slots
-        accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
-
-        # Check for topic reset (new category = new search)
-        if should_reset_slots(accumulated, new_slots):
-            accumulated = ExtractedSlots()
-
-        # Merge new slots into accumulated
-        accumulated = merge_slots(accumulated, new_slots)
-        _session_accumulated_slots[session_id] = accumulated
-
-        # Check completeness
-        is_complete, missing = check_slot_completeness(accumulated)
-
-        if not is_complete:
-            # Count clarification turns in this conversation flow
-            clarify_count = _count_clarification_turns(history)
-
-            if clarify_count < MAX_CLARIFICATION_TURNS:
-                # Ask targeted question about missing slots
-                question = generate_targeted_question(
-                    slots=accumulated,
-                    missing_slots=missing,
-                    history=history,
-                    api_key=api_key,
-                )
-                add_message(session_id, "assistant", question)
-                return AgentResponse(
-                    answer=question,
-                    session_id=session_id,
-                    intent="clarification",
-                    reasoning=f"Slot completeness insufficient. Missing: {', '.join(missing)}. "
-                              f"Clarification turn {clarify_count + 1}/{MAX_CLARIFICATION_TURNS}.",
-                )
-            # Max clarification reached — proceed with what we have
-
-        # Use slot-composed query for better search alignment
-        search_query = compose_refined_query_from_slots(accumulated)
-        if not search_query.strip():
-            search_query = intent_result.refined_query or query
-
-    elif intent_result.intent == "follow_up":
-        # Follow-up: merge with accumulated slots from previous turns
-        new_slots = intent_result.extracted_slots
-        accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
-        accumulated = merge_slots(accumulated, new_slots)
-        _session_accumulated_slots[session_id] = accumulated
-
-        # Compose query from merged slots if available
-        slot_query = compose_refined_query_from_slots(accumulated)
-        search_query = slot_query if slot_query.strip() else (intent_result.refined_query or query)
-
-    else:
-        # outfit_request, unclear: use existing flow
-        if intent_result.confidence < 0.6 or intent_result.intent == "unclear":
-            clarification = check_clarification(query, history=history, api_key=api_key)
-            if clarification.needs_clarification:
-                add_message(session_id, "assistant", clarification.question)
-                return AgentResponse(
-                    answer=clarification.question,
-                    session_id=session_id,
-                    intent="unclear",
-                    reasoning=f"Low confidence ({intent_result.confidence:.2f}). Asking for clarification.",
-                )
-        search_query = intent_result.refined_query or query
-
-    # Step 3.5: Log query to memory & load preferences
-    log_query(session_id, query, intent_result.intent, intent_result.filters)
-    preferences = get_preferences(session_id)
-
-    # Step 4: ReAct loop — plan → execute → observe
-    all_products: list[NodeWithScore] = []
-    reasoning_steps: list[str] = []
-    observations: list[str] = []
-    threshold = LOW_CONFIDENCE_THRESHOLD
-
-    for iteration in range(1, MAX_REACT_ITERATIONS + 1):
-        reasoning_steps.append(f"Thought (iter {iteration}): Planning next action for '{search_query}'")
-
-        plan = _plan(
-            query=search_query,
-            intent=intent_result.intent,
-            preferences=preferences,
-            observations=observations,
-            iteration=iteration,
-            max_iter=MAX_REACT_ITERATIONS,
-            api_key=api_key,
-        )
-
-        if not plan:
-            reasoning_steps.append(f"Thought (iter {iteration}): Planner decided sufficient results. Stopping.")
-            break
-
-        for tool_call in plan[:2]:
-            tool_name = tool_call.get("tool", "search")
-            tool_args = tool_call.get("args", {})
-
-            reasoning_steps.append(f"Action: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:100]})")
-
-            obs, products = _execute_tool(tool_name, tool_args, preferences, api_key, filters=intent_result.filters)
-            observations.append(obs)
-            reasoning_steps.append(f"Observation: {obs[:150]}")
-
-            if products:
-                all_products = products
-
-        if all_products and all_products[0].score > threshold:
-            reasoning_steps.append(
-                f"Thought: High confidence (score={all_products[0].score:.3f} > {threshold:.1f}). Proceeding to synthesis."
-            )
-            break
-
-        if iteration == 4:
-            threshold -= 0.2
-            reasoning_steps.append(f"Thought: Lowering threshold to {threshold:.1f} after 4 iterations.")
-
-        if iteration < MAX_REACT_ITERATIONS:
-            category = intent_result.filters.get("category", "")
-            search_query = f"{query} {category} fashion".strip()
-            reasoning_steps.append(f"Thought: Refining query to '{search_query}'")
-
-    # Step 5: Synthesize response (with preferences)
+    # Synthesize response (1 LLM call)
     answer, styling = _synthesize_response(
         query=query,
-        products=all_products,
-        history=history,
-        intent=intent_result.intent,
-        preferences=preferences,
-        api_key=api_key,
+        products=result.products,
+        history=result.history,
+        intent=result.intent,
+        preferences=result.preferences,
     )
 
-    # Convert NodeWithScore to ProductResult
+    # Convert NodeWithScore → ProductResult
     product_results = [
         ProductResult(
             image_id=p.image_id,
@@ -493,38 +565,130 @@ def chat(
             caption=p.caption,
             score=p.score,
         )
-        for p in all_products
+        for p in result.products
     ]
 
-    # Save assistant response
-    add_message(session_id, "assistant", answer)
+    add_message(result.session_id, "assistant", answer)
 
     return AgentResponse(
         answer=answer,
         products=product_results,
         styling_suggestion=styling,
-        reasoning=" → ".join(reasoning_steps),
-        session_id=session_id,
-        intent=intent_result.intent,
+        reasoning=result.reasoning,
+        session_id=result.session_id,
+        intent=result.intent,
     )
 
 
 def _count_clarification_turns(history: list[Message]) -> int:
-    """Count consecutive clarification turns (assistant messages that are questions).
-
-    Looks backward from the most recent messages to count how many times
-    the agent asked for clarification vs gave search results.
-    """
+    """Count consecutive clarification turns (assistant messages that are questions)."""
     count = 0
-    # Walk backward through history, counting assistant messages that look like questions
     for msg in reversed(history):
         if msg.role == "assistant":
-            # Check if this message was a clarification (contains question marks)
             if "?" in msg.content or "không?" in msg.content:
                 count += 1
             else:
-                break  # Found a non-question assistant message — stop counting
+                break
         elif msg.role == "user":
-            # User message between clarifications — continue counting
             continue
     return count
+
+
+# ---------------------------------------------------------------------------
+# Streaming chat entry point
+# ---------------------------------------------------------------------------
+
+def chat_stream(
+    query: str,
+    session_id: Optional[str] = None,
+) -> Generator:
+    """Streaming variant of ``chat()`` — yields SSE-formatted events.
+
+    Event types:
+    - ``event: thinking_start``  → ``data: {"text": "..."}``
+    - ``event: thinking_step``   → ``data: {"step": "...", "detail": "..."}``
+    - ``event: thinking_end``    → ``data: {"duration_ms": ...}``
+    - ``event: model_thinking``  → ``data: {"text": "..."}``
+    - ``event: token``           → ``data: {"text": "..."}``
+    - ``event: clarification``   → ``data: {"text": "...", "intent": "..."}``
+    - ``event: products``        → ``data: {"products": [...]}``
+    - ``event: done``            → ``data: {"session_id": "...", "intent": "...", "styling": "..."}``
+    """
+    orchestrate_start = time.time()
+    result = None
+
+    # Consume orchestration stream — emit thinking events as they arrive
+    for event in _orchestrate_stream(query, session_id):
+        if isinstance(event, ThinkingEvent):
+            if event.step == "start":
+                yield _sse("thinking_start", {"text": event.detail})
+            elif event.step == "done":
+                duration_ms = int((time.time() - orchestrate_start) * 1000)
+                yield _sse("thinking_end", {"duration_ms": duration_ms})
+            else:
+                yield _sse("thinking_step", {
+                    "step": event.step,
+                    "detail": event.detail,
+                })
+        elif isinstance(event, OrchestrateResult):
+            result = event
+
+    if result is None:
+        yield _sse("done", {"session_id": "", "intent": "error", "styling": ""})
+        return
+
+    # Early return for clarification / out-of-scope
+    if result.clarification:
+        event_intent = result.intent
+        yield _sse("clarification", {"text": result.clarification, "intent": event_intent})
+        yield _sse("done", {"session_id": result.session_id, "intent": event_intent, "styling": ""})
+        return
+
+    # Emit product cards
+    product_dicts = [
+        {
+            "image_id": p.image_id,
+            "image_path": p.image_path,
+            "label": p.label,
+            "color": p.color,
+            "caption": p.caption[:100],
+            "score": round(p.score, 4),
+        }
+        for p in result.products
+    ]
+    yield _sse("products", {"products": product_dicts})
+
+    # Stream synthesis tokens — separate thinking vs response
+    full_text_parts: list[str] = []
+    for chunk in _synthesize_response_stream(
+        query=query,
+        products=result.products,
+        history=result.history,
+        intent=result.intent,
+        preferences=result.preferences,
+    ):
+        if isinstance(chunk, ThinkingToken):
+            yield _sse("model_thinking", {"text": chunk.text})
+        elif isinstance(chunk, ResponseToken):
+            full_text_parts.append(chunk.text)
+            yield _sse("token", {"text": chunk.text})
+        else:
+            # Fallback for plain strings (shouldn't happen but defensive)
+            full_text_parts.append(str(chunk))
+            yield _sse("token", {"text": str(chunk)})
+
+    full_text = "".join(full_text_parts)
+    styling = _extract_styling_from_text(full_text)
+
+    add_message(result.session_id, "assistant", full_text)
+
+    yield _sse("done", {
+        "session_id": result.session_id,
+        "intent": result.intent,
+        "styling": styling,
+    })
+
+
+def _sse(event: str, data: dict) -> str:
+    """Format a single Server-Sent Event line."""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
