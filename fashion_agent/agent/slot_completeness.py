@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-from typing import Optional
 
 from agent.intent_classifier import ExtractedSlots
 
@@ -13,171 +10,83 @@ from agent.intent_classifier import ExtractedSlots
 # Slot Completeness Check
 # ---------------------------------------------------------------------------
 
-# Slot display names for Vietnamese clarification questions
-SLOT_LABELS_VI = {
-    "category": "loại trang phục (áo sơ mi, váy, quần jeans...)",
-    "color": "màu sắc (trắng, đen, xanh navy...)",
-    "fabric": "chất liệu (cotton, linen, silk, denim...)",
-    "fit": "dáng/kiểu (ôm, rộng, A-line, regular...)",
-    "construction": "chi tiết (cổ bẻ, khóa kéo, cổ tròn...)",
-    "aesthetic": "phong cách (casual, formal, minimalist, vintage...)",
-}
-
 
 def check_slot_completeness(
     slots: ExtractedSlots,
 ) -> tuple[bool, list[str]]:
     """Check if extracted slots meet the search threshold.
 
-    Search threshold:
-    - category is filled AND
-    - color is filled AND
-    - at least 3 out of 4 caption slots are filled (fabric, fit, construction, aesthetic)
+    Search threshold (updated):
+    - ``category`` is filled AND
+    - ``color`` is filled AND
+    - at least one of ``fabric`` or ``fit`` is filled
+
+    ``construction`` and ``aesthetic`` are *bonus* slots — the agent may
+    suggest them in the response text but they never block a search.
 
     Returns:
         (is_complete, missing_slot_names)
     """
-    missing = []
+    missing: list[str] = []
 
     if not slots.category:
         missing.append("category")
     if not slots.color:
         missing.append("color")
 
-    caption_filled = slots.caption_slots_filled()
-    caption_missing = []
-    if not slots.fabric:
-        caption_missing.append("fabric")
-    if not slots.fit:
-        caption_missing.append("fit")
-    if not slots.construction:
-        caption_missing.append("construction")
-    if not slots.aesthetic:
-        caption_missing.append("aesthetic")
+    has_fabric_or_fit = bool(slots.fabric) or bool(slots.fit)
+    if not has_fabric_or_fit:
+        # Report both as missing so the template question covers both
+        if not slots.fabric:
+            missing.append("fabric")
+        if not slots.fit:
+            missing.append("fit")
 
-    # Need at least 3/4 caption slots — only report as missing if < 3 filled
-    if caption_filled < 3:
-        missing.extend(caption_missing)
-
-    is_complete = bool(slots.category) and bool(slots.color) and caption_filled >= 3
+    is_complete = bool(slots.category) and bool(slots.color) and has_fabric_or_fit
     return is_complete, missing
 
 
 # ---------------------------------------------------------------------------
-# Targeted Clarification Question
+# Template-based clarification (0 LLM calls)
 # ---------------------------------------------------------------------------
 
-TARGETED_QUESTION_PROMPT = """You are a fashion shopping assistant. The user is looking for clothing but hasn't provided enough detail yet.
-
-Based on what they've already told you and what's still missing, ask a natural, friendly clarification question.
-
-## What the user has provided:
-{filled_info}
-
-## What is still missing:
-{missing_info}
-
-## Conversation history:
-{history_text}
-
-Rules:
-1. Ask in the SAME LANGUAGE as the user's messages (Vietnamese or English).
-2. Ask about ALL missing information in ONE question.
-3. Give specific examples for each missing item to guide the user.
-4. Keep it conversational and friendly — not like a form.
-5. Do NOT repeat what the user already told you.
-
-Respond ONLY with valid JSON:
-{{
-    "question": "<your clarification question>"
-}}
-"""
+# Pre-built template parts — imported from centralized prompts module.
+from agent.prompts import SLOT_TEMPLATES, COMBO_TEMPLATES
 
 
-def generate_targeted_question(
-    slots: ExtractedSlots,
+def build_template_question(
     missing_slots: list[str],
-    history: list | None = None,
-    api_key: Optional[str] = None,
-    model_name: str = "gemini-2.5-flash",
+    slots: ExtractedSlots,
 ) -> str:
-    """Generate a targeted clarification question about specific missing slots.
+    """Build a clarification question from templates (0 LLM calls).
 
-    Uses Gemini to produce a natural, conversational question that asks
-    specifically about the missing information slots.
+    Selects the best pre-built template based on which slots are missing,
+    then interpolates any known slot values for personalisation.
+
+    Args:
+        missing_slots: List of missing slot names from ``check_slot_completeness``.
+        slots: Current accumulated slot data (used for template interpolation).
+
+    Returns:
+        A friendly English clarification question string.
     """
-    # Build filled info text
-    filled_parts = []
-    if slots.category:
-        filled_parts.append(f"Loại: {slots.category}")
-    if slots.color:
-        filled_parts.append(f"Màu: {slots.color}")
-    if slots.fabric:
-        filled_parts.append(f"Chất liệu: {slots.fabric}")
-    if slots.fit:
-        filled_parts.append(f"Dáng: {slots.fit}")
-    if slots.construction:
-        filled_parts.append(f"Chi tiết: {slots.construction}")
-    if slots.aesthetic:
-        filled_parts.append(f"Phong cách: {slots.aesthetic}")
-    filled_info = ", ".join(filled_parts) if filled_parts else "Chưa có thông tin cụ thể."
+    missing_key = frozenset(missing_slots)
 
-    # Build missing info text
-    missing_labels = [SLOT_LABELS_VI.get(s, s) for s in missing_slots]
-    missing_info = ", ".join(missing_labels)
-
-    # Format history
-    history_lines = []
-    if history:
-        for msg in history[-4:]:
-            role = getattr(msg, "role", "user")
-            content = getattr(msg, "content", str(msg))
-            history_lines.append(f"{role}: {content[:100]}")
-    history_text = "\n".join(history_lines) if history_lines else "No prior conversation."
-
-    # Try Gemini for natural question
-    try:
-        import google.generativeai as genai
-
-        key = api_key or os.getenv("GEMINI_API_KEY")
-        if not key:
-            return _fallback_question(missing_slots)
-
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel(model_name)
-
-        prompt = TARGETED_QUESTION_PROMPT.format(
-            filled_info=filled_info,
-            missing_info=missing_info,
-            history_text=history_text,
+    # Try exact match first, then fallback to generic build
+    template = COMBO_TEMPLATES.get(missing_key)
+    if template:
+        return template.format(
+            category=slots.category or "clothing",
+            color=slots.color or "your preferred color",
         )
 
-        response = model.generate_content(prompt)
-        text = response.text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0]
-        data = json.loads(text)
-        question = data.get("question", "")
-        if question:
-            return question
-    except Exception:
-        pass
-
-    return _fallback_question(missing_slots)
-
-
-def _fallback_question(missing_slots: list[str]) -> str:
-    """Generate a simple fallback question when Gemini is unavailable."""
-    parts = []
+    # Generic fallback: list each missing slot individually
+    parts = ["Could you tell me a bit more? 💬"]
     for slot in missing_slots:
-        label = SLOT_LABELS_VI.get(slot, slot)
-        parts.append(f"- {label}")
+        label = SLOT_TEMPLATES.get(slot, slot)
+        parts.append(f"• **{slot.capitalize()}**: {label}")
+    return "\n".join(parts)
 
-    return (
-        "Bạn có thể cho mình biết thêm không?\n"
-        + "\n".join(parts)
-    )
 
 
 # ---------------------------------------------------------------------------
