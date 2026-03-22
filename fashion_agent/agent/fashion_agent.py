@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field, asdict
 from typing import Generator, Optional, Union
@@ -40,6 +41,8 @@ from agent.memory import (
     init_memory_tables,
     log_query,
     get_preferences,
+    save_selected_items,
+    get_selected_items,
     Message,
 )
 from search.search_engine import search as hybrid_search
@@ -76,12 +79,22 @@ class AgentResponse:
 
 
 @dataclass
+class TokenUsage:
+    """Token counts from a single LLM call."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    call_name: str = ""  # e.g. "intent", "synthesis"
+
+
+@dataclass
 class ThinkingEvent:
     """Emitted during orchestration to show pipeline progress to the user."""
 
     step: str        # e.g. "start", "classify_done", "search_done"
     detail: str      # human-readable detail text
     timestamp: float = field(default_factory=time.time)
+    tokens: Optional[TokenUsage] = None  # token usage for this step
 
 
 @dataclass
@@ -99,7 +112,7 @@ class ResponseToken:
 
 
 # Union type for synthesis stream output
-SynthesisChunk = Union[ThinkingToken, ResponseToken]
+SynthesisChunk = Union[ThinkingToken, ResponseToken, TokenUsage]
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +135,7 @@ def _build_synthesis_context(
     products_lines = []
     for i, p in enumerate(products, 1):
         products_lines.append(
-            f"{i}. {p.label} | Color: {p.color} | Caption: {p.caption[:80]}"
+            f"{i}. {p.label} | Color: {p.color} | Caption: {p.caption}"
         )
     products_text = "\n".join(products_lines) if products_lines else "No products found."
 
@@ -141,6 +154,7 @@ def _build_synthesis_context(
         "products_text": products_text,
         "history_text": history_text,
         "preferences_text": preferences_text,
+        "num_results": len(products),
     }
 
 
@@ -221,6 +235,19 @@ def _synthesize_response_stream(
             elif chunk.text:
                 # Fallback: SDK without parts support
                 yield ResponseToken(chunk.text)
+
+        # After stream completes — extract token usage
+        try:
+            usage = getattr(response, "usage_metadata", None)
+            if usage:
+                yield TokenUsage(
+                    input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+                    output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+                    call_name="synthesis",
+                )
+        except Exception:
+            pass  # Token info is optional — never crash for it
+
     except Exception as exc:
         logger.warning("Streaming synthesis failed: %s", exc)
         yield ResponseToken(fallback_text_response(products))
@@ -250,6 +277,30 @@ MAX_CLARIFICATION_TURNS = 3
 from cachetools import TTLCache
 
 _session_accumulated_slots: TTLCache = TTLCache(maxsize=100, ttl=1800)
+
+# Product selection caches
+_session_last_results: TTLCache = TTLCache(maxsize=1000, ttl=1800)   # 30 min
+_session_pending_selection: TTLCache = TTLCache(maxsize=1000, ttl=300)  # 5 min
+
+
+@dataclass
+class PendingSelection:
+    """Items awaiting user confirmation before saving."""
+    items: list[ProductResult]
+    search_query: str
+    numbers: list[int]
+
+
+# Keyword sets for confirm/reject detection (0 LLM calls)
+CONFIRM_KEYWORDS = {
+    "yes", "ok", "okay", "confirm", "đúng", "đúng rồi", "oke",
+    "sure", "yep", "yeah", "đồng ý", "lưu", "save", "y", "ừ",
+    "uh", "uh huh", "được", "chốt",
+}
+REJECT_KEYWORDS = {
+    "no", "không", "cancel", "hủy", "thôi", "skip", "n",
+    "nope", "bỏ", "không lưu",
+}
 
 
 def _route_and_execute(
@@ -431,6 +482,18 @@ def _orchestrate_stream(
     add_message(session_id, "user", query)
     history = get_history(session_id, limit=20)
 
+    # --- Product selection: keyword confirm/reject check (0 LLM calls) ---
+    if session_id in _session_pending_selection:
+        normalized = query.strip().lower()
+        if normalized in CONFIRM_KEYWORDS:
+            yield from _handle_confirm(session_id)
+            return
+        if normalized in REJECT_KEYWORDS:
+            yield from _handle_reject(session_id)
+            return
+        # Not a keyword match — fall through to normal classification
+        # (pending state remains; if user searches, it will be ignored via TTL)
+
     # Step 1: Intent classification (1 LLM call)
     yield ThinkingEvent("classify", "Classifying intent...")
     intent_result = classify_intent(query, history=history)
@@ -450,9 +513,18 @@ def _orchestrate_stream(
             parts.append(f"fit={slots.fit}")
         slots_detail = f" | Slots: {', '.join(parts)}" if parts else ""
 
+    # Build intent token info
+    intent_tokens = TokenUsage(
+        input_tokens=intent_result.input_tokens,
+        output_tokens=intent_result.output_tokens,
+        call_name="intent",
+    )
+    token_detail = f" | 📊 Intent: {intent_tokens.input_tokens} in / {intent_tokens.output_tokens} out"
+
     yield ThinkingEvent(
         "classify_done",
-        f"Intent: {intent} (confidence: {intent_result.confidence:.2f}){slots_detail}",
+        f"Intent: {intent} (confidence: {intent_result.confidence:.2f}){slots_detail}{token_detail}",
+        tokens=intent_tokens,
     )
 
     # Step 2: Out-of-scope — early exit
@@ -466,6 +538,21 @@ def _orchestrate_stream(
             history=history,
             filters=intent_result.filters,
         )
+        return
+
+    # Step 2b: Product selection — early exit (0 extra LLM calls)
+    if intent == "product_select":
+        selected_nums = intent_result.extracted_slots.selected_numbers
+        yield ThinkingEvent("done", f"Product selection — {time.time() - start_time:.1f}s")
+        yield from _handle_product_select(
+            session_id, selected_nums, intent_result.refined_query or query,
+        )
+        return
+
+    # Step 2c: View selections — early exit (0 LLM calls)
+    if intent == "view_selections":
+        yield ThinkingEvent("done", f"View selections — {time.time() - start_time:.1f}s")
+        yield from _handle_view_selections(session_id)
         return
 
     # Step 3: Slot gate + search query resolution
@@ -507,6 +594,21 @@ def _orchestrate_stream(
         f"Tìm thấy {len(products)} sản phẩm — reranking...",
     )
 
+    # Cache search results for product selection
+    if products:
+        cached_products = [
+            ProductResult(
+                image_id=p.image_id,
+                image_path=p.image_path,
+                label=p.label,
+                color=p.color,
+                caption=p.caption,
+                score=p.score,
+            )
+            for p in products
+        ]
+        _session_last_results[session_id] = cached_products
+
     elapsed = time.time() - start_time
     yield ThinkingEvent("done", f"Hoàn tất — {elapsed:.1f}s")
 
@@ -520,6 +622,157 @@ def _orchestrate_stream(
         history=history,
         filters=intent_result.filters,
     )
+
+
+# ---------------------------------------------------------------------------
+# Product selection handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_product_select(
+    session_id: str,
+    selected_numbers: list[int],
+    search_query: str,
+) -> Generator:
+    """Validate selections against cached results and create pending confirmation."""
+    cached_results = _session_last_results.get(session_id)
+    if not cached_results:
+        yield _sse("clarification", {
+            "text": "⚠️ No recent search results. Please search for products first!",
+            "intent": "product_select",
+        })
+        return
+
+    if not selected_numbers:
+        yield _sse("clarification", {
+            "text": "Which item would you like? Please specify a number (1-{}).".format(len(cached_results)),
+            "intent": "product_select",
+        })
+        return
+
+    max_idx = len(cached_results)
+    valid_items = []
+    invalid_nums = []
+
+    for num in selected_numbers:
+        if 1 <= num <= max_idx:
+            valid_items.append(cached_results[num - 1])  # 0-indexed
+        else:
+            invalid_nums.append(num)
+
+    if not valid_items:
+        yield _sse("clarification", {
+            "text": f"❌ Invalid selection! Please choose between 1 and {max_idx}.",
+            "intent": "product_select",
+        })
+        return
+
+    # Create pending selection
+    pending = PendingSelection(
+        items=valid_items, search_query=search_query, numbers=selected_numbers,
+    )
+    _session_pending_selection[session_id] = pending
+
+    # Build confirmation preview
+    lines = ["✅ **You selected:**\n"]
+    for i, item in enumerate(valid_items, 1):
+        color_str = f" — {item.color}" if item.color else ""
+        lines.append(f"{i}. **{item.label}**{color_str}")
+        if item.caption:
+            lines.append(f"   _{item.caption}_")
+        # Product image
+        if item.image_path:
+            filename = os.path.basename(item.image_path)
+            lines.append(f"\n![{item.label}](/api/images/{filename})\n")
+    if invalid_nums:
+        lines.append(f"\n⚠️ Skipped invalid: {', '.join(str(n) for n in invalid_nums)} (only 1-{max_idx})")
+    lines.append("\n**Confirm? (yes/no)**")
+
+    preview_text = "\n".join(lines)
+    add_message(session_id, "assistant", preview_text)
+
+    yield _sse("selection_confirm", {
+        "text": preview_text,
+        "items": [
+            {
+                "label": it.label,
+                "color": it.color,
+                "caption": it.caption,
+                "image_path": it.image_path,
+            }
+            for it in valid_items
+        ],
+    })
+    yield _sse("done", {
+        "session_id": session_id,
+        "intent": "product_select",
+        "styling": "",
+    })
+
+
+def _handle_confirm(session_id: str) -> Generator:
+    """Save pending items to DB and clear pending state."""
+    pending = _session_pending_selection.pop(session_id, None)
+    if not pending:
+        yield _sse("clarification", {
+            "text": "Nothing to confirm. Please select products first.",
+            "intent": "product_confirm",
+        })
+        return
+
+    items_to_save = [
+        {
+            "image_id": it.image_id,
+            "label": it.label,
+            "color": it.color,
+            "caption": it.caption,
+            "image_path": it.image_path,
+            "search_query": pending.search_query,
+        }
+        for it in pending.items
+    ]
+    inserted = save_selected_items(session_id, items_to_save)
+    skipped = len(items_to_save) - inserted
+
+    parts = [f"💾 **Saved {inserted} item(s)!**"]
+    if skipped > 0:
+        parts.append(f"({skipped} already in your selections)")
+    parts.append('\n💡 Continue searching or type "show selections" to view all picks.')
+    text = " ".join(parts)
+
+    add_message(session_id, "assistant", text)
+    yield _sse("selection_saved", {"text": text, "inserted": inserted, "skipped": skipped})
+    yield _sse("done", {"session_id": session_id, "intent": "product_confirm", "styling": ""})
+
+
+def _handle_reject(session_id: str) -> Generator:
+    """Discard pending selection."""
+    _session_pending_selection.pop(session_id, None)
+    text = "❌ Selection cancelled. Feel free to search again or pick different items!"
+    add_message(session_id, "assistant", text)
+    yield _sse("selection_cancelled", {"text": text})
+    yield _sse("done", {"session_id": session_id, "intent": "product_reject", "styling": ""})
+
+
+def _handle_view_selections(session_id: str) -> Generator:
+    """Retrieve and display all saved selections for the session."""
+    items = get_selected_items(session_id)
+    if not items:
+        text = "📋 You haven't selected anything yet. Search for products and pick your favorites!"
+    else:
+        lines = [f"📋 **Your Selections ({len(items)} items):**\n"]
+        for i, it in enumerate(items, 1):
+            color_str = f" — {it['color']}" if it.get('color') else ""
+            lines.append(f"{i}. **{it['label']}**{color_str}")
+            if it.get('caption'):
+                lines.append(f"   _{it['caption']}_")
+            if it.get('search_query'):
+                lines.append(f"   🔍 Found via: _{it['search_query']}_")
+        text = "\n".join(lines)
+
+    add_message(session_id, "assistant", text)
+    yield _sse("selections_list", {"text": text, "count": len(items)})
+    yield _sse("done", {"session_id": session_id, "intent": "view_selections", "styling": ""})
 
 
 # ---------------------------------------------------------------------------
@@ -616,15 +869,26 @@ def chat_stream(
     """
     orchestrate_start = time.time()
     result = None
+    intent_tokens = TokenUsage()  # collect intent tokens
 
     # Consume orchestration stream — emit thinking events as they arrive
     for event in _orchestrate_stream(query, session_id):
-        if isinstance(event, ThinkingEvent):
+        if isinstance(event, str):
+            # Raw SSE from selection handlers — pass through directly
+            yield event
+        elif isinstance(event, ThinkingEvent):
+            # Collect token info from thinking events
+            if event.tokens:
+                intent_tokens = event.tokens
             if event.step == "start":
                 yield _sse("thinking_start", {"text": event.detail})
             elif event.step == "done":
                 duration_ms = int((time.time() - orchestrate_start) * 1000)
-                yield _sse("thinking_end", {"duration_ms": duration_ms})
+                yield _sse("thinking_end", {
+                    "duration_ms": duration_ms,
+                    "input_tokens": intent_tokens.input_tokens,
+                    "output_tokens": intent_tokens.output_tokens,
+                })
             else:
                 yield _sse("thinking_step", {
                     "step": event.step,
@@ -634,14 +898,21 @@ def chat_stream(
             result = event
 
     if result is None:
-        yield _sse("done", {"session_id": "", "intent": "error", "styling": ""})
+        # Selection handlers don't yield OrchestrateResult — that's OK
+        # Check if we already yielded a 'done' event via raw SSE
         return
 
     # Early return for clarification / out-of-scope
     if result.clarification:
         event_intent = result.intent
         yield _sse("clarification", {"text": result.clarification, "intent": event_intent})
-        yield _sse("done", {"session_id": result.session_id, "intent": event_intent, "styling": ""})
+        yield _sse("done", {
+            "session_id": result.session_id,
+            "intent": event_intent,
+            "styling": "",
+            "total_input_tokens": intent_tokens.input_tokens,
+            "total_output_tokens": intent_tokens.output_tokens,
+        })
         return
 
     # Emit product cards
@@ -651,7 +922,7 @@ def chat_stream(
             "image_path": p.image_path,
             "label": p.label,
             "color": p.color,
-            "caption": p.caption[:100],
+            "caption": p.caption,
             "score": round(p.score, 4),
         }
         for p in result.products
@@ -660,6 +931,7 @@ def chat_stream(
 
     # Stream synthesis tokens — separate thinking vs response
     full_text_parts: list[str] = []
+    synthesis_tokens = TokenUsage()  # collect synthesis tokens
     for chunk in _synthesize_response_stream(
         query=query,
         products=result.products,
@@ -672,6 +944,8 @@ def chat_stream(
         elif isinstance(chunk, ResponseToken):
             full_text_parts.append(chunk.text)
             yield _sse("token", {"text": chunk.text})
+        elif isinstance(chunk, TokenUsage):
+            synthesis_tokens = chunk
         else:
             # Fallback for plain strings (shouldn't happen but defensive)
             full_text_parts.append(str(chunk))
@@ -686,6 +960,8 @@ def chat_stream(
         "session_id": result.session_id,
         "intent": result.intent,
         "styling": styling,
+        "total_input_tokens": intent_tokens.input_tokens + synthesis_tokens.input_tokens,
+        "total_output_tokens": intent_tokens.output_tokens + synthesis_tokens.output_tokens,
     })
 
 
