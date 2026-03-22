@@ -26,6 +26,7 @@ class ExtractedSlots:
     fit: Optional[str] = None  # e.g., "slim fit", "oversized", "A-line"
     construction: Optional[str] = None  # e.g., "point collar", "zip closure"
     aesthetic: Optional[str] = None  # e.g., "casual", "formal", "minimalist"
+    selected_numbers: list[int] = field(default_factory=list)  # e.g., [1, 3] for product selection
 
     def filled_count(self) -> int:
         """Count how many slots are filled (non-null, non-empty)."""
@@ -48,11 +49,20 @@ class ClassifiedIntent:
     filters: dict  # extracted filters like {category, color, style}
     refined_query: str  # cleaned/preprocessed query for search
     extracted_slots: ExtractedSlots = field(default_factory=ExtractedSlots)
+    input_tokens: int = 0   # from response.usage_metadata
+    output_tokens: int = 0  # from response.usage_metadata
 
 
 def _parse_slots(data: dict) -> ExtractedSlots:
     """Parse extracted slots from Gemini JSON response with fallback."""
     try:
+        # Parse selected_numbers safely
+        raw_numbers = data.get("selected_numbers", [])
+        if isinstance(raw_numbers, list):
+            selected_numbers = [int(n) for n in raw_numbers if isinstance(n, (int, float))]
+        else:
+            selected_numbers = []
+
         return ExtractedSlots(
             category=data.get("slot_category") or None,
             color=data.get("slot_color") or None,
@@ -60,6 +70,7 @@ def _parse_slots(data: dict) -> ExtractedSlots:
             fit=data.get("slot_fit") or None,
             construction=data.get("slot_construction") or None,
             aesthetic=data.get("slot_aesthetic") or None,
+            selected_numbers=selected_numbers,
         )
     except Exception:
         return ExtractedSlots()
@@ -77,6 +88,11 @@ def classify_intent(
     full_prompt = INTENT_PROMPT.format(history_text=history_text) + query
     response = model.generate_content(full_prompt)
 
+    # Extract token usage defensively
+    usage = getattr(response, "usage_metadata", None)
+    in_tok = getattr(usage, "prompt_token_count", 0) or 0
+    out_tok = getattr(usage, "candidates_token_count", 0) or 0
+
     try:
         data = parse_llm_json(response.text)
         slots = _parse_slots(data)
@@ -87,6 +103,8 @@ def classify_intent(
             filters=data.get("filters", {}),
             refined_query=data.get("refined_query", query),
             extracted_slots=slots,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
         )
     except Exception as exc:
         import logging
@@ -98,4 +116,6 @@ def classify_intent(
             filters={},
             refined_query=query,
             extracted_slots=ExtractedSlots(),
+            input_tokens=in_tok,
+            output_tokens=out_tok,
         )
