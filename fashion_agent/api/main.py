@@ -311,7 +311,7 @@ def create_gradio_app():
 
             caption = p.get("caption", "")
             if caption and caption.strip():
-                cap = caption[:150] + "..." if len(caption) > 150 else caption
+                cap = caption
                 text += f"_{cap}_\n"
 
             # Use markdown image syntax (Gradio 6.x compatible)
@@ -342,6 +342,8 @@ def create_gradio_app():
         thinking_active = False
         thinking_duration_ms = 0
         thinking_block = ""
+        total_in = 0
+        total_out = 0
 
         for event_str in agent_chat_stream(query=message, session_id=sid):
             etype, edata = _parse_single_sse(event_str)
@@ -375,10 +377,15 @@ def create_gradio_app():
                 duration_sec = thinking_duration_ms / 1000
                 steps_text = "\n".join(thinking_steps)
 
+                # Build token info string for header
+                t_in = edata.get("input_tokens", 0)
+                t_out = edata.get("output_tokens", 0)
+                token_str = f" — 📊 {t_in} in / {t_out} out" if (t_in or t_out) else ""
+
                 # Wrap in collapsible <details> block
                 thinking_block = (
                     f"<details>\n"
-                    f"<summary>🤔 Đã suy nghĩ ({duration_sec:.1f}s)</summary>\n\n"
+                    f"<summary>🤔 Đã suy nghĩ ({duration_sec:.1f}s){token_str}</summary>\n\n"
                     f"{steps_text}\n\n"
                     f"</details>\n\n"
                 )
@@ -409,9 +416,44 @@ def create_gradio_app():
             elif etype == "products":
                 product_cards = _format_product_cards(edata.get("products", []))
 
+            elif etype == "selection_confirm":
+                # Product selection confirmation preview
+                accumulated_text += edata.get("text", "")
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "selection_saved":
+                # Product selection saved successfully
+                accumulated_text += edata.get("text", "")
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "selection_cancelled":
+                # Product selection cancelled
+                accumulated_text += edata.get("text", "")
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "selections_list":
+                # View all selections
+                accumulated_text += edata.get("text", "")
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
             elif etype == "done":
                 new_session_id = edata.get("session_id", session_id_state)
                 styling = edata.get("styling", "")
+                # Capture total token counts for final render
+                total_in = edata.get("total_input_tokens", 0)
+                total_out = edata.get("total_output_tokens", 0)
 
         # Final yield with styling + products + model thinking appended
         final_text = accumulated_text
@@ -432,6 +474,11 @@ def create_gradio_app():
             final_text += f"\n\n💡 **Styling tip:** {styling}"
         if product_cards:
             final_text += product_cards
+
+        # Append total token usage footer
+        if total_in or total_out:
+            total = total_in + total_out
+            final_text += f"\n\n📊 Total: {total_in} in / {total_out} out ({total} tokens)"
 
         yield (
             history + [{"role": "assistant", "content": final_text}],
