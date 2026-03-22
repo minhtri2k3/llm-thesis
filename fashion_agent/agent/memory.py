@@ -90,6 +90,23 @@ def init_memory_tables() -> None:
         ADD COLUMN IF NOT EXISTS liked_items JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE user_sessions
         ADD COLUMN IF NOT EXISTS query_history JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+    -- Product selection: stores user-confirmed product selections
+    CREATE TABLE IF NOT EXISTS selected_items (
+        id SERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        image_id VARCHAR NOT NULL,
+        label VARCHAR NOT NULL DEFAULT '',
+        color VARCHAR NOT NULL DEFAULT '',
+        caption TEXT NOT NULL DEFAULT '',
+        image_path VARCHAR NOT NULL DEFAULT '',
+        search_query TEXT NOT NULL DEFAULT '',
+        selected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (session_id, image_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_selected_items_session
+        ON selected_items(session_id, selected_at);
     """
     with _db_conn() as conn:
         with conn.cursor() as cur:
@@ -288,3 +305,72 @@ def get_preferences(session_id: str) -> dict:
 
     return result
 
+
+# ---------------------------------------------------------------------------
+# Product Selection: save/get confirmed selections
+# ---------------------------------------------------------------------------
+
+
+def save_selected_items(session_id: str, items: list[dict]) -> int:
+    """Save confirmed product selections to the database.
+
+    Uses INSERT ... ON CONFLICT DO NOTHING to skip duplicates.
+    Returns the count of newly inserted rows.
+    """
+    if not items:
+        return 0
+
+    inserted = 0
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            for item in items:
+                cur.execute(
+                    """
+                    INSERT INTO selected_items
+                        (session_id, image_id, label, color, caption, image_path, search_query)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (session_id, image_id) DO NOTHING;
+                    """,
+                    (
+                        session_id,
+                        item.get("image_id", ""),
+                        item.get("label", ""),
+                        item.get("color", ""),
+                        item.get("caption", ""),
+                        item.get("image_path", ""),
+                        item.get("search_query", ""),
+                    ),
+                )
+                inserted += cur.rowcount  # 1 if inserted, 0 if conflict
+        conn.commit()
+    return inserted
+
+
+def get_selected_items(session_id: str) -> list[dict]:
+    """Retrieve all selected items for a session, ordered by selection time."""
+    with _db_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT image_id, label, color, caption, image_path,
+                       search_query, selected_at
+                FROM selected_items
+                WHERE session_id = %s
+                ORDER BY selected_at ASC;
+                """,
+                (session_id,),
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "image_id": r["image_id"],
+            "label": r["label"],
+            "color": r["color"],
+            "caption": r["caption"],
+            "image_path": r["image_path"],
+            "search_query": r["search_query"],
+            "selected_at": str(r["selected_at"]),
+        }
+        for r in rows
+    ]
