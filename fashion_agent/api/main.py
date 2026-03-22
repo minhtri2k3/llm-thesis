@@ -39,11 +39,16 @@ def _convert_image_path(host_path: str) -> Optional[Path]:
     """Convert host absolute image path to container path.
 
     Extracts the basename (e.g. 'ea7b6656.jpg') and maps to
-    /app/dataset_images/ea7b6656.jpg. Returns None if file doesn't exist.
+    /app/dataset_images/images_compressed/ea7b6656.jpg. Returns None if file doesn't exist.
     """
     if not host_path:
         return None
     filename = os.path.basename(host_path)
+    # Try images_compressed subfolder first
+    container_path = DATASET_IMAGES_DIR / "images_compressed" / filename
+    if container_path.exists():
+        return container_path
+    # Fallback to root dataset_images directory
     container_path = DATASET_IMAGES_DIR / filename
     if container_path.exists():
         return container_path
@@ -180,8 +185,11 @@ async def get_product(image_id: str):
 @app.get("/api/images/{filename:path}")
 async def serve_image(filename: str):
     """Serve product images from dataset or local images directory."""
-    # Try dataset images first (mounted from Kaggle dataset)
-    file_path = DATASET_IMAGES_DIR / filename
+    # Try dataset images_compressed subfolder first (mounted from Kaggle dataset)
+    file_path = DATASET_IMAGES_DIR / "images_compressed" / filename
+    if not file_path.exists():
+        # Try root dataset_images directory
+        file_path = DATASET_IMAGES_DIR / filename
     if not file_path.exists():
         # Fallback to local images directory
         file_path = IMAGES_DIR / filename
@@ -220,6 +228,8 @@ async def health_check():
             host=os.getenv("QDRANT_HOST", "localhost"),
             port=int(os.getenv("QDRANT_PORT", "6333")),
             timeout=3,
+            https=False,  # Use HTTP for local Docker connection
+            prefer_grpc=False,
         )
         client.get_collections()
         services["qdrant"] = "healthy"

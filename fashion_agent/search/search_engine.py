@@ -71,6 +71,8 @@ def _load_bm25():
         port=QDRANT_PORT,
         api_key=QDRANT_API_KEY,
         timeout=30,
+        https=False,  # Use HTTP for local Docker connection
+        prefer_grpc=False,
     )
 
     # Scroll all items from Qdrant
@@ -156,6 +158,8 @@ def vector_retrieve(query: str, top_k: int = VECTOR_TOP_K) -> list[NodeWithScore
         port=QDRANT_PORT,
         api_key=QDRANT_API_KEY,
         timeout=30,
+        https=False,  # Use HTTP for local Docker connection
+        prefer_grpc=False,
     )
 
     results = client.query_points(
@@ -199,6 +203,8 @@ def text_vector_retrieve(query: str, top_k: int = TEXT_VEC_TOP_K) -> list[NodeWi
         port=QDRANT_PORT,
         api_key=QDRANT_API_KEY,
         timeout=30,
+        https=False,  # Use HTTP for local Docker connection
+        prefer_grpc=False,
     )
 
     try:
