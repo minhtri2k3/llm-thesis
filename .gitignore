@@ -52,3 +52,10 @@ models/
 # Docker volumes
 postgres_data/
 qdrant_data/
+
+# Backups (large archive files — restore manually, never commit)
+fashion_agent/pgdata_backup.tar.gz
+fashion_agent/qdrant_backup.tar.gz
+
+# Compressed image dataset (too large for git)
+fashion_agent/images/images_compressed/
