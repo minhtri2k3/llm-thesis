@@ -19,10 +19,10 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from agent.fashion_agent import chat as agent_chat, AgentResponse
+from agent.fashion_agent import chat as agent_chat, chat_stream as agent_chat_stream, AgentResponse
 from agent.memory import init_memory_tables
 
 # ---------------------------------------------------------------------------
@@ -34,20 +34,6 @@ DATASET_IMAGES_DIR = Path(os.getenv("DATASET_IMAGES_DIR", "/app/dataset_images")
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
 
-
-def _convert_image_path(host_path: str) -> Optional[Path]:
-    """Convert host absolute image path to container path.
-
-    Extracts the basename (e.g. 'ea7b6656.jpg') and maps to
-    /app/dataset_images/ea7b6656.jpg. Returns None if file doesn't exist.
-    """
-    if not host_path:
-        return None
-    filename = os.path.basename(host_path)
-    container_path = DATASET_IMAGES_DIR / filename
-    if container_path.exists():
-        return container_path
-    return None
 
 # ---------------------------------------------------------------------------
 # FastAPI App
@@ -134,6 +120,32 @@ async def chat_endpoint(req: ChatRequest):
             reasoning=result.reasoning,
             session_id=result.session_id,
             intent=result.intent,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/chat/stream")
+async def chat_stream_endpoint(req: ChatRequest):
+    """Streaming chat endpoint — returns Server-Sent Events.
+
+    Event types:
+    - token: text chunks as they arrive from Gemini
+    - clarification: clarification question (non-streamed)
+    - products: list of matching products
+    - done: final metadata (session_id, intent, styling)
+    """
+    try:
+        return StreamingResponse(
+            agent_chat_stream(
+                query=req.message,
+                session_id=req.session_id,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -262,50 +274,169 @@ def create_gradio_app():
     }
     """
 
-    def respond(message: str, history: list, session_id_state: str):
-        result = agent_chat(
-            query=message,
-            session_id=session_id_state if session_id_state else None,
+    def _parse_single_sse(event_str: str) -> tuple[str, dict]:
+        """Parse one SSE event string into (event_type, data_dict).
+
+        Returns ("", {}) if parsing fails.
+        """
+        import json as _json
+        event_type = ""
+        data_str = ""
+        for line in event_str.strip().split("\n"):
+            if line.startswith("event: "):
+                event_type = line[7:]
+            elif line.startswith("data: "):
+                data_str = line[6:]
+        if event_type and data_str:
+            try:
+                return event_type, _json.loads(data_str)
+            except _json.JSONDecodeError:
+                pass
+        return "", {}
+
+    def _format_product_cards(product_data: list) -> str:
+        """Format product data into markdown text with markdown images."""
+        if not product_data:
+            return ""
+
+        text = "\n\n---\n### 🛍️ Sản phẩm tìm thấy:\n\n"
+        for i, p in enumerate(product_data, 1):
+            label = p.get("label", "")
+            if not label or not label.strip():
+                continue
+
+            color = p.get("color", "")
+            color_str = f" — {color}" if color and color.strip() else ""
+            text += f"**{i}. {label}**{color_str}\n"
+
+            caption = p.get("caption", "")
+            if caption and caption.strip():
+                cap = caption[:150] + "..." if len(caption) > 150 else caption
+                text += f"_{cap}_\n"
+
+            # Use markdown image syntax (Gradio 6.x compatible)
+            img_path = p.get("image_path", "")
+            if img_path:
+                filename = os.path.basename(img_path)
+                text += f"\n![{label}](/api/images/{filename})\n\n"
+            else:
+                text += "\n"
+
+        return text
+
+    def respond_stream(message: str, history: list, session_id_state: str):
+        """True streaming handler — yields progressive chatbot updates.
+
+        Handles thinking events (collapsible block), model thinking,
+        response tokens, products, and styling.
+        """
+        sid = session_id_state if session_id_state else None
+        accumulated_text = ""
+        new_session_id = session_id_state
+        product_cards = ""
+        styling = ""
+
+        # Thinking state
+        thinking_steps: list[str] = []
+        model_thinking_parts: list[str] = []
+        thinking_active = False
+        thinking_duration_ms = 0
+        thinking_block = ""
+
+        for event_str in agent_chat_stream(query=message, session_id=sid):
+            etype, edata = _parse_single_sse(event_str)
+            if not etype:
+                continue
+
+            if etype == "thinking_start":
+                thinking_active = True
+                thinking_steps.clear()
+                # Show live thinking indicator
+                accumulated_text = "🤔 **Đang suy nghĩ...**\n"
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "thinking_step":
+                detail = edata.get("detail", "")
+                thinking_steps.append(f"✓ {detail}")
+                # Update with progressive thinking steps
+                steps_text = "\n".join(thinking_steps)
+                accumulated_text = f"🤔 **Đang suy nghĩ...**\n{steps_text}\n"
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "thinking_end":
+                thinking_active = False
+                thinking_duration_ms = edata.get("duration_ms", 0)
+                duration_sec = thinking_duration_ms / 1000
+                steps_text = "\n".join(thinking_steps)
+
+                # Wrap in collapsible <details> block
+                thinking_block = (
+                    f"<details>\n"
+                    f"<summary>🤔 Đã suy nghĩ ({duration_sec:.1f}s)</summary>\n\n"
+                    f"{steps_text}\n\n"
+                    f"</details>\n\n"
+                )
+                accumulated_text = thinking_block
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "model_thinking":
+                model_thinking_parts.append(edata.get("text", ""))
+
+            elif etype == "token":
+                accumulated_text += edata.get("text", "")
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "clarification":
+                # Clarification comes after thinking_end
+                accumulated_text += edata.get("text", "")
+                yield (
+                    history + [{"role": "assistant", "content": accumulated_text}],
+                    new_session_id,
+                )
+
+            elif etype == "products":
+                product_cards = _format_product_cards(edata.get("products", []))
+
+            elif etype == "done":
+                new_session_id = edata.get("session_id", session_id_state)
+                styling = edata.get("styling", "")
+
+        # Final yield with styling + products + model thinking appended
+        final_text = accumulated_text
+
+        # Append model thinking as collapsible if present
+        if model_thinking_parts:
+            model_think_text = "".join(model_thinking_parts)
+            if len(model_think_text) > 500:
+                model_think_text = model_think_text[:500] + "..."
+            final_text += (
+                f"\n\n<details>\n"
+                f"<summary>💭 Model reasoning</summary>\n\n"
+                f"{model_think_text}\n\n"
+                f"</details>"
+            )
+
+        if styling:
+            final_text += f"\n\n💡 **Styling tip:** {styling}"
+        if product_cards:
+            final_text += product_cards
+
+        yield (
+            history + [{"role": "assistant", "content": final_text}],
+            new_session_id,
         )
-
-        messages: list[dict] = []
-        text_response = result.answer
-        if result.styling_suggestion:
-            text_response += f"\n\n💡 **Styling tip:** {result.styling_suggestion}"
-
-        if result.products:
-            # 1. Filter out completely invalid/junk products to avoid ugly UI
-            valid_products = []
-            for p in result.products:
-                if not p.image_path:
-                    continue
-                img_path = _convert_image_path(p.image_path)
-                if not img_path:
-                    continue
-                # If it's totally empty or missing label, ignore it
-                if not p.label or p.label.strip() == "":
-                    continue
-                valid_products.append((p, img_path))
-
-            # 2. Append markdown with html img tags to look nice and compact
-            if valid_products:
-                text_response += "\n\n---\n### 🛍️ Sản phẩm tìm thấy:\n\n"
-                for i, (p, img_path) in enumerate(valid_products, 1):
-                    color_str = f" — {p.color}" if p.color and p.color.strip() else ""
-                    text_response += f"**{i}. {p.label}**{color_str}\n"
-
-                    if p.caption and p.caption.strip():
-                        cap = p.caption[:150] + "..." if len(p.caption) > 150 else p.caption
-                        text_response += f"_{cap}_\n"
-                    
-                    filename = os.path.basename(p.image_path)
-                    # We use an HTML img tag so we can constrain the size. Gradio markdown supports this.
-                    text_response += f'<br><img src="/api/images/{filename}" width="220" style="border-radius: 8px; margin-bottom: 15px;" />\n\n'
-
-        messages.append({"role": "assistant", "content": text_response})
-
-        new_session_id = result.session_id
-        return messages, new_session_id
 
     with gr.Blocks(
         title="🛍️ Fashion Agent",
@@ -331,14 +462,16 @@ def create_gradio_app():
 
         def user_submit(message, history, session_id_state):
             if not message.strip():
-                return "", history, session_id_state
+                yield "", history, session_id_state
+                return
 
-            assistant_msgs, new_session_id = respond(message, history, session_id_state)
-            # Add user message
-            history = history + [{"role": "user", "content": message}]
-            # Add all assistant messages (text + inline images)
-            history = history + assistant_msgs
-            return "", history, new_session_id
+            # Add user message immediately
+            updated_history = history + [{"role": "user", "content": message}]
+            yield "", updated_history, session_id_state
+
+            # Stream assistant response
+            for streamed_history, new_sid in respond_stream(message, updated_history, session_id_state):
+                yield "", streamed_history, new_sid
 
         def clear_chat():
             return [], ""

@@ -11,6 +11,7 @@ from typing import Optional
 
 import psycopg2
 from psycopg2.extras import DictCursor
+from contextlib import contextmanager
 
 
 @dataclass
@@ -27,15 +28,41 @@ class Session:
     created_at: str = ""
 
 
-def _get_connection():
-    return psycopg2.connect(
-        host=os.getenv("PGHOST", "localhost"),
-        port=int(os.getenv("PGPORT", "5432")),
-        dbname=os.getenv("PGDATABASE", "fashion_rag"),
-        user=os.getenv("PGUSER", "fashion_user"),
-        password=os.getenv("PGPASSWORD", ""),
-        connect_timeout=5,
-    )
+# ---------------------------------------------------------------------------
+# Connection pool (singleton)
+# ---------------------------------------------------------------------------
+
+_pool = None  # type: SimpleConnectionPool | None  (lazy import)
+
+
+def _get_pool():
+    """Return (and lazily create) the module-level connection pool."""
+    from psycopg2.pool import SimpleConnectionPool
+
+    global _pool
+    if _pool is None or _pool.closed:
+        _pool = SimpleConnectionPool(
+            minconn=1,
+            maxconn=5,
+            host=os.getenv("PGHOST", "localhost"),
+            port=int(os.getenv("PGPORT", "5432")),
+            dbname=os.getenv("PGDATABASE", "fashion_rag"),
+            user=os.getenv("PGUSER", "fashion_user"),
+            password=os.getenv("PGPASSWORD", ""),
+            connect_timeout=5,
+        )
+    return _pool
+
+
+@contextmanager
+def _db_conn():
+    """Context manager that borrows a connection and always returns it."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        yield conn
+    finally:
+        pool.putconn(conn)
 
 
 def init_memory_tables() -> None:
@@ -64,49 +91,39 @@ def init_memory_tables() -> None:
     ALTER TABLE user_sessions
         ADD COLUMN IF NOT EXISTS query_history JSONB NOT NULL DEFAULT '[]'::jsonb;
     """
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(ddl)
         conn.commit()
-    finally:
-        conn.close()
 
 
 def create_session() -> str:
     """Create a new session and return its ID."""
     session_id = str(uuid.uuid4())
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO user_sessions (session_id) VALUES (%s);",
                 (session_id,),
             )
         conn.commit()
-    finally:
-        conn.close()
     return session_id
 
 
 def session_exists(session_id: str) -> bool:
     """Check if a session exists."""
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM user_sessions WHERE session_id = %s;",
                 (session_id,),
             )
             return cur.fetchone() is not None
-    finally:
-        conn.close()
 
 
 def add_message(session_id: str, role: str, content: str) -> None:
     """Add a message to conversation history."""
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -120,14 +137,11 @@ def add_message(session_id: str, role: str, content: str) -> None:
                 (session_id,),
             )
         conn.commit()
-    finally:
-        conn.close()
 
 
 def get_history(session_id: str, limit: int = 20) -> list[Message]:
     """Retrieve recent conversation history for a session."""
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
                 """
@@ -140,8 +154,6 @@ def get_history(session_id: str, limit: int = 20) -> list[Message]:
                 (session_id, limit),
             )
             rows = cur.fetchall()
-    finally:
-        conn.close()
 
     messages = [
         Message(
@@ -172,8 +184,7 @@ def log_query(
         "filters": filters,
         "timestamp": datetime.now().isoformat(),
     })
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor() as cur:
             # Append to JSONB array, keep last 100 entries
             cur.execute(
@@ -196,14 +207,11 @@ def log_query(
                 (entry, session_id),
             )
         conn.commit()
-    finally:
-        conn.close()
 
 
 def add_liked_item(session_id: str, image_id: str) -> None:
     """Append an image_id to the session's liked_items JSONB array."""
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -216,8 +224,6 @@ def add_liked_item(session_id: str, image_id: str) -> None:
                 (json.dumps(image_id), session_id, json.dumps(image_id)),
             )
         conn.commit()
-    finally:
-        conn.close()
 
 
 def get_preferences(session_id: str) -> dict:
@@ -230,16 +236,13 @@ def get_preferences(session_id: str) -> dict:
             "preferred_styles": ["formal"],
         }
     """
-    conn = _get_connection()
-    try:
+    with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
                 "SELECT query_history, liked_items FROM user_sessions WHERE session_id = %s;",
                 (session_id,),
             )
             row = cur.fetchone()
-    finally:
-        conn.close()
 
     if not row:
         return {}

@@ -33,3 +33,4 @@ kagglehub>=0.2.0
 
 # Utilities
 python-dotenv>=1.0.0
+cachetools>=5.3.0
