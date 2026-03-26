@@ -63,10 +63,10 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         ChangeNotifierProxyProvider<CartProvider, ChatProvider>(
           create: (ctx) => ChatProvider(
-            onItemsSaved: ctx.read<CartProvider>().onItemsSaved,
+            onSelectionSaved: ctx.read<CartProvider>().onSelectionSaved,
           ),
           update: (ctx, cart, prev) => prev!
-            ..updateCallback(cart.onItemsSaved),
+            ..updateCallback(cart.onSelectionSaved),
         ),
       ],
       child: Builder(

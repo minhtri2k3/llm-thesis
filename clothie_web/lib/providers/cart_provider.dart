@@ -25,19 +25,9 @@ class CartProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  /// Called by ChatProvider callback when selection_saved SSE fires.
-  /// Reloads from API to get the authoritative list (handles de-dup).
-  void onItemsSaved(List<CartItem> newItems) {
-    // Optimistically add items that aren't already in the list
-    for (final item in newItems) {
-      if (!_items.any((e) => e.imageId == item.imageId)) {
-        _items.add(item);
-      }
-    }
-    notifyListeners();
-    // Sync with backend asynchronously
-    reload();
-  }
+  /// Called by ChatProvider when `selection_saved` SSE fires.
+  /// Reloads the cart from the authoritative API endpoint.
+  void onSelectionSaved() => reload();
 
   /// Fetches authoritative cart from the backend.
   Future<void> reload() async {

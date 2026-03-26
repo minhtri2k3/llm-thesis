@@ -13,21 +13,19 @@ import 'package:clothie_web/services/api_service.dart';
 class ChatProvider extends ChangeNotifier {
   final ApiService _api;
 
-  /// Called when the agent confirms items were saved to the DB.
-  /// Passes the list of newly confirmed [CartItem]s to the cart.
-  final void Function(List<CartItem>)? onItemsSaved;
+  /// Called when the backend confirms items were saved to the DB.
+  /// [CartProvider] should call [CartProvider.reload()] inside this.
+  final VoidCallback? onSelectionSaved;
 
   final List<ChatMessage> _messages = [];
   bool _isLoading = false;
   String? _error;
 
-  ChatProvider({ApiService? api, this.onItemsSaved})
+  ChatProvider({ApiService? api, this.onSelectionSaved})
       : _api = api ?? ApiService();
 
-  /// Allows [ChatScreen] to update the callback when [CartProvider] changes.
-  void updateCallback(void Function(List<CartItem>) callback) {
-    // no-op if already set and unchanged; called by ProxyProvider
-  }
+  /// No-op stub — kept so [ChangeNotifierProxyProvider] can call update.
+  void updateCallback(VoidCallback callback) {}
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   bool get isLoading => _isLoading;
@@ -105,27 +103,29 @@ class ChatProvider extends ChangeNotifier {
             .map(Product.fromJson)
             .toList();
 
-      // ── Selection flow events ──────────────────────────────────────────
+      // ── Selection flow events ────────────────────────────────────────────
       case 'selection_confirm':
-        // Agent shows the confirmation preview (selected items + yes/no prompt)
-        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
-        if (text.isNotEmpty) aiMsg.content = text;
+        if (data is Map) {
+          // Strip markdown image syntax (![alt](/path)) from text so the
+          // bubble doesn't display the raw markdown string.
+          final rawText = data['text'] as String? ?? '';
+          aiMsg.content = rawText.replaceAll(
+              RegExp(r'!\[.*?\]\([^)]*\)'), '').trim();
+
+          // Parse the structured items list for the image strip.
+          final rawItems = data['items'] as List? ?? [];
+          aiMsg.confirmItems = rawItems
+              .whereType<Map<String, dynamic>>()
+              .map(CartItem.fromAgentJson)
+              .toList();
+        }
         aiMsg.status = MessageStatus.done;
 
       case 'selection_saved':
-        // Items confirmed and saved to DB; notify CartProvider
+        // Items confirmed saved — notify CartProvider to reload from API.
         final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
         if (text.isNotEmpty) aiMsg.content = text;
-        if (data is Map) {
-          final rawItems = data['items'] as List?;
-          if (rawItems != null && onItemsSaved != null) {
-            final cartItems = rawItems
-                .whereType<Map<String, dynamic>>()
-                .map(CartItem.fromAgentJson)
-                .toList();
-            onItemsSaved!(cartItems);
-          }
-        }
+        onSelectionSaved?.call();  // ← triggers CartProvider.reload()
         aiMsg.status = MessageStatus.done;
 
       case 'selection_cancelled':

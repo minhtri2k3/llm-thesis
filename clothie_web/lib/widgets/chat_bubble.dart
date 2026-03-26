@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:clothie_web/models/chat_message.dart';
-import 'package:clothie_web/widgets/thinking_indicator.dart';
-import 'package:clothie_web/widgets/product_card.dart';
 import 'package:clothie_web/config.dart';
+import 'package:clothie_web/models/cart_item.dart';
+import 'package:clothie_web/models/chat_message.dart';
+import 'package:clothie_web/widgets/product_card.dart';
+import 'package:clothie_web/widgets/thinking_indicator.dart';
 
 class ChatBubble extends StatelessWidget {
   final ChatMessage message;
@@ -158,6 +159,24 @@ class _AssistantBubble extends StatelessWidget {
                         ProductCardList(products: message.products),
                       ],
 
+                      // ── Confirm items strip (images from selection_confirm)
+                      if (message.confirmItems.isNotEmpty && !isThinking) ...[
+                        const SizedBox(height: 12),
+                        const Divider(color: Color(0x22FFFFFF), height: 1),
+                        const SizedBox(height: 10),
+                        const Text(
+                          '✅ Selected items:',
+                          style: TextStyle(
+                            color: Color(kAccentLight),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _ConfirmItemStrip(items: message.confirmItems),
+                      ],
+
                       // Styling tip (italic footer)
                       if (message.stylingTip != null &&
                           message.stylingTip!.isNotEmpty) ...[
@@ -217,6 +236,69 @@ class _BlinkingCursorState extends State<_BlinkingCursor>
       opacity: _opacity,
       child: const Text('▌',
           style: TextStyle(color: Color(kAccentLight), fontSize: 14)),
+    );
+  }
+}
+
+/// Horizontal strip of confirm-item images shown inside a `selection_confirm`
+/// bubble. Images are fetched via the full API URL stored in [CartItem.imageUrl].
+class _ConfirmItemStrip extends StatelessWidget {
+  final List<CartItem> items;
+  const _ConfirmItemStrip({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 140,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (_, i) {
+          final item = items[i];
+          return Container(
+            width: 110,
+            decoration: BoxDecoration(
+              color: const Color(kCardColor),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: const Color(kAccentLight).withOpacity(0.3), width: 1),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Image.network(
+                      item.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: const Color(kSurfaceColor),
+                        child: const Icon(Icons.checkroom,
+                            color: Color(kAccentLight), size: 32),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Color(kTextPrimary),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
