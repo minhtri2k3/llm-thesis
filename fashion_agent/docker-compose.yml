@@ -86,15 +86,28 @@ services:
       qdrant:
         condition: service_healthy
 
-  cloudflared:
+  cloudflared-fe:
     image: cloudflare/cloudflared:latest
-    container_name: fashion-cloudflared
+    container_name: fashion-cloudflared-fe
     restart: unless-stopped
     command: tunnel run
     environment:
-      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:?CF_TUNNEL_TOKEN is required}
+      TUNNEL_TOKEN: ${CF_FE_TUNNEL_TOKEN:?CF_FE_TUNNEL_TOKEN is required}
     networks:
       - internal
+    depends_on:
+      - clothie-web
+
+  clothie-web:
+    build:
+      context: ../clothie_web
+      dockerfile: Dockerfile
+    container_name: fashion-clothie-web
+    restart: unless-stopped
+    networks:
+      - internal
+    ports:
+      - "3000:80"
     depends_on:
       - fashion-api
 

@@ -91,11 +91,77 @@ class HealthResponse(BaseModel):
     services: dict
 
 
+class CreateSessionRequest(BaseModel):
+    user_name: str = ""
+
+
+class CreateSessionResponse(BaseModel):
+    session_id: str
+
+
+class RatingRequest(BaseModel):
+    session_id: str
+    rating: int  # 1-10
+    feedback: str = ""
+
+
+class RatingResponse(BaseModel):
+    ok: bool
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
-@app.post("/api/chat", response_model=ChatResponse)
+
+@app.post("/api/sessions", response_model=CreateSessionResponse)
+async def create_session_endpoint(req: CreateSessionRequest):
+    """Create a new chat session. Stores the user name for evaluation tracking."""
+    from agent.memory import create_session
+    try:
+        session_id = create_session(user_name=req.user_name)
+        return CreateSessionResponse(session_id=session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/rating", response_model=RatingResponse)
+async def submit_rating_endpoint(req: RatingRequest):
+    """Submit a post-session rating and feedback for thesis evaluation."""
+    if not (1 <= req.rating <= 10):
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 10")
+    try:
+        import psycopg2
+        conn = psycopg2.connect(
+            host=os.getenv("PGHOST", "localhost"),
+            port=int(os.getenv("PGPORT", "5432")),
+            dbname=os.getenv("PGDATABASE", "fashion_rag"),
+            user=os.getenv("PGUSER", "fashion_user"),
+            password=os.getenv("PGPASSWORD", ""),
+            connect_timeout=5,
+        )
+        with conn.cursor() as cur:
+            # Get user_name from session for denormalized storage
+            cur.execute(
+                "SELECT user_name FROM user_sessions WHERE session_id = %s;",
+                (req.session_id,),
+            )
+            row = cur.fetchone()
+            user_name = row[0] if row else ""
+            cur.execute(
+                """
+                INSERT INTO user_ratings (session_id, user_name, rating, feedback)
+                VALUES (%s, %s, %s, %s);
+                """,
+                (req.session_id, user_name, req.rating, req.feedback),
+            )
+        conn.commit()
+        conn.close()
+        return RatingResponse(ok=True)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 async def chat_endpoint(req: ChatRequest):
     """Main agent chat endpoint."""
     try:

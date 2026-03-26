@@ -107,6 +107,23 @@ def init_memory_tables() -> None:
 
     CREATE INDEX IF NOT EXISTS idx_selected_items_session
         ON selected_items(session_id, selected_at);
+
+    -- Clothie Web FE: user name tracking per session
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS user_name TEXT NOT NULL DEFAULT '';
+
+    -- Clothie Web FE: thesis evaluation ratings
+    CREATE TABLE IF NOT EXISTS user_ratings (
+        id          SERIAL PRIMARY KEY,
+        session_id  TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        user_name   TEXT NOT NULL DEFAULT '',
+        rating      INT  NOT NULL CHECK (rating BETWEEN 1 AND 10),
+        feedback    TEXT NOT NULL DEFAULT '',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_ratings_session
+        ON user_ratings(session_id);
     """
     with _db_conn() as conn:
         with conn.cursor() as cur:
@@ -114,14 +131,18 @@ def init_memory_tables() -> None:
         conn.commit()
 
 
-def create_session() -> str:
-    """Create a new session and return its ID."""
+def create_session(user_name: str = "") -> str:
+    """Create a new session and return its ID.
+
+    Args:
+        user_name: Optional display name for the user (stored for evaluation).
+    """
     session_id = str(uuid.uuid4())
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO user_sessions (session_id) VALUES (%s);",
-                (session_id,),
+                "INSERT INTO user_sessions (session_id, user_name) VALUES (%s, %s);",
+                (session_id, user_name),
             )
         conn.commit()
     return session_id

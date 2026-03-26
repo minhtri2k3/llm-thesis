@@ -1,0 +1,264 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:clothie_web/config.dart';
+import 'package:clothie_web/services/api_service.dart';
+import 'package:clothie_web/widgets/star_rating.dart';
+import 'package:clothie_web/screens/splash_screen.dart';
+
+class RatingScreen extends StatefulWidget {
+  final String sessionId;
+  final String userName;
+
+  const RatingScreen({
+    super.key,
+    required this.sessionId,
+    required this.userName,
+  });
+
+  @override
+  State<RatingScreen> createState() => _RatingScreenState();
+}
+
+class _RatingScreenState extends State<RatingScreen> {
+  final _feedbackController = TextEditingController();
+  final _api = ApiService();
+  int _rating = 0;
+  bool _isLoading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _feedbackController.dispose();
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_rating == 0) {
+      setState(() => _error = 'Please select a rating.');
+      return;
+    }
+    if (_feedbackController.text.trim().isEmpty) {
+      setState(() => _error = 'Please share some feedback.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      await _api.submitRating(
+        sessionId: widget.sessionId,
+        rating: _rating,
+        feedback: _feedbackController.text.trim(),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Thank you, ${widget.userName}! 🙏',
+              style: GoogleFonts.outfit(fontSize: 14),
+            ),
+            backgroundColor: const Color(kAccentColor),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+        await Future.delayed(const Duration(milliseconds: 1500));
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 600),
+              pageBuilder: (_, anim, __) => const SplashScreen(),
+              transitionsBuilder: (_, anim, __, child) =>
+                  FadeTransition(opacity: anim, child: child),
+            ),
+            (_) => false,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'Submission failed. Please try again.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(kBgColor),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(kBgColor),
+              const Color(kAccentColor).withOpacity(0.08),
+              const Color(kBgColor),
+            ],
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: const Color(kAccentColor).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: const Color(kAccentLight).withOpacity(0.3)),
+                    ),
+                    child: const Center(
+                      child: Text('⭐', style: TextStyle(fontSize: 34)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'How was your experience?',
+                    style: GoogleFonts.outfit(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(kTextPrimary),
+                      letterSpacing: -0.5,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your feedback helps improve Clothie',
+                    style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      color: const Color(kTextSecondary),
+                    ),
+                  ),
+
+                  const SizedBox(height: 36),
+
+                  // Rating card
+                  Container(
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: const Color(kSurfaceColor),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.07)),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          _rating == 0
+                              ? 'Select a score (1–10)'
+                              : 'Your score: $_rating / 10',
+                          style: GoogleFonts.outfit(
+                            fontSize: 13,
+                            color: _rating == 0
+                                ? const Color(kTextSecondary)
+                                : const Color(kAccentLight),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        StarRating(
+                          value: _rating,
+                          onChanged: (v) =>
+                              setState(() => _rating = v),
+                        ),
+                        const SizedBox(height: 28),
+
+                        // Feedback text
+                        TextField(
+                          controller: _feedbackController,
+                          maxLines: 4,
+                          style: GoogleFonts.outfit(
+                            color: const Color(kTextPrimary),
+                            fontSize: 14,
+                          ),
+                          decoration: InputDecoration(
+                            hintText:
+                                'What did you think about this system?',
+                            hintStyle: TextStyle(
+                                color: const Color(kTextSecondary)
+                                    .withOpacity(0.7),
+                                fontSize: 13),
+                            filled: true,
+                            fillColor: const Color(kCardColor),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: Colors.white.withOpacity(0.08)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                  color: Color(kAccentLight), width: 1.5),
+                            ),
+                          ),
+                        ),
+
+                        if (_error != null) ...[
+                          const SizedBox(height: 10),
+                          Text(_error!,
+                              style: const TextStyle(
+                                  color: Color(0xFFEF4444), fontSize: 12)),
+                        ],
+
+                        const SizedBox(height: 20),
+
+                        // Submit button
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _submit,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(kAccentColor),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                              elevation: 0,
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white),
+                                  )
+                                : Text(
+                                    'Submit Feedback',
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
