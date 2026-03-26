@@ -21,6 +21,16 @@ class ChatProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
+  /// Set to true when `selection_saved` fires. Consumed by [ChatScreen]
+  /// to show the "End Session" hint SnackBar, then reset to false.
+  bool pendingCartNotification = false;
+
+  /// Called by [ChatScreen] after the notification has been shown.
+  void clearCartNotification() {
+    pendingCartNotification = false;
+    // No notifyListeners — avoids rebuild loop
+  }
+
   ChatProvider({ApiService? api, this.onSelectionSaved})
       : _api = api ?? ApiService();
 
@@ -126,6 +136,7 @@ class ChatProvider extends ChangeNotifier {
         final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
         if (text.isNotEmpty) aiMsg.content = text;
         onSelectionSaved?.call();  // ← triggers CartProvider.reload()
+        pendingCartNotification = true; // ← triggers SnackBar in ChatScreen
         aiMsg.status = MessageStatus.done;
 
       case 'selection_cancelled':

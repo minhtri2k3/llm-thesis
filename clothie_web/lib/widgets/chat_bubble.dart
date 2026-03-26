@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:clothie_web/config.dart';
 import 'package:clothie_web/models/cart_item.dart';
 import 'package:clothie_web/models/chat_message.dart';
 import 'package:clothie_web/widgets/product_card.dart';
 import 'package:clothie_web/widgets/thinking_indicator.dart';
+
 
 class ChatBubble extends StatelessWidget {
   final ChatMessage message;
@@ -17,6 +19,76 @@ class ChatBubble extends StatelessWidget {
   }
 }
 
+// ── Inline Markdown renderer ────────────────────────────────────────────────
+/// Renders text with simple inline markdown:
+/// - **bold** → accent-coloured bold (asterisks hidden)
+/// - *italic* → italic (asterisks hidden)
+/// - plain text → default body style
+class _MarkdownText extends StatelessWidget {
+  final String text;
+  const _MarkdownText({required this.text});
+
+  // Matches **...** before *...* to handle nesting correctly
+  static final _boldRe = RegExp(r'\*\*(.+?)\*\*');
+  static final _italicRe = RegExp(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)');
+
+  List<InlineSpan> _parse(String input) {
+    final spans = <InlineSpan>[];
+    int cursor = 0;
+
+    while (cursor < input.length) {
+      final boldMatch = _boldRe.firstMatch(input.substring(cursor));
+      final italicMatch = _italicRe.firstMatch(input.substring(cursor));
+
+      Match? match;
+      bool isBold = false;
+      if (boldMatch != null &&
+          (italicMatch == null || boldMatch.start <= italicMatch.start)) {
+        match = boldMatch;
+        isBold = true;
+      } else if (italicMatch != null) {
+        match = italicMatch;
+      }
+
+      if (match == null) {
+        spans.add(TextSpan(text: input.substring(cursor)));
+        break;
+      }
+
+      if (match.start > 0) {
+        spans.add(
+            TextSpan(text: input.substring(cursor, cursor + match.start)));
+      }
+
+      spans.add(TextSpan(
+        text: match.group(1),
+        style: TextStyle(
+          color: isBold ? const Color(kAccentLight) : null,
+          fontWeight: isBold ? FontWeight.w700 : null,
+          fontStyle: isBold ? null : FontStyle.italic,
+        ),
+      ));
+
+      cursor += match.end;
+    }
+
+    return spans;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(
+      TextSpan(
+        style: GoogleFonts.outfit(
+          color: const Color(kTextPrimary),
+          fontSize: 14,
+          height: 1.6,
+        ),
+        children: _parse(text),
+      ),
+    );
+  }
+}
 /// User message — right-aligned, violet gradient
 class _UserBubble extends StatelessWidget {
   final ChatMessage message;
@@ -126,16 +198,9 @@ class _AssistantBubble extends StatelessWidget {
                           const SizedBox(height: 8),
                       ],
 
-                      // Message text
+                      // Message text — renders **bold** as coloured spans
                       if (message.content.isNotEmpty)
-                        Text(
-                          message.content,
-                          style: const TextStyle(
-                            color: Color(kTextPrimary),
-                            fontSize: 14,
-                            height: 1.6,
-                          ),
-                        ),
+                        _MarkdownText(text: message.content),
 
                       // Streaming cursor
                       if (isStreaming)

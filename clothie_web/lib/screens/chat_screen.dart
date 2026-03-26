@@ -8,6 +8,7 @@ import 'package:clothie_web/screens/cart_screen.dart';
 import 'package:clothie_web/screens/rating_screen.dart';
 import 'package:clothie_web/screens/splash_screen.dart';
 import 'package:clothie_web/widgets/chat_bubble.dart';
+import 'package:clothie_web/widgets/flying_icon_bg.dart';
 
 class ChatScreen extends StatefulWidget {
   final String sessionId;
@@ -26,6 +27,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   void dispose() {
@@ -56,7 +58,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
+    return ScaffoldMessenger(
+      key: _messengerKey,
+      child: MultiProvider(
       providers: [
         ChangeNotifierProvider<CartProvider>(
           create: (_) => CartProvider(sessionId: widget.sessionId),
@@ -73,23 +77,108 @@ class _ChatScreenState extends State<ChatScreen> {
         builder: (context) {
           final provider = context.watch<ChatProvider>();
           if (provider.messages.isNotEmpty) _scrollToBottom();
+
+          // ── Cart save notification SnackBar ────────────────────────
+          if (provider.pendingCartNotification) {
+            provider.clearCartNotification();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _messengerKey.currentState
+                ?..clearSnackBars()
+                ..showSnackBar(
+                  SnackBar(
+                    duration: const Duration(seconds: 6),
+                    behavior: SnackBarBehavior.floating,
+                    margin: const EdgeInsets.only(
+                      right: 16, left: 16, bottom: 16),
+                    backgroundColor: const Color(0xFF1E1B2E),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: const BorderSide(
+                          color: Color(0xFF7C6FFF), width: 1),
+                    ),
+                    content: Row(
+                      children: [
+                        const Text('🛍️',
+                            style: TextStyle(fontSize: 22)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Item saved!',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'Whenever you want to end, press '
+                                'the button and vote for me. Love you 💕',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Arrow pointing to top-right "End Session"
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.north_east_rounded,
+                                color: Color(0xFF7C6FFF), size: 20),
+                            const SizedBox(height: 2),
+                            Text(
+                              'End',
+                              style: GoogleFonts.outfit(
+                                color: const Color(0xFF7C6FFF),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+            });
+          }
+
           return Scaffold(
             backgroundColor: const Color(kBgColor),
             appBar: _buildAppBar(context),
-            body: Column(
+            body: Stack(
               children: [
-                Expanded(
-                  child: provider.messages.isEmpty
-                      ? _buildEmptyState()
-                      : _buildMessageList(provider),
+                // Animated background (same as splash & register)
+                const Positioned.fill(
+                  child: FlyingIconBackground(iconCount: 10),
                 ),
-                if (provider.error != null)
-                  _buildErrorBanner(provider),
-                _buildInputRow(context, provider),
+                Column(
+                  children: [
+                    Expanded(
+                      child: provider.messages.isEmpty
+                          ? _buildEmptyState()
+                          : _buildMessageList(provider),
+                    ),
+                    if (provider.error != null)
+                      _buildErrorBanner(provider),
+                    _buildInputRow(context, provider),
+                  ],
+                ),
               ],
             ),
           );
         },
+      ),
       ),
     );
   }
