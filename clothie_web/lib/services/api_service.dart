@@ -102,6 +102,19 @@ class ApiService {
         .toList();
   }
 
+  /// Fetches all session ratings for the leaderboard view.
+  Future<List<Map<String, dynamic>>> getRatings() async {
+    final uri = Uri.parse('$kApiBaseUrl/api/ratings');
+    final response = await _client.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load ratings: ${response.body}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return (json['entries'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
   /// Submits a post-session rating and feedback.
   Future<void> submitRating({
     required String sessionId,

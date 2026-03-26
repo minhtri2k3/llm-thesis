@@ -179,31 +179,40 @@ async def submit_rating_endpoint(req: RatingRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-async def chat_endpoint(req: ChatRequest):
-    """Main agent chat endpoint."""
+@app.get("/api/ratings")
+async def get_ratings_endpoint():
+    """Return all session ratings ordered by rating desc — used for leaderboard."""
     try:
-        result: AgentResponse = agent_chat(
-            query=req.message,
-            session_id=req.session_id,
+        import psycopg2
+        from psycopg2.extras import DictCursor
+        conn = psycopg2.connect(
+            host=os.getenv("PGHOST", "localhost"),
+            port=int(os.getenv("PGPORT", "5432")),
+            dbname=os.getenv("PGDATABASE", "fashion_rag"),
+            user=os.getenv("PGUSER", "fashion_user"),
+            password=os.getenv("PGPASSWORD", ""),
+            connect_timeout=5,
         )
-        return ChatResponse(
-            answer=result.answer,
-            products=[
-                {
-                    "image_id": p.image_id,
-                    "image_path": p.image_path,
-                    "label": p.label,
-                    "color": p.color,
-                    "caption": p.caption,
-                    "score": p.score,
-                }
-                for p in result.products
-            ],
-            styling_suggestion=result.styling_suggestion,
-            reasoning=result.reasoning,
-            session_id=result.session_id,
-            intent=result.intent,
-        )
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT user_name, rating, feedback, rated_at
+                FROM user_ratings
+                ORDER BY rating DESC, rated_at DESC;
+                """
+            )
+            rows = cur.fetchall()
+        conn.close()
+        entries = [
+            {
+                "user_name": r["user_name"] or "Anonymous",
+                "rating": r["rating"],
+                "feedback": r["feedback"],
+                "rated_at": str(r["rated_at"]),
+            }
+            for r in rows
+        ]
+        return {"entries": entries, "count": len(entries)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

@@ -39,7 +39,9 @@ class CartProvider extends ChangeNotifier {
       _items
         ..clear()
         ..addAll(fetched);
-    } catch (e) {
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[CartProvider] reload error: $e\n$st');
       _error = e.toString();
     } finally {
       _isLoading = false;

@@ -10,6 +10,8 @@ class CartScreen extends StatelessWidget {
   const CartScreen({super.key});
 
   static Future<void> show(BuildContext context) {
+    // Refresh cart from backend before opening
+    context.read<CartProvider>().reload();
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
