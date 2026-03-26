@@ -262,3 +262,189 @@ class _RatingScreenState extends State<RatingScreen> {
     );
   }
 }
+
+/// Modal dialog version of the rating flow — shown from within [ChatScreen].
+///
+/// On successful submission, calls [onComplete] so the parent can
+/// navigate to [SplashScreen].
+class RatingDialog extends StatefulWidget {
+  final String sessionId;
+  final String userName;
+  final VoidCallback onComplete;
+
+  const RatingDialog({
+    super.key,
+    required this.sessionId,
+    required this.userName,
+    required this.onComplete,
+  });
+
+  @override
+  State<RatingDialog> createState() => _RatingDialogState();
+}
+
+class _RatingDialogState extends State<RatingDialog> {
+  final _feedbackController = TextEditingController();
+  final _api = ApiService();
+  int _rating = 0;
+  bool _isLoading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _feedbackController.dispose();
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_rating == 0) {
+      setState(() => _error = 'Please select a rating.');
+      return;
+    }
+    if (_feedbackController.text.trim().isEmpty) {
+      setState(() => _error = 'Please share some feedback.');
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      await _api.submitRating(
+        sessionId: widget.sessionId,
+        rating: _rating,
+        feedback: _feedbackController.text.trim(),
+      );
+      if (mounted) Navigator.of(context).pop();
+      widget.onComplete();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'Submission failed. Try again.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(kSurfaceColor),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('⭐', style: TextStyle(fontSize: 40)),
+              const SizedBox(height: 12),
+              Text(
+                'How was your experience?',
+                style: GoogleFonts.outfit(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(kTextPrimary),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Hi ${widget.userName}, your feedback helps improve Clothie.',
+                style: GoogleFonts.outfit(
+                    fontSize: 13, color: const Color(kTextSecondary)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                _rating == 0
+                    ? 'Select a score (1–10)'
+                    : 'Your score: $_rating / 10',
+                style: GoogleFonts.outfit(
+                  fontSize: 13,
+                  color: _rating == 0
+                      ? const Color(kTextSecondary)
+                      : const Color(kAccentLight),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 12),
+              StarRating(
+                value: _rating,
+                onChanged: (v) => setState(() => _rating = v),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _feedbackController,
+                maxLines: 3,
+                style: GoogleFonts.outfit(
+                    color: const Color(kTextPrimary), fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'What did you think about this system?',
+                  hintStyle: TextStyle(
+                      color: const Color(kTextSecondary).withOpacity(0.7),
+                      fontSize: 13),
+                  filled: true,
+                  fillColor: const Color(kCardColor),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide:
+                        BorderSide(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                        color: Color(kAccentLight), width: 1.5),
+                  ),
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(_error!,
+                    style: const TextStyle(
+                        color: Color(0xFFEF4444), fontSize: 12)),
+              ],
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(kAccentColor),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text('Submit Feedback',
+                          style: GoogleFonts.outfit(
+                              fontSize: 14, fontWeight: FontWeight.w600)),
+                ),
+              ),
+              TextButton(
+                onPressed: _isLoading
+                    ? null
+                    : () => Navigator.of(context).pop(),
+                child: Text('Maybe later',
+                    style: GoogleFonts.outfit(
+                        fontSize: 12,
+                        color: const Color(kTextSecondary))),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

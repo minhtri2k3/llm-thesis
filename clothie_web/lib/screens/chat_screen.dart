@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:clothie_web/config.dart';
+import 'package:clothie_web/providers/cart_provider.dart';
 import 'package:clothie_web/providers/chat_provider.dart';
-import 'package:clothie_web/widgets/chat_bubble.dart';
+import 'package:clothie_web/screens/cart_screen.dart';
 import 'package:clothie_web/screens/rating_screen.dart';
+import 'package:clothie_web/screens/splash_screen.dart';
+import 'package:clothie_web/widgets/chat_bubble.dart';
 
 class ChatScreen extends StatefulWidget {
   final String sessionId;
@@ -51,48 +54,38 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
   }
 
-  void _endSession() {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 400),
-        pageBuilder: (_, anim, __) => RatingScreen(
-          sessionId: widget.sessionId,
-          userName: widget.userName,
-        ),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    // ChatProvider is injected at the app level (main.dart)
-    return ChangeNotifierProvider(
-      create: (_) => ChatProvider(),
-      child: Consumer<ChatProvider>(
-        builder: (context, provider, _) {
-          // Scroll to bottom whenever messages change
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<CartProvider>(
+          create: (_) => CartProvider(sessionId: widget.sessionId),
+        ),
+        ChangeNotifierProxyProvider<CartProvider, ChatProvider>(
+          create: (ctx) => ChatProvider(
+            onItemsSaved: ctx.read<CartProvider>().onItemsSaved,
+          ),
+          update: (ctx, cart, prev) => prev!
+            ..updateCallback(cart.onItemsSaved),
+        ),
+      ],
+      child: Builder(
+        builder: (context) {
+          final provider = context.watch<ChatProvider>();
           if (provider.messages.isNotEmpty) _scrollToBottom();
-
           return Scaffold(
             backgroundColor: const Color(kBgColor),
-            appBar: _buildAppBar(),
+            appBar: _buildAppBar(context),
             body: Column(
               children: [
-                // Message list
                 Expanded(
                   child: provider.messages.isEmpty
                       ? _buildEmptyState()
                       : _buildMessageList(provider),
                 ),
-
-                // Error banner
                 if (provider.error != null)
                   _buildErrorBanner(provider),
-
-                // Input row
-                _buildInputRow(provider),
+                _buildInputRow(context, provider),
               ],
             ),
           );
@@ -101,7 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
       backgroundColor: const Color(kSurfaceColor),
       elevation: 0,
@@ -133,7 +126,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               Text(
-                'Hi ${widget.userName} 👋',
+                'Hi \${widget.userName} 👋',
                 style: GoogleFonts.outfit(
                   fontSize: 11,
                   color: const Color(kAccentLight),
@@ -144,10 +137,49 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       actions: [
+        // ── Cart icon with badge ──────────────────────────────────────────
+        Consumer<CartProvider>(
+          builder: (ctx, cart, _) => IconButton(
+            tooltip: 'My selections',
+            onPressed: () => CartScreen.show(ctx),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.shopping_bag_outlined,
+                    color: Color(kTextPrimary), size: 24),
+                if (cart.count > 0)
+                  Positioned(
+                    top: -4,
+                    right: -6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: const Color(kAccentColor),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: const Color(kSurfaceColor), width: 1.5),
+                      ),
+                      child: Text(
+                        '\${cart.count}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        // ── End Session ───────────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(right: 12),
           child: OutlinedButton(
-            onPressed: _endSession,
+            onPressed: () => _showRatingDialog(context),
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(kAccentLight),
               side: const BorderSide(color: Color(kAccentLight), width: 1),
@@ -164,8 +196,7 @@ class _ChatScreenState extends State<ChatScreen> {
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
         child: Container(
-            height: 1,
-            color: Colors.white.withOpacity(0.06)),
+            height: 1, color: Colors.white.withOpacity(0.06)),
       ),
     );
   }
@@ -208,6 +239,78 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildInputRow(BuildContext context, ChatProvider provider) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      decoration: BoxDecoration(
+        color: const Color(kSurfaceColor),
+        border: Border(
+          top: BorderSide(color: Colors.white.withOpacity(0.06)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _inputController,
+              onSubmitted: (_) => _sendMessage(context.read<ChatProvider>()),
+              style: GoogleFonts.outfit(
+                  color: const Color(kTextPrimary), fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Ask about fashion...',
+                hintStyle: TextStyle(
+                    color: const Color(kTextSecondary).withOpacity(0.7),
+                    fontSize: 14),
+                filled: true,
+                fillColor: const Color(kCardColor),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide:
+                      BorderSide(color: Colors.white.withOpacity(0.08)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(
+                      color: Color(kAccentLight), width: 1.5),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _SendButton(
+            isLoading: provider.isLoading,
+            onTap: () => _sendMessage(context.read<ChatProvider>()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shows the rating dialog; on submit navigates back to [SplashScreen].
+  void _showRatingDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => RatingDialog(
+        sessionId: widget.sessionId,
+        userName: widget.userName,
+        onComplete: () {
+          Navigator.of(context).pushAndRemoveUntil(
+            PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 600),
+              pageBuilder: (_, anim, __) => const SplashScreen(),
+              transitionsBuilder: (_, anim, __, child) =>
+                  FadeTransition(opacity: anim, child: child),
+            ),
+            (_) => false,
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildErrorBanner(ChatProvider provider) {
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -230,55 +333,6 @@ class _ChatScreenState extends State<ChatScreen> {
           GestureDetector(
             onTap: provider.clearError,
             child: const Icon(Icons.close, color: Color(0xFFFCA5A5), size: 16),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInputRow(ChatProvider provider) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-      decoration: BoxDecoration(
-        color: const Color(kSurfaceColor),
-        border: Border(
-          top: BorderSide(color: Colors.white.withOpacity(0.06)),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _inputController,
-              onSubmitted: (_) => _sendMessage(provider),
-              style: GoogleFonts.outfit(
-                  color: const Color(kTextPrimary), fontSize: 14),
-              decoration: InputDecoration(
-                hintText: 'Ask about fashion...',
-                hintStyle: TextStyle(
-                    color: const Color(kTextSecondary).withOpacity(0.7),
-                    fontSize: 14),
-                filled: true,
-                fillColor: const Color(kCardColor),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                      color: Colors.white.withOpacity(0.08)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(
-                      color: Color(kAccentLight), width: 1.5),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _SendButton(
-            isLoading: provider.isLoading,
-            onTap: () => _sendMessage(provider),
           ),
         ],
       ),

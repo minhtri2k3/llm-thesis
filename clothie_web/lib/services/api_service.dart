@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:clothie_web/config.dart';
+import 'package:clothie_web/models/cart_item.dart';
 
 /// Represents a single SSE event from the backend.
 class SseEvent {
@@ -84,6 +85,21 @@ class ApiService {
         pendingData = '';
       }
     }
+  }
+
+  /// Fetches all confirmed cart items for [sessionId].
+  Future<List<CartItem>> getCartItems(String sessionId) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/selections');
+    final response = await _client.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load cart: ${response.body}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final items = (json['items'] as List? ?? []);
+    return items
+        .whereType<Map<String, dynamic>>()
+        .map(CartItem.fromApiJson)
+        .toList();
   }
 
   /// Submits a post-session rating and feedback.

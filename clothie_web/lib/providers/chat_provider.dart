@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:clothie_web/models/cart_item.dart';
 import 'package:clothie_web/models/chat_message.dart';
 import 'package:clothie_web/models/product.dart';
 import 'package:clothie_web/services/api_service.dart';
@@ -12,11 +13,21 @@ import 'package:clothie_web/services/api_service.dart';
 class ChatProvider extends ChangeNotifier {
   final ApiService _api;
 
+  /// Called when the agent confirms items were saved to the DB.
+  /// Passes the list of newly confirmed [CartItem]s to the cart.
+  final void Function(List<CartItem>)? onItemsSaved;
+
   final List<ChatMessage> _messages = [];
   bool _isLoading = false;
   String? _error;
 
-  ChatProvider({ApiService? api}) : _api = api ?? ApiService();
+  ChatProvider({ApiService? api, this.onItemsSaved})
+      : _api = api ?? ApiService();
+
+  /// Allows [ChatScreen] to update the callback when [CartProvider] changes.
+  void updateCallback(void Function(List<CartItem>) callback) {
+    // no-op if already set and unchanged; called by ProxyProvider
+  }
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   bool get isLoading => _isLoading;
@@ -93,6 +104,39 @@ class ChatProvider extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(Product.fromJson)
             .toList();
+
+      // ── Selection flow events ──────────────────────────────────────────
+      case 'selection_confirm':
+        // Agent shows the confirmation preview (selected items + yes/no prompt)
+        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
+        if (text.isNotEmpty) aiMsg.content = text;
+        aiMsg.status = MessageStatus.done;
+
+      case 'selection_saved':
+        // Items confirmed and saved to DB; notify CartProvider
+        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
+        if (text.isNotEmpty) aiMsg.content = text;
+        if (data is Map) {
+          final rawItems = data['items'] as List?;
+          if (rawItems != null && onItemsSaved != null) {
+            final cartItems = rawItems
+                .whereType<Map<String, dynamic>>()
+                .map(CartItem.fromAgentJson)
+                .toList();
+            onItemsSaved!(cartItems);
+          }
+        }
+        aiMsg.status = MessageStatus.done;
+
+      case 'selection_cancelled':
+        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
+        if (text.isNotEmpty) aiMsg.content = text;
+        aiMsg.status = MessageStatus.done;
+
+      case 'selections_list':
+        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
+        if (text.isNotEmpty) aiMsg.content = text;
+        aiMsg.status = MessageStatus.done;
 
       case 'done':
         if (data is Map) {

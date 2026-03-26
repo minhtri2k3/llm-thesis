@@ -125,6 +125,23 @@ async def create_session_endpoint(req: CreateSessionRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/sessions/{session_id}/selections")
+async def get_session_selections(session_id: str):
+    """Return all confirmed product selections for a given session."""
+    from agent.memory import get_selected_items
+    import os
+    try:
+        items = get_selected_items(session_id)
+        # Transform image_path (full disk path) → filename only so the
+        # client can build a portable URL: /api/images/<filename>
+        for item in items:
+            raw = item.get("image_path", "")
+            item["image_path"] = os.path.basename(raw) if raw else ""
+        return {"session_id": session_id, "items": items, "count": len(items)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/api/rating", response_model=RatingResponse)
 async def submit_rating_endpoint(req: RatingRequest):
     """Submit a post-session rating and feedback for thesis evaluation."""
