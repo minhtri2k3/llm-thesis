@@ -13,7 +13,7 @@ class ProductCardList extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: SizedBox(
-        height: 200,
+        height: 220,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: products.length,

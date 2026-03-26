@@ -140,6 +140,24 @@ class _AssistantBubble extends StatelessWidget {
                       if (isStreaming)
                         _BlinkingCursor(),
 
+                      // ── Product images inline (like Gradio) ──────────
+                      if (message.products.isNotEmpty && !isThinking) ...[
+                        const SizedBox(height: 12),
+                        const Divider(color: Color(0x22FFFFFF), height: 1),
+                        const SizedBox(height: 10),
+                        const Text(
+                          '🛍️ Found items:',
+                          style: TextStyle(
+                            color: Color(kAccentLight),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ProductCardList(products: message.products),
+                      ],
+
                       // Styling tip (italic footer)
                       if (message.stylingTip != null &&
                           message.stylingTip!.isNotEmpty) ...[
@@ -157,10 +175,6 @@ class _AssistantBubble extends StatelessWidget {
                     ],
                   ),
                 ),
-
-                // Products below the bubble
-                if (message.products.isNotEmpty)
-                  ProductCardList(products: message.products),
               ],
             ),
           ),
