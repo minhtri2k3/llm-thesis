@@ -196,9 +196,9 @@ async def get_ratings_endpoint():
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
                 """
-                SELECT user_name, rating, feedback, rated_at
+                SELECT user_name, rating, feedback, created_at
                 FROM user_ratings
-                ORDER BY rating DESC, rated_at DESC;
+                ORDER BY rating DESC, created_at DESC;
                 """
             )
             rows = cur.fetchall()
@@ -208,7 +208,7 @@ async def get_ratings_endpoint():
                 "user_name": r["user_name"] or "Anonymous",
                 "rating": r["rating"],
                 "feedback": r["feedback"],
-                "rated_at": str(r["rated_at"]),
+                "rated_at": str(r["created_at"]),
             }
             for r in rows
         ]

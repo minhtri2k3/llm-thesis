@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 /// Animated background with randomly flying cloth emoji icons.
 ///
@@ -16,7 +17,9 @@ class FlyingIconBackground extends StatefulWidget {
 class _FlyingIconBackgroundState extends State<FlyingIconBackground>
     with TickerProviderStateMixin {
   late AnimationController _controller;
-  late List<_IconParticle> _particles;
+  // Initialized synchronously in initState so build() never sees null
+  List<_IconParticle> _particles = [];
+  Size _lastSize = Size.zero;
   final _rng = Random();
 
   @override
@@ -31,6 +34,7 @@ class _FlyingIconBackgroundState extends State<FlyingIconBackground>
   }
 
   void _initParticles(Size size) {
+    _lastSize = size;
     _particles = List.generate(widget.iconCount, (_) => _IconParticle(
       x: _rng.nextDouble() * size.width,
       y: _rng.nextDouble() * size.height,
@@ -42,7 +46,7 @@ class _FlyingIconBackgroundState extends State<FlyingIconBackground>
     ));
   }
 
-  static const _icons = ['👗', '👠', '👜', '🧥', '👒'];
+  static const _icons = ['👗', '👠', '👜', '🧥', '👒', '✨', '💎'];
 
   void _tick() {
     if (!mounted || _particles.isEmpty) return;
@@ -70,8 +74,14 @@ class _FlyingIconBackgroundState extends State<FlyingIconBackground>
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
       final size = Size(constraints.maxWidth, constraints.maxHeight);
-      if (_particles.isEmpty || _particles.length != widget.iconCount) {
-        _initParticles(size);
+      // Re-init only when size is known and particle count changes or first run
+      if ((size.width > 0 && size.height > 0) &&
+          (_particles.isEmpty ||
+           _particles.length != widget.iconCount ||
+           _lastSize != size)) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _initParticles(size));
+        });
       }
       return CustomPaint(
         size: size,
