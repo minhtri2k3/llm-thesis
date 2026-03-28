@@ -27,7 +27,17 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
-  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+
+  // ── Top-banner notification state ──────────────────────────────
+  bool _showTopBanner = false;
+
+  void _showBanner() {
+    if (!mounted) return;
+    setState(() => _showTopBanner = true);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted) setState(() => _showTopBanner = false);
+    });
+  }
 
   @override
   void dispose() {
@@ -58,9 +68,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldMessenger(
-      key: _messengerKey,
-      child: MultiProvider(
+    return MultiProvider(
       providers: [
         ChangeNotifierProvider<CartProvider>(
           create: (_) => CartProvider(sessionId: widget.sessionId),
@@ -78,79 +86,10 @@ class _ChatScreenState extends State<ChatScreen> {
           final provider = context.watch<ChatProvider>();
           if (provider.messages.isNotEmpty) _scrollToBottom();
 
-          // ── Cart save notification SnackBar ────────────────────────
+          // ── Cart save: trigger top banner ─────────────────────────────
           if (provider.pendingCartNotification) {
             provider.clearCartNotification();
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              _messengerKey.currentState
-                ?..clearSnackBars()
-                ..showSnackBar(
-                  SnackBar(
-                    duration: const Duration(seconds: 6),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.only(
-                      right: 16, left: 16, bottom: 16),
-                    backgroundColor: const Color(0xFF1E1B2E),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      side: const BorderSide(
-                          color: Color(0xFF7C6FFF), width: 1),
-                    ),
-                    content: Row(
-                      children: [
-                        const Text('🛍️',
-                            style: TextStyle(fontSize: 22)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Item saved!',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                'Whenever you want to end, press '
-                                'the button and vote for me. Love you 💕',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Arrow pointing to top-right "End Session"
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.north_east_rounded,
-                                color: Color(0xFF7C6FFF), size: 20),
-                            const SizedBox(height: 2),
-                            Text(
-                              'End',
-                              style: GoogleFonts.outfit(
-                                color: const Color(0xFF7C6FFF),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-            });
+            WidgetsBinding.instance.addPostFrameCallback((_) => _showBanner());
           }
 
           return Scaffold(
@@ -161,6 +100,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 // Animated background (same as splash & register)
                 const Positioned.fill(
                   child: FlyingIconBackground(iconCount: 10),
+                ),
+                // ── Top notification banner ──────────────────────
+                AnimatedSlide(
+                  offset: _showTopBanner ? Offset.zero : const Offset(0, -1),
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedOpacity(
+                    opacity: _showTopBanner ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: _buildTopBanner(),
+                  ),
                 ),
                 Column(
                   children: [
@@ -179,6 +129,81 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         },
       ),
+    );
+  }
+
+  /// Floating banner that appears at the top of the chat body under the AppBar.
+  Widget _buildTopBanner() {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1B2E),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF7C6FFF), width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF7C6FFF).withValues(alpha: 0.25),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                const Text('\u{1F6CD}\uFE0F',
+                    style: TextStyle(fontSize: 20)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Item saved! \u2728',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Whenever you want to end, press the button and vote for me. Love you \u{1F495}',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.north_east_rounded,
+                        color: Color(0xFF7C6FFF), size: 18),
+                    Text(
+                      'End',
+                      style: GoogleFonts.outfit(
+                        color: const Color(0xFF7C6FFF),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -28,7 +28,7 @@ class ChatProvider extends ChangeNotifier {
   /// Called by [ChatScreen] after the notification has been shown.
   void clearCartNotification() {
     pendingCartNotification = false;
-    // No notifyListeners — avoids rebuild loop
+    notifyListeners(); // ensure Consumer widgets rebuild and badge updates
   }
 
   ChatProvider({ApiService? api, this.onSelectionSaved})
