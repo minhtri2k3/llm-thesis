@@ -46,7 +46,7 @@ class _StarRatingState extends State<StarRating> {
                   isFilled ? Icons.star_rounded : Icons.star_outline_rounded,
                   color: isFilled
                       ? const Color(0xFFFBBF24) // amber
-                      : const Color(kTextSecondary),
+                      : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                   size: 28,
                 ),
               ),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:clothie_web/models/product.dart';
-import 'package:clothie_web/config.dart';
 
 /// Horizontally-scrollable row of fashion product cards.
 class ProductCardList extends StatelessWidget {
@@ -38,6 +37,9 @@ class _ProductCardState extends State<_ProductCard> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -45,18 +47,18 @@ class _ProductCardState extends State<_ProductCard> {
         duration: const Duration(milliseconds: 180),
         width: 130,
         decoration: BoxDecoration(
-          color: const Color(kCardColor),
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: _hovered
-                ? const Color(kAccentLight)
-                : Colors.white.withOpacity(0.08),
+                ? theme.colorScheme.primary
+                : (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08)),
             width: 1,
           ),
           boxShadow: _hovered
               ? [
                   BoxShadow(
-                    color: const Color(kAccentColor).withOpacity(0.3),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   )
@@ -74,18 +76,18 @@ class _ProductCardState extends State<_ProductCard> {
                   widget.product.imageUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Container(
-                    color: const Color(kSurfaceColor),
-                    child: const Icon(Icons.checkroom,
-                        color: Color(kAccentLight), size: 36),
+                    color: theme.scaffoldBackgroundColor,
+                    child: Icon(Icons.checkroom,
+                        color: theme.colorScheme.primary, size: 36),
                   ),
                   loadingBuilder: (_, child, progress) {
                     if (progress == null) return child;
                     return Container(
-                      color: const Color(kSurfaceColor),
-                      child: const Center(
+                      color: theme.scaffoldBackgroundColor,
+                      child: Center(
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Color(kAccentLight),
+                          color: theme.colorScheme.primary,
                         ),
                       ),
                     );
@@ -102,8 +104,8 @@ class _ProductCardState extends State<_ProductCard> {
                       widget.product.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(kTextPrimary),
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -112,8 +114,8 @@ class _ProductCardState extends State<_ProductCard> {
                       Text(
                         widget.product.color,
                         maxLines: 1,
-                        style: const TextStyle(
-                            color: Color(kTextSecondary), fontSize: 10),
+                        style: TextStyle(
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.7), fontSize: 10),
                       ),
                   ],
                 ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:clothie_web/config.dart';
+
 import 'package:clothie_web/models/cart_item.dart';
 import 'package:clothie_web/models/chat_message.dart';
 import 'package:clothie_web/widgets/product_card.dart';
@@ -32,7 +32,7 @@ class _MarkdownText extends StatelessWidget {
   static final _boldRe = RegExp(r'\*\*(.+?)\*\*');
   static final _italicRe = RegExp(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)');
 
-  List<InlineSpan> _parse(String input) {
+  List<InlineSpan> _parse(BuildContext context, String input) {
     final spans = <InlineSpan>[];
     int cursor = 0;
 
@@ -63,7 +63,7 @@ class _MarkdownText extends StatelessWidget {
       spans.add(TextSpan(
         text: match.group(1),
         style: TextStyle(
-          color: isBold ? const Color(kAccentLight) : null,
+          color: isBold ? Theme.of(context).colorScheme.primary : null,
           fontWeight: isBold ? FontWeight.w700 : null,
           fontStyle: isBold ? null : FontStyle.italic,
         ),
@@ -80,11 +80,11 @@ class _MarkdownText extends StatelessWidget {
     return Text.rich(
       TextSpan(
         style: GoogleFonts.outfit(
-          color: const Color(kTextPrimary),
+          color: Theme.of(context).colorScheme.onSurface,
           fontSize: 14,
           height: 1.6,
         ),
-        children: _parse(text),
+        children: _parse(context, text),
       ),
     );
   }
@@ -96,6 +96,8 @@ class _UserBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Padding(
       padding: const EdgeInsets.only(bottom: 12, left: 60),
       child: Row(
@@ -105,8 +107,16 @@ class _UserBubble extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF7C3AED), Color(0xFF4C1D95)],
+                gradient: LinearGradient(
+                  colors: isDark 
+                      ? [
+                          Theme.of(context).colorScheme.primary,
+                          const Color(0xFF00BFA5), // darkUserBubbleEnd
+                        ]
+                      : [
+                          Theme.of(context).colorScheme.primary,
+                          Theme.of(context).colorScheme.primary, // No gradient in light mode
+                        ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -118,7 +128,7 @@ class _UserBubble extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(kAccentColor).withOpacity(0.3),
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: isDark ? 0.3 : 0.1),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -126,8 +136,8 @@ class _UserBubble extends StatelessWidget {
               ),
               child: Text(
                 message.content,
-                style: const TextStyle(
-                  color: Color(kTextPrimary),
+                style: TextStyle(
+                  color: isDark ? Theme.of(context).scaffoldBackgroundColor : Theme.of(context).colorScheme.onSurface,
                   fontSize: 14,
                   height: 1.5,
                 ),
@@ -150,6 +160,7 @@ class _AssistantBubble extends StatelessWidget {
     final isThinking = message.status == MessageStatus.thinking;
     final isStreaming = message.status == MessageStatus.streaming;
     final isDone = message.status == MessageStatus.done;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16, right: 60),
@@ -162,8 +173,11 @@ class _AssistantBubble extends StatelessWidget {
             height: 32,
             margin: const EdgeInsets.only(right: 10, top: 2),
             decoration: BoxDecoration(
-              color: const Color(kAccentColor),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+              ),
             ),
             child: const Center(child: Text('👗', style: TextStyle(fontSize: 16))),
           ),
@@ -175,7 +189,7 @@ class _AssistantBubble extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(kCardColor),
+                    color: Theme.of(context).colorScheme.secondary,
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(4),
                       topRight: Radius.circular(18),
@@ -183,7 +197,8 @@ class _AssistantBubble extends StatelessWidget {
                       bottomRight: Radius.circular(18),
                     ),
                     border: Border.all(
-                        color: Colors.white.withOpacity(0.06), width: 1),
+                        color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.transparent, 
+                        width: 1),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -209,12 +224,12 @@ class _AssistantBubble extends StatelessWidget {
                       // ── Product images inline (like Gradio) ──────────
                       if (message.products.isNotEmpty && !isThinking) ...[
                         const SizedBox(height: 12),
-                        const Divider(color: Color(0x22FFFFFF), height: 1),
+                        Divider(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1), height: 1),
                         const SizedBox(height: 10),
-                        const Text(
+                        Text(
                           '🛍️ Found items:',
                           style: TextStyle(
-                            color: Color(kAccentLight),
+                            color: Theme.of(context).colorScheme.primary,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.3,
@@ -227,12 +242,12 @@ class _AssistantBubble extends StatelessWidget {
                       // ── Confirm items strip (images from selection_confirm)
                       if (message.confirmItems.isNotEmpty && !isThinking) ...[
                         const SizedBox(height: 12),
-                        const Divider(color: Color(0x22FFFFFF), height: 1),
+                        Divider(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1), height: 1),
                         const SizedBox(height: 10),
-                        const Text(
+                        Text(
                           '✅ Selected items:',
                           style: TextStyle(
-                            color: Color(kAccentLight),
+                            color: Theme.of(context).colorScheme.primary,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.3,
@@ -248,8 +263,8 @@ class _AssistantBubble extends StatelessWidget {
                         const SizedBox(height: 8),
                         Text(
                           '✨ ${message.stylingTip}',
-                          style: const TextStyle(
-                            color: Color(kAccentLight),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
                             height: 1.5,
@@ -299,8 +314,8 @@ class _BlinkingCursorState extends State<_BlinkingCursor>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _opacity,
-      child: const Text('▌',
-          style: TextStyle(color: Color(kAccentLight), fontSize: 14)),
+      child: Text('▌',
+          style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 14)),
     );
   }
 }
@@ -324,10 +339,10 @@ class _ConfirmItemStrip extends StatelessWidget {
           return Container(
             width: 110,
             decoration: BoxDecoration(
-              color: const Color(kCardColor),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                  color: const Color(kAccentLight).withOpacity(0.3), width: 1),
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3), width: 1),
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
@@ -339,9 +354,9 @@ class _ConfirmItemStrip extends StatelessWidget {
                       item.imageUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => Container(
-                        color: const Color(kSurfaceColor),
-                        child: const Icon(Icons.checkroom,
-                            color: Color(kAccentLight), size: 32),
+                        color: Theme.of(context).scaffoldBackgroundColor,
+                        child: Icon(Icons.checkroom,
+                            color: Theme.of(context).colorScheme.primary, size: 32),
                       ),
                     ),
                   ),
@@ -352,8 +367,8 @@ class _ConfirmItemStrip extends StatelessWidget {
                       item.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: Color(kTextPrimary),
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
                           fontSize: 10,
                           fontWeight: FontWeight.w600),
                     ),

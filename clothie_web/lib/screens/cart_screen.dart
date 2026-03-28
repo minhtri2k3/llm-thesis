@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:clothie_web/config.dart';
 import 'package:clothie_web/models/cart_item.dart';
 import 'package:clothie_web/providers/cart_provider.dart';
 
@@ -25,15 +24,17 @@ class CartScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return DraggableScrollableSheet(
       initialChildSize: 0.65,
       minChildSize: 0.4,
       maxChildSize: 0.92,
       builder: (_, scrollController) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Color(kSurfaceColor),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
             children: [
@@ -56,15 +57,15 @@ class CartScreen extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                 child: Row(
                   children: [
-                    const Icon(Icons.shopping_bag_outlined,
-                        color: Color(kAccentLight), size: 22),
+                    Icon(Icons.shopping_bag_outlined,
+                        color: theme.colorScheme.primary, size: 22),
                     const SizedBox(width: 8),
                     Text(
                       'My Selections',
                       style: GoogleFonts.outfit(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: const Color(kTextPrimary),
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                     const Spacer(),
@@ -73,7 +74,7 @@ class CartScreen extends StatelessWidget {
                         '${cart.count} item${cart.count == 1 ? '' : 's'}',
                         style: GoogleFonts.outfit(
                           fontSize: 13,
-                          color: const Color(kTextSecondary),
+                          color: theme.colorScheme.onSurface.withOpacity(0.7),
                         ),
                       ),
                     ),
@@ -88,9 +89,9 @@ class CartScreen extends StatelessWidget {
                 child: Consumer<CartProvider>(
                   builder: (_, cart, __) {
                     if (cart.isLoading) {
-                      return const Center(
+                      return Center(
                         child: CircularProgressIndicator(
-                          color: Color(kAccentLight),
+                          color: theme.colorScheme.primary,
                           strokeWidth: 2,
                         ),
                       );
@@ -107,7 +108,7 @@ class CartScreen extends StatelessWidget {
                               'No items yet',
                               style: GoogleFonts.outfit(
                                 fontSize: 16,
-                                color: const Color(kTextSecondary),
+                                color: theme.colorScheme.onSurface.withOpacity(0.7),
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -115,8 +116,7 @@ class CartScreen extends StatelessWidget {
                               'Pick items from the chat to add them here.',
                               style: GoogleFonts.outfit(
                                 fontSize: 13,
-                                color: const Color(kTextSecondary)
-                                    .withOpacity(0.6),
+                                color: theme.colorScheme.onSurface.withOpacity(0.5),
                               ),
                             ),
                           ],
@@ -154,11 +154,17 @@ class _CartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Container(
       decoration: BoxDecoration(
-        color: const Color(kCardColor),
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.07)),
+        border: Border.all(
+          color: theme.brightness == Brightness.dark 
+              ? Colors.white.withOpacity(0.07) 
+              : Colors.black.withOpacity(0.05),
+        ),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
@@ -170,9 +176,9 @@ class _CartCard extends StatelessWidget {
                 item.imageUrl,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Container(
-                  color: const Color(kSurfaceColor),
-                  child: const Icon(Icons.checkroom,
-                      color: Color(kAccentLight), size: 36),
+                  color: theme.colorScheme.surface,
+                  child: Icon(Icons.checkroom,
+                      color: theme.colorScheme.primary, size: 36),
                 ),
               ),
             ),
@@ -185,8 +191,8 @@ class _CartCard extends StatelessWidget {
                     item.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(kTextPrimary),
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface,
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
@@ -195,8 +201,8 @@ class _CartCard extends StatelessWidget {
                     Text(
                       item.color,
                       maxLines: 1,
-                      style: const TextStyle(
-                          color: Color(kTextSecondary), fontSize: 10),
+                      style: TextStyle(
+                          color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10),
                     ),
                 ],
               ),

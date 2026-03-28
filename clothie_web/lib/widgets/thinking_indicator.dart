@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:clothie_web/models/chat_message.dart';
-import 'package:clothie_web/config.dart';
 
 /// Animated thinking indicator shown while the AI is reasoning.
 ///
@@ -58,16 +57,16 @@ class _ThinkingIndicatorState extends State<ThinkingIndicator>
       children: List.generate(3, (i) {
         return AnimatedBuilder(
           animation: _dotController,
-          builder: (_, __) {
+          builder: (context, __) {
             final t = (_dotController.value - i * 0.15).clamp(0.0, 1.0);
             final opacity = (0.3 + 0.7 * (0.5 - (t - 0.5).abs() * 2).clamp(0.0, 0.5));
             return Padding(
               padding: const EdgeInsets.only(right: 4),
               child: Opacity(
                 opacity: opacity.clamp(0.3, 1.0),
-                child: const Text('●',
+                child: Text('●',
                     style: TextStyle(
-                        color: Color(kAccentLight), fontSize: 10)),
+                        color: Theme.of(context).colorScheme.primary, fontSize: 10)),
               ),
             );
           },
@@ -85,14 +84,14 @@ class _ThinkingIndicatorState extends State<ThinkingIndicator>
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.check_circle,
-                  size: 14, color: Color(kAccentLight)),
+              Icon(Icons.check_circle,
+                  size: 14, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 4),
               Text(
                 'Thought for a moment  ${_expanded ? '▲' : '▼'}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: Color(kAccentLight),
+                  color: Theme.of(context).colorScheme.primary,
                   fontStyle: FontStyle.italic,
                 ),
               ),
@@ -114,10 +113,10 @@ class _ThinkingIndicatorState extends State<ThinkingIndicator>
         Row(children: [
           _buildPulseDots(),
           const SizedBox(width: 8),
-          const Text('Thinking...',
+          Text('Thinking...',
               style: TextStyle(
                   fontSize: 11,
-                  color: Color(kAccentLight),
+                  color: Theme.of(context).colorScheme.primary,
                   fontStyle: FontStyle.italic)),
         ]),
         if (widget.steps.isNotEmpty) ...[
@@ -134,14 +133,14 @@ class _ThinkingIndicatorState extends State<ThinkingIndicator>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.subdirectory_arrow_right,
-              size: 12, color: Color(kTextSecondary)),
+          Icon(Icons.subdirectory_arrow_right,
+              size: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
           const SizedBox(width: 4),
           Expanded(
             child: Text(
               s.text,
-              style: const TextStyle(
-                  fontSize: 11, color: Color(kTextSecondary)),
+              style: TextStyle(
+                  fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
             ),
           ),
         ],

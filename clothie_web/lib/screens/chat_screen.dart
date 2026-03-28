@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:clothie_web/config.dart';
+import 'package:clothie_web/providers/theme_provider.dart';
 import 'package:clothie_web/providers/cart_provider.dart';
 import 'package:clothie_web/providers/chat_provider.dart';
 import 'package:clothie_web/screens/cart_screen.dart';
@@ -93,7 +93,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
 
           return Scaffold(
-            backgroundColor: const Color(kBgColor),
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             appBar: _buildAppBar(context),
             body: Stack(
               children: [
@@ -143,12 +143,12 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1B2E),
+              color: Theme.of(context).colorScheme.primaryContainer,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFF7C6FFF), width: 1),
+              border: Border.all(color: Theme.of(context).colorScheme.primary, width: 1),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF7C6FFF).withValues(alpha: 0.25),
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.25),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
@@ -167,7 +167,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         'Item saved! \u2728',
                         style: GoogleFonts.outfit(
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onPrimaryContainer,
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
                         ),
@@ -176,7 +176,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         'Whenever you want to end, press the button and vote for me. Love you \u{1F495}',
                         style: GoogleFonts.outfit(
-                          color: Colors.white70,
+                          color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.7),
                           fontSize: 11,
                           height: 1.4,
                         ),
@@ -188,12 +188,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.north_east_rounded,
-                        color: Color(0xFF7C6FFF), size: 18),
+                    Icon(Icons.north_east_rounded,
+                        color: Theme.of(context).colorScheme.primary, size: 18),
                     Text(
                       'End',
                       style: GoogleFonts.outfit(
-                        color: const Color(0xFF7C6FFF),
+                        color: Theme.of(context).colorScheme.primary,
                         fontSize: 9,
                         fontWeight: FontWeight.w600,
                       ),
@@ -210,7 +210,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
-      backgroundColor: const Color(kSurfaceColor),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       elevation: 0,
       automaticallyImplyLeading: false,
       titleSpacing: 16,
@@ -220,7 +220,7 @@ class _ChatScreenState extends State<ChatScreen> {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: const Color(kAccentColor),
+              color: Theme.of(context).colorScheme.primary,
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Center(
@@ -236,14 +236,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 style: GoogleFonts.outfit(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
-                  color: const Color(kTextPrimary),
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               Text(
                 'Hi \${widget.userName} 👋',
                 style: GoogleFonts.outfit(
                   fontSize: 11,
-                  color: const Color(kAccentLight),
+                  color: Theme.of(context).colorScheme.primary,
                 ),
               ),
             ],
@@ -251,6 +251,18 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       actions: [
+        // ── Theme toggle ───────────────────────────────────────────────────
+        Consumer<ThemeProvider>(
+          builder: (context, themeProvider, child) {
+            return IconButton(
+              icon: Icon(themeProvider.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
+              color: Theme.of(context).colorScheme.onSurface,
+              onPressed: () {
+                themeProvider.toggleTheme();
+              },
+            );
+          },
+        ),
         // ── Cart icon with badge ──────────────────────────────────────────
         Consumer<CartProvider>(
           builder: (ctx, cart, _) => IconButton(
@@ -259,8 +271,8 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: Stack(
               clipBehavior: Clip.none,
               children: [
-                const Icon(Icons.shopping_bag_outlined,
-                    color: Color(kTextPrimary), size: 24),
+                Icon(Icons.shopping_bag_outlined,
+                    color: Theme.of(context).colorScheme.onSurface, size: 24),
                 if (cart.count > 0)
                   Positioned(
                     top: -4,
@@ -269,15 +281,15 @@ class _ChatScreenState extends State<ChatScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 5, vertical: 1),
                       decoration: BoxDecoration(
-                        color: const Color(kAccentColor),
+                        color: Theme.of(context).colorScheme.primary,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                            color: const Color(kSurfaceColor), width: 1.5),
+                            color: Theme.of(context).colorScheme.surface, width: 1.5),
                       ),
                       child: Text(
                         '\${cart.count}',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onPrimary,
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
                         ),
@@ -295,8 +307,8 @@ class _ChatScreenState extends State<ChatScreen> {
           child: OutlinedButton(
             onPressed: () => _showRatingDialog(context),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(kAccentLight),
-              side: const BorderSide(color: Color(kAccentLight), width: 1),
+              foregroundColor: Theme.of(context).colorScheme.primary,
+              side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
               padding:
@@ -310,7 +322,7 @@ class _ChatScreenState extends State<ChatScreen> {
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
         child: Container(
-            height: 1, color: Colors.white.withOpacity(0.06)),
+            height: 1, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06)),
       ),
     );
   }
@@ -320,14 +332,14 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('👗', style: const TextStyle(fontSize: 60)),
+          const Text('👗', style: TextStyle(fontSize: 60)),
           const SizedBox(height: 16),
           Text(
             'Ask me about fashion!',
             style: GoogleFonts.outfit(
               fontSize: 20,
               fontWeight: FontWeight.w600,
-              color: const Color(kTextPrimary),
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 8),
@@ -335,7 +347,7 @@ class _ChatScreenState extends State<ChatScreen> {
             'Outfit ideas, color matching, style tips — I\'ve got you.',
             style: GoogleFonts.outfit(
               fontSize: 14,
-              color: const Color(kTextSecondary),
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
             ),
             textAlign: TextAlign.center,
           ),
@@ -357,9 +369,9 @@ class _ChatScreenState extends State<ChatScreen> {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
       decoration: BoxDecoration(
-        color: const Color(kSurfaceColor),
+        color: Theme.of(context).colorScheme.surface,
         border: Border(
-          top: BorderSide(color: Colors.white.withOpacity(0.06)),
+          top: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06)),
         ),
       ),
       child: Row(
@@ -369,25 +381,25 @@ class _ChatScreenState extends State<ChatScreen> {
               controller: _inputController,
               onSubmitted: (_) => _sendMessage(context.read<ChatProvider>()),
               style: GoogleFonts.outfit(
-                  color: const Color(kTextPrimary), fontSize: 14),
+                  color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'Ask about fashion...',
                 hintStyle: TextStyle(
-                    color: const Color(kTextSecondary).withOpacity(0.7),
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                     fontSize: 14),
                 filled: true,
-                fillColor: const Color(kCardColor),
+                fillColor: Theme.of(context).inputDecorationTheme.fillColor,
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide:
-                      BorderSide(color: Colors.white.withOpacity(0.08)),
+                      BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(
-                      color: Color(kAccentLight), width: 1.5),
+                  borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary, width: 1.5),
                 ),
               ),
             ),
@@ -430,23 +442,23 @@ class _ChatScreenState extends State<ChatScreen> {
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF7F1D1D).withOpacity(0.6),
+        color: Theme.of(context).colorScheme.errorContainer,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.4)),
+        border: Border.all(color: Theme.of(context).colorScheme.error.withOpacity(0.5)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 16),
+          Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               provider.error!,
-              style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12),
+              style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer, fontSize: 12),
             ),
           ),
           GestureDetector(
             onTap: provider.clearError,
-            child: const Icon(Icons.close, color: Color(0xFFFCA5A5), size: 16),
+            child: Icon(Icons.close, color: Theme.of(context).colorScheme.onErrorContainer, size: 16),
           ),
         ],
       ),
@@ -479,22 +491,22 @@ class _SendButtonState extends State<_SendButton> {
           height: 48,
           decoration: BoxDecoration(
             color: widget.isLoading
-                ? const Color(kAccentColor).withOpacity(0.4)
+                ? Theme.of(context).colorScheme.primary.withOpacity(0.4)
                 : _hovered
-                    ? const Color(kAccentLight)
-                    : const Color(kAccentColor),
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.8)
+                    : Theme.of(context).colorScheme.primary,
             borderRadius: BorderRadius.circular(14),
           ),
           child: widget.isLoading
-              ? const Center(
+              ? Center(
                   child: SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2, color: Theme.of(context).colorScheme.onPrimary),
                   ),
                 )
-              : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+              : Icon(Icons.send_rounded, color: Theme.of(context).colorScheme.onPrimary, size: 20),
         ),
       ),
     );

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:clothie_web/config.dart';
 import 'package:clothie_web/services/api_service.dart';
 import 'package:clothie_web/widgets/star_rating.dart';
 import 'package:clothie_web/screens/splash_screen.dart';
@@ -61,7 +60,7 @@ class _RatingScreenState extends State<RatingScreen> {
               'Thank you, ${widget.userName}! 🙏',
               style: GoogleFonts.outfit(fontSize: 14),
             ),
-            backgroundColor: const Color(kAccentColor),
+            backgroundColor: Theme.of(context).snackBarTheme.backgroundColor ?? Theme.of(context).colorScheme.primary,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10)),
@@ -92,17 +91,20 @@ class _RatingScreenState extends State<RatingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(kBgColor),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              const Color(kBgColor),
-              const Color(kAccentColor).withOpacity(0.08),
-              const Color(kBgColor),
+              theme.scaffoldBackgroundColor,
+              theme.colorScheme.primary.withValues(alpha: 0.08),
+              theme.scaffoldBackgroundColor,
             ],
           ),
         ),
@@ -114,15 +116,15 @@ class _RatingScreenState extends State<RatingScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Header
+                   // Header
                   Container(
                     width: 72,
                     height: 72,
                     decoration: BoxDecoration(
-                      color: const Color(kAccentColor).withOpacity(0.15),
+                      color: theme.colorScheme.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                          color: const Color(kAccentLight).withOpacity(0.3)),
+                          color: theme.colorScheme.primary.withValues(alpha: 0.3)),
                     ),
                     child: const Center(
                       child: Text('⭐', style: TextStyle(fontSize: 34)),
@@ -134,7 +136,7 @@ class _RatingScreenState extends State<RatingScreen> {
                     style: GoogleFonts.outfit(
                       fontSize: 26,
                       fontWeight: FontWeight.w700,
-                      color: const Color(kTextPrimary),
+                      color: theme.colorScheme.onSurface,
                       letterSpacing: -0.5,
                     ),
                     textAlign: TextAlign.center,
@@ -144,7 +146,7 @@ class _RatingScreenState extends State<RatingScreen> {
                     'Your feedback helps improve Clothie',
                     style: GoogleFonts.outfit(
                       fontSize: 14,
-                      color: const Color(kTextSecondary),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
 
@@ -154,10 +156,10 @@ class _RatingScreenState extends State<RatingScreen> {
                   Container(
                     padding: const EdgeInsets.all(28),
                     decoration: BoxDecoration(
-                      color: const Color(kSurfaceColor),
+                      color: theme.colorScheme.surface,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                          color: Colors.white.withOpacity(0.07)),
+                          color: isDark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.07)),
                     ),
                     child: Column(
                       children: [
@@ -168,8 +170,8 @@ class _RatingScreenState extends State<RatingScreen> {
                           style: GoogleFonts.outfit(
                             fontSize: 13,
                             color: _rating == 0
-                                ? const Color(kTextSecondary)
-                                : const Color(kAccentLight),
+                                ? theme.colorScheme.onSurface.withValues(alpha: 0.6)
+                                : theme.colorScheme.primary,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -186,27 +188,26 @@ class _RatingScreenState extends State<RatingScreen> {
                           controller: _feedbackController,
                           maxLines: 4,
                           style: GoogleFonts.outfit(
-                            color: const Color(kTextPrimary),
+                            color: theme.colorScheme.onSurface,
                             fontSize: 14,
                           ),
                           decoration: InputDecoration(
                             hintText:
                                 'What did you think about this system?',
                             hintStyle: TextStyle(
-                                color: const Color(kTextSecondary)
-                                    .withOpacity(0.7),
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                                 fontSize: 13),
                             filled: true,
-                            fillColor: const Color(kCardColor),
+                            fillColor: theme.inputDecorationTheme.fillColor ?? theme.colorScheme.surface,
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide(
-                                  color: Colors.white.withOpacity(0.08)),
+                                  color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(
-                                  color: Color(kAccentLight), width: 1.5),
+                              borderSide: BorderSide(
+                                  color: theme.colorScheme.primary, width: 1.5),
                             ),
                           ),
                         ),
@@ -227,19 +228,19 @@ class _RatingScreenState extends State<RatingScreen> {
                           child: ElevatedButton(
                             onPressed: _isLoading ? null : _submit,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(kAccentColor),
-                              foregroundColor: Colors.white,
+                              backgroundColor: theme.colorScheme.primary,
+                              foregroundColor: theme.scaffoldBackgroundColor,
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14)),
                               elevation: 0,
                             ),
                             child: _isLoading
-                                ? const SizedBox(
+                                ? SizedBox(
                                     width: 20,
                                     height: 20,
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: Colors.white),
+                                        color: theme.scaffoldBackgroundColor),
                                   )
                                 : Text(
                                     'Submit Feedback',
@@ -330,8 +331,11 @@ class _RatingDialogState extends State<RatingDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Dialog(
-      backgroundColor: const Color(kSurfaceColor),
+      backgroundColor: theme.colorScheme.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
         padding: const EdgeInsets.all(28),
@@ -347,7 +351,7 @@ class _RatingDialogState extends State<RatingDialog> {
                 style: GoogleFonts.outfit(
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
-                  color: const Color(kTextPrimary),
+                  color: theme.colorScheme.onSurface,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -355,7 +359,7 @@ class _RatingDialogState extends State<RatingDialog> {
               Text(
                 'Hi ${widget.userName}, your feedback helps improve Clothie.',
                 style: GoogleFonts.outfit(
-                    fontSize: 13, color: const Color(kTextSecondary)),
+                    fontSize: 13, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
@@ -366,8 +370,8 @@ class _RatingDialogState extends State<RatingDialog> {
                 style: GoogleFonts.outfit(
                   fontSize: 13,
                   color: _rating == 0
-                      ? const Color(kTextSecondary)
-                      : const Color(kAccentLight),
+                      ? theme.colorScheme.onSurface.withValues(alpha: 0.6)
+                      : theme.colorScheme.primary,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -381,23 +385,23 @@ class _RatingDialogState extends State<RatingDialog> {
                 controller: _feedbackController,
                 maxLines: 3,
                 style: GoogleFonts.outfit(
-                    color: const Color(kTextPrimary), fontSize: 13),
+                    color: theme.colorScheme.onSurface, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'What did you think about this system?',
                   hintStyle: TextStyle(
-                      color: const Color(kTextSecondary).withOpacity(0.7),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                       fontSize: 13),
                   filled: true,
-                  fillColor: const Color(kCardColor),
+                  fillColor: theme.inputDecorationTheme.fillColor ?? theme.colorScheme.surface,
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide:
-                        BorderSide(color: Colors.white.withOpacity(0.08)),
+                        BorderSide(color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                        color: Color(kAccentLight), width: 1.5),
+                    borderSide: BorderSide(
+                        color: theme.colorScheme.primary, width: 1.5),
                   ),
                 ),
               ),
@@ -414,18 +418,18 @@ class _RatingDialogState extends State<RatingDialog> {
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _submit,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(kAccentColor),
-                    foregroundColor: Colors.white,
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.scaffoldBackgroundColor,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                     elevation: 0,
                   ),
                   child: _isLoading
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
+                              strokeWidth: 2, color: theme.scaffoldBackgroundColor),
                         )
                       : Text('Submit Feedback',
                           style: GoogleFonts.outfit(
@@ -439,7 +443,7 @@ class _RatingDialogState extends State<RatingDialog> {
                 child: Text('Maybe later',
                     style: GoogleFonts.outfit(
                         fontSize: 12,
-                        color: const Color(kTextSecondary))),
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
               ),
             ],
           ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:clothie_web/config.dart';
+import 'package:provider/provider.dart';
+import 'package:clothie_web/providers/theme_provider.dart';
 import 'package:clothie_web/services/api_service.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
 import 'package:clothie_web/screens/chat_screen.dart';
@@ -86,7 +87,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(kBgColor),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, child) {
+              return IconButton(
+                icon: Icon(themeProvider.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
+                color: Theme.of(context).colorScheme.onSurface,
+                onPressed: () {
+                  themeProvider.toggleTheme();
+                },
+              );
+            },
+          ),
+          const SizedBox(width: 16),
+        ],
+      ),
       body: Stack(
         children: [
           const Positioned.fill(child: FlyingIconBackground(iconCount: 12)),
@@ -111,10 +131,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 12),
                         decoration: BoxDecoration(
-                          color: const Color(kSurfaceColor).withOpacity(0.6),
+                          color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: const Color(kAccentLight).withOpacity(0.15),
+                            color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
                           ),
                         ),
                         child: Row(
@@ -128,13 +148,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               style: GoogleFonts.outfit(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
-                                color: const Color(kAccentLight),
+                                color: Theme.of(context).colorScheme.secondary,
                                 letterSpacing: 0.3,
                               ),
                             ),
                             const SizedBox(width: 6),
-                            const Icon(Icons.arrow_forward_ios_rounded,
-                                size: 12, color: Color(kAccentLight)),
+                            Icon(Icons.arrow_forward_ios_rounded,
+                                size: 12, color: Theme.of(context).colorScheme.secondary),
                           ],
                         ),
                       ),
@@ -147,10 +167,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 12),
                         decoration: BoxDecoration(
-                          color: const Color(kSurfaceColor).withOpacity(0.6),
+                          color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: const Color(kAccentLight).withOpacity(0.15),
+                            color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
                             width: 1,
                           ),
                         ),
@@ -165,13 +185,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               style: GoogleFonts.outfit(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
-                                color: const Color(kAccentLight),
+                                color: Theme.of(context).colorScheme.secondary,
                                 letterSpacing: 0.3,
                               ),
                             ),
                             const SizedBox(width: 6),
-                            const Icon(Icons.lock_outline_rounded,
-                                size: 12, color: Color(kAccentLight)),
+                            Icon(Icons.lock_outline_rounded,
+                                size: 12, color: Theme.of(context).colorScheme.secondary),
                           ],
                         ),
                       ),
@@ -190,15 +210,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 40),
       decoration: BoxDecoration(
-        color: const Color(kSurfaceColor).withOpacity(0.85),
+        color: Theme.of(context).colorScheme.surface.withOpacity(0.85),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: const Color(kAccentLight).withOpacity(0.15),
+          color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.4),
+            color: Colors.black.withOpacity(0.2),
             blurRadius: 40,
             spreadRadius: 0,
           ),
@@ -212,10 +232,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: const Color(kAccentColor).withOpacity(0.2),
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: const Color(kAccentLight).withOpacity(0.3),
+                color: Theme.of(context).colorScheme.secondary.withOpacity(0.3),
               ),
             ),
             child: const Center(child: Text('👗', style: TextStyle(fontSize: 30))),
@@ -226,7 +246,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             style: GoogleFonts.outfit(
               fontSize: 26,
               fontWeight: FontWeight.w700,
-              color: const Color(kTextPrimary),
+              color: Theme.of(context).colorScheme.onSurface,
               letterSpacing: -0.5,
             ),
           ),
@@ -235,7 +255,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             'Tell us your name to get started',
             style: GoogleFonts.outfit(
               fontSize: 14,
-              color: const Color(kTextSecondary),
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
             ),
           ),
           const SizedBox(height: 32),
@@ -246,26 +266,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
             autofocus: true,
             onSubmitted: (_) => _startChat(),
             style: GoogleFonts.outfit(
-              color: const Color(kTextPrimary),
+              color: Theme.of(context).colorScheme.onSurface,
               fontSize: 15,
             ),
             decoration: InputDecoration(
               hintText: 'Enter your name',
               hintStyle: TextStyle(
-                  color: const Color(kTextSecondary).withOpacity(0.7)),
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
               filled: true,
-              fillColor: const Color(kCardColor),
-              prefixIcon: const Icon(Icons.person_outline,
-                  color: Color(kAccentLight), size: 20),
+              fillColor: Theme.of(context).inputDecorationTheme.fillColor,
+              prefixIcon: Icon(Icons.person_outline,
+                  color: Theme.of(context).colorScheme.secondary, size: 20),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                    color: Colors.white.withOpacity(0.08), width: 1),
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1), width: 1),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(
-                    color: Color(kAccentLight), width: 1.5),
+                borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.secondary, width: 1.5),
               ),
               errorText: _error,
               errorStyle:
@@ -281,10 +301,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: ElevatedButton(
               onPressed: _isLoading ? null : _startChat,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(kAccentColor),
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Colors.white,
                 disabledBackgroundColor:
-                    const Color(kAccentColor).withOpacity(0.4),
+                    Theme.of(context).colorScheme.primary.withOpacity(0.4),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14)),
                 elevation: 0,
@@ -348,13 +368,13 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
       child: Container(
         constraints: const BoxConstraints(maxWidth: 440, maxHeight: 580),
         decoration: BoxDecoration(
-          color: const Color(kSurfaceColor),
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: const Color(kAccentLight).withOpacity(0.15), width: 1),
+              color: Theme.of(context).colorScheme.secondary.withOpacity(0.15), width: 1),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black.withOpacity(0.2),
               blurRadius: 40,
               spreadRadius: 0,
             ),
@@ -376,14 +396,14 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                     style: GoogleFonts.outfit(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: const Color(kTextPrimary),
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   const Spacer(),
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
-                    child: const Icon(Icons.close_rounded,
-                        color: Color(kTextSecondary), size: 20),
+                    child: Icon(Icons.close_rounded,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6), size: 20),
                   ),
                 ],
               ),
@@ -400,10 +420,10 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                               color: Color(0xFFEF4444), fontSize: 13)),
                     )
                   : _entries == null
-                      ? const Padding(
-                          padding: EdgeInsets.all(40),
+                      ? Padding(
+                          padding: const EdgeInsets.all(40),
                           child: CircularProgressIndicator(
-                              color: Color(kAccentLight)),
+                              color: Theme.of(context).colorScheme.secondary),
                         )
                       : _entries!.isEmpty
                           ? Padding(
@@ -412,7 +432,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                 'No feedback submitted yet.\nBe the first!',
                                 textAlign: TextAlign.center,
                                 style: GoogleFonts.outfit(
-                                  color: const Color(kTextSecondary),
+                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                                   fontSize: 14,
                                 ),
                               ),
@@ -452,7 +472,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                           style: TextStyle(
                                             fontSize: i < 3 ? 18 : 13,
                                             color:
-                                                const Color(kTextSecondary),
+                                                Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                                           ),
                                         ),
                                       ),
@@ -469,8 +489,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                                   style: GoogleFonts.outfit(
                                                     fontSize: 14,
                                                     fontWeight: FontWeight.w600,
-                                                    color: const Color(
-                                                        kTextPrimary),
+                                                    color: Theme.of(context).colorScheme.onSurface,
                                                   ),
                                                 ),
                                                 const Spacer(),
@@ -481,8 +500,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                                   '$rating/10',
                                                   style: GoogleFonts.outfit(
                                                     fontSize: 12,
-                                                    color: const Color(
-                                                        kAccentLight),
+                                                    color: Theme.of(context).colorScheme.secondary,
                                                     fontWeight:
                                                         FontWeight.w600,
                                                   ),
@@ -495,8 +513,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                                 '"$feedback"',
                                                 style: GoogleFonts.outfit(
                                                   fontSize: 13,
-                                                  color: const Color(
-                                                      kTextSecondary),
+                                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                                                   fontStyle: FontStyle.italic,
                                                   height: 1.5,
                                                 ),
@@ -520,7 +537,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                 child: TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   style: TextButton.styleFrom(
-                    foregroundColor: const Color(kAccentLight),
+                    foregroundColor: Theme.of(context).colorScheme.primary,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -619,13 +636,13 @@ class _PinDialogState extends State<_PinDialog> {
         constraints: const BoxConstraints(maxWidth: 360),
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: const Color(kSurfaceColor),
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: const Color(kAccentLight).withOpacity(0.15), width: 1),
+              color: Theme.of(context).colorScheme.secondary.withOpacity(0.15), width: 1),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black.withOpacity(0.2),
               blurRadius: 40,
               spreadRadius: 0,
             ),
@@ -644,7 +661,7 @@ class _PinDialogState extends State<_PinDialog> {
                   style: GoogleFonts.outfit(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: const Color(kTextPrimary),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ],
@@ -654,7 +671,7 @@ class _PinDialogState extends State<_PinDialog> {
               'Enter your 8-digit access code to view analytics.',
               style: GoogleFonts.outfit(
                 fontSize: 13,
-                color: const Color(kTextSecondary),
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
               ),
             ),
             const SizedBox(height: 20),
@@ -666,29 +683,29 @@ class _PinDialogState extends State<_PinDialog> {
               autofocus: true,
               onSubmitted: (_) => _submit(),
               style: GoogleFonts.outfit(
-                color: const Color(kTextPrimary),
+                color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 18,
                 letterSpacing: 4,
               ),
               decoration: InputDecoration(
                 hintText: '••••••••',
                 hintStyle: TextStyle(
-                    color: const Color(kTextSecondary).withOpacity(0.5),
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
                     letterSpacing: 6),
                 filled: true,
-                fillColor: const Color(kCardColor),
+                fillColor: Theme.of(context).inputDecorationTheme.fillColor,
                 counterText: '',
-                prefixIcon: const Icon(Icons.lock_outline_rounded,
-                    color: Color(kAccentLight), size: 20),
+                prefixIcon: Icon(Icons.lock_outline_rounded,
+                    color: Theme.of(context).colorScheme.secondary, size: 20),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide: BorderSide(
-                      color: Colors.white.withOpacity(0.08), width: 1),
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1), width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide:
-                      const BorderSide(color: Color(kAccentLight), width: 1.5),
+                      BorderSide(color: Theme.of(context).colorScheme.secondary, width: 1.5),
                 ),
                 errorText: _error,
                 errorStyle:
@@ -702,7 +719,7 @@ class _PinDialogState extends State<_PinDialog> {
                   child: TextButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(kTextSecondary),
+                      foregroundColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12)),
@@ -717,10 +734,10 @@ class _PinDialogState extends State<_PinDialog> {
                   child: ElevatedButton(
                     onPressed: _loading ? null : _submit,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(kAccentColor),
+                      backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
                       disabledBackgroundColor:
-                          const Color(kAccentColor).withOpacity(0.4),
+                          Theme.of(context).colorScheme.primary.withOpacity(0.4),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12)),
@@ -805,10 +822,10 @@ class _ProfessorDashboardDialogState
       child: Container(
         constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
         decoration: BoxDecoration(
-          color: const Color(kSurfaceColor),
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: const Color(kAccentLight).withOpacity(0.15), width: 1),
+              color: Theme.of(context).colorScheme.secondary.withOpacity(0.15), width: 1),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.5),
@@ -837,7 +854,7 @@ class _ProfessorDashboardDialogState
                           style: GoogleFonts.outfit(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
-                            color: const Color(kTextPrimary),
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         if (_sessions != null)
@@ -845,7 +862,7 @@ class _ProfessorDashboardDialogState
                             '${_sessions!.length} session${_sessions!.length == 1 ? '' : 's'} · ${_fmt(_grandTotal)} total tokens',
                             style: GoogleFonts.outfit(
                               fontSize: 12,
-                              color: const Color(kTextSecondary),
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                             ),
                           ),
                       ],
@@ -853,8 +870,8 @@ class _ProfessorDashboardDialogState
                   ),
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
-                    child: const Icon(Icons.close_rounded,
-                        color: Color(kTextSecondary), size: 20),
+                    child: Icon(Icons.close_rounded,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5), size: 20),
                   ),
                 ],
               ),
@@ -885,10 +902,10 @@ class _ProfessorDashboardDialogState
                               color: Color(0xFFEF4444), fontSize: 13)),
                     )
                   : _sessions == null
-                      ? const Padding(
-                          padding: EdgeInsets.all(40),
+                      ? Padding(
+                          padding: const EdgeInsets.all(40),
                           child: CircularProgressIndicator(
-                              color: Color(kAccentLight)),
+                              color: Theme.of(context).colorScheme.primary),
                         )
                       : _sessions!.isEmpty
                           ? Padding(
@@ -897,7 +914,7 @@ class _ProfessorDashboardDialogState
                                 'No sessions recorded yet.',
                                 textAlign: TextAlign.center,
                                 style: GoogleFonts.outfit(
-                                  color: const Color(kTextSecondary),
+                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                                   fontSize: 14,
                                 ),
                               ),
@@ -932,7 +949,7 @@ class _ProfessorDashboardDialogState
                                           shortId,
                                           style: GoogleFonts.outfit(
                                             fontSize: 12,
-                                            color: const Color(kTextSecondary),
+                                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                                           ),
                                         ),
                                       ),
@@ -943,7 +960,7 @@ class _ProfessorDashboardDialogState
                                           style: GoogleFonts.outfit(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w600,
-                                            color: const Color(kTextPrimary),
+                                            color: Theme.of(context).colorScheme.onSurface,
                                           ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -955,7 +972,7 @@ class _ProfessorDashboardDialogState
                                               'gemini-', 'Gemini '),
                                           style: GoogleFonts.outfit(
                                             fontSize: 12,
-                                            color: const Color(kAccentLight),
+                                            color: Theme.of(context).colorScheme.primary,
                                           ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -968,7 +985,7 @@ class _ProfessorDashboardDialogState
                                           style: GoogleFonts.outfit(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w700,
-                                            color: const Color(kTextPrimary),
+                                            color: Theme.of(context).colorScheme.onSurface,
                                           ),
                                         ),
                                       ),
@@ -987,7 +1004,7 @@ class _ProfessorDashboardDialogState
                 child: TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   style: TextButton.styleFrom(
-                    foregroundColor: const Color(kAccentLight),
+                    foregroundColor: Theme.of(context).colorScheme.primary,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -1014,10 +1031,11 @@ class _ProfessorDashboardDialogState
         style: GoogleFonts.outfit(
           fontSize: 10,
           fontWeight: FontWeight.w700,
-          color: const Color(kTextSecondary),
+          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
           letterSpacing: 0.8,
         ),
       ),
     );
   }
 }
+

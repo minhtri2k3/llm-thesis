@@ -53,8 +53,10 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: const Color(kBgColor),
+      backgroundColor: theme.colorScheme.surface,
       body: Stack(
         children: [
           // Animated background
@@ -69,7 +71,7 @@ class _SplashScreenState extends State<SplashScreen>
                   center: Alignment.center,
                   radius: 1.0,
                   colors: [
-                    const Color(kAccentColor).withOpacity(0.15),
+                    theme.colorScheme.primary.withOpacity(0.15),
                     Colors.transparent,
                   ],
                 ),
@@ -92,10 +94,10 @@ class _SplashScreenState extends State<SplashScreen>
                         width: 88,
                         height: 88,
                         decoration: BoxDecoration(
-                          color: const Color(kAccentColor).withOpacity(0.15),
+                          color: theme.colorScheme.primary.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
-                            color: const Color(kAccentLight).withOpacity(0.3),
+                            color: theme.colorScheme.primary.withOpacity(0.3),
                             width: 1.5,
                           ),
                         ),
@@ -109,7 +111,7 @@ class _SplashScreenState extends State<SplashScreen>
                         style: GoogleFonts.outfit(
                           fontSize: 48,
                           fontWeight: FontWeight.w700,
-                          color: const Color(kTextPrimary),
+                          color: theme.colorScheme.onSurface,
                           letterSpacing: -1,
                         ),
                       ),
@@ -118,7 +120,7 @@ class _SplashScreenState extends State<SplashScreen>
                         'AI Fashion Assistant',
                         style: GoogleFonts.outfit(
                           fontSize: 16,
-                          color: const Color(kAccentLight),
+                          color: theme.colorScheme.primary,
                           fontWeight: FontWeight.w400,
                           letterSpacing: 2,
                         ),
@@ -164,6 +166,8 @@ class _LoadingDotsState extends State<_LoadingDots>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) => Row(
@@ -178,8 +182,8 @@ class _LoadingDotsState extends State<_LoadingDots>
               child: Container(
                 width: 8,
                 height: 8,
-                decoration: const BoxDecoration(
-                  color: Color(kAccentLight),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
                   shape: BoxShape.circle,
                 ),
               ),
