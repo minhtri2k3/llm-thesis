@@ -217,6 +217,38 @@ async def get_ratings_endpoint():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/analytics/token-usage")
+async def get_token_usage_analytics(request: Request):
+    """Return per-session LLM token usage — protected by ADMIN_SECRET_KEY.
+
+    Requires header: X-Admin-Key: <value of ADMIN_SECRET_KEY env var>
+
+    Responses:
+    - 200: {"sessions": [...], "total_sessions": N, "grand_total_tokens": M}
+    - 403: Forbidden (wrong or missing key)
+    - 503: Analytics not configured (env var not set)
+    """
+    admin_key = os.getenv("ADMIN_SECRET_KEY")
+    if not admin_key:
+        raise HTTPException(status_code=503, detail="Analytics not configured")
+
+    provided_key = request.headers.get("X-Admin-Key", "")
+    if provided_key != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        from agent.memory import get_token_analytics
+        sessions = get_token_analytics()
+        grand_total = sum(s["total_tokens"] for s in sessions)
+        return {
+            "sessions": sessions,
+            "total_sessions": len(sessions),
+            "grand_total_tokens": grand_total,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(req: ChatRequest):
     """Streaming chat endpoint — returns Server-Sent Events.

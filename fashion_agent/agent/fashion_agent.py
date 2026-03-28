@@ -43,6 +43,7 @@ from agent.memory import (
     get_preferences,
     save_selected_items,
     get_selected_items,
+    log_token_usage,
     Message,
 )
 from search.search_engine import search as hybrid_search
@@ -527,6 +528,18 @@ def _orchestrate_stream(
         tokens=intent_tokens,
     )
 
+    # Persist intent token usage to DB (non-fatal — never kill the stream)
+    try:
+        log_token_usage(
+            session_id=session_id,
+            call_name="intent",
+            model_name="gemini-2.5-flash",
+            input_tokens=intent_tokens.input_tokens,
+            output_tokens=intent_tokens.output_tokens,
+        )
+    except Exception as _tok_err:
+        logger.debug("Token logging failed (intent): %s", _tok_err)
+
     # Step 2: Out-of-scope — early exit
     if intent == "out_of_scope":
         add_message(session_id, "assistant", OUT_OF_SCOPE_RESPONSE)
@@ -955,6 +968,18 @@ def chat_stream(
     styling = _extract_styling_from_text(full_text)
 
     add_message(result.session_id, "assistant", full_text)
+
+    # Persist synthesis token usage to DB (non-fatal)
+    try:
+        log_token_usage(
+            session_id=result.session_id,
+            call_name="synthesis",
+            model_name="gemini-2.5-flash",
+            input_tokens=synthesis_tokens.input_tokens,
+            output_tokens=synthesis_tokens.output_tokens,
+        )
+    except Exception as _tok_err:
+        logger.debug("Token logging failed (synthesis): %s", _tok_err)
 
     yield _sse("done", {
         "session_id": result.session_id,

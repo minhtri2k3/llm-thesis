@@ -115,6 +115,31 @@ class ApiService {
         .toList();
   }
 
+  /// Fetches per-session LLM token analytics for the professor dashboard.
+  ///
+  /// Requires the correct [secretKey] matching the backend ADMIN_SECRET_KEY.
+  /// Throws an [Exception] whose message contains the HTTP status if auth fails.
+  Future<List<Map<String, dynamic>>> getTokenAnalytics(String secretKey) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/analytics/token-usage');
+    final response = await _client.get(
+      uri,
+      headers: {'X-Admin-Key': secretKey},
+    );
+    if (response.statusCode == 403) {
+      throw Exception('403: Incorrect access code');
+    }
+    if (response.statusCode == 503) {
+      throw Exception('503: Analytics not configured on server');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load analytics: ${response.body}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return (json['sessions'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
   /// Submits a post-session rating and feedback.
   Future<void> submitRating({
     required String sessionId,

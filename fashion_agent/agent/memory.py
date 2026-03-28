@@ -124,10 +124,41 @@ def init_memory_tables() -> None:
 
     CREATE INDEX IF NOT EXISTS idx_user_ratings_session
         ON user_ratings(session_id);
+
+    -- LLM Token Usage: per-call token tracking for thesis reporting
+    CREATE TABLE IF NOT EXISTS llm_token_usage (
+        id          BIGSERIAL PRIMARY KEY,
+        session_id  TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        call_name   TEXT NOT NULL,
+        model_name  TEXT NOT NULL,
+        input_tokens  INT NOT NULL DEFAULT 0,
+        output_tokens INT NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_llm_token_usage_session
+        ON llm_token_usage(session_id, created_at);
     """
+
+    view_ddl = """
+    CREATE OR REPLACE VIEW session_token_summary AS
+    SELECT
+        s.session_id,
+        s.user_name,
+        MAX(u.model_name)              AS model_name,
+        SUM(u.input_tokens)            AS total_input_tokens,
+        SUM(u.output_tokens)           AS total_output_tokens,
+        SUM(u.input_tokens + u.output_tokens) AS total_tokens,
+        s.created_at::date             AS session_date
+    FROM llm_token_usage u
+    JOIN user_sessions s USING (session_id)
+    GROUP BY s.session_id, s.user_name, s.created_at;
+    """
+
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(ddl)
+            cur.execute(view_ddl)
         conn.commit()
 
 
@@ -392,6 +423,70 @@ def get_selected_items(session_id: str) -> list[dict]:
             "image_path": r["image_path"],
             "search_query": r["search_query"],
             "selected_at": str(r["selected_at"]),
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# LLM Token Tracking
+# ---------------------------------------------------------------------------
+
+
+def log_token_usage(
+    session_id: str,
+    call_name: str,
+    model_name: str,
+    input_tokens: int,
+    output_tokens: int,
+) -> None:
+    """Persist one LLM call's token counts to the database.
+
+    This is intentionally fire-and-log — callers should wrap in try/except
+    so a DB error never disrupts the chat stream.
+    """
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO llm_token_usage
+                    (session_id, call_name, model_name, input_tokens, output_tokens)
+                VALUES (%s, %s, %s, %s, %s);
+                """,
+                (session_id, call_name, model_name, input_tokens, output_tokens),
+            )
+        conn.commit()
+
+
+def get_token_analytics() -> list[dict]:
+    """Return per-session token aggregates ordered by date and total tokens.
+
+    Reads the session_token_summary view.
+    Returns a list of dicts with keys:
+      session_id, user_name, model_name,
+      total_input_tokens, total_output_tokens, total_tokens, session_date.
+    """
+    with _db_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT session_id, user_name, model_name,
+                       total_input_tokens, total_output_tokens,
+                       total_tokens, session_date
+                FROM session_token_summary
+                ORDER BY session_date DESC, total_tokens DESC;
+                """
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "session_id": r["session_id"],
+            "user_name": r["user_name"] or "Anonymous",
+            "model_name": r["model_name"] or "",
+            "total_input_tokens": r["total_input_tokens"] or 0,
+            "total_output_tokens": r["total_output_tokens"] or 0,
+            "total_tokens": r["total_tokens"] or 0,
+            "session_date": str(r["session_date"]),
         }
         for r in rows
     ]

@@ -66,6 +66,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  Future<void> _showProfessorPin() async {
+    final secretKey = await showDialog<String>(
+      context: context,
+      builder: (_) => _PinDialog(api: _api),
+    );
+    if (secretKey != null && mounted) {
+      _showProfessorDashboard(secretKey);
+    }
+  }
+
+  void _showProfessorDashboard(String secretKey) {
+    showDialog(
+      context: context,
+      builder: (_) => _ProfessorDashboardDialog(api: _api, secretKey: secretKey),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -117,6 +134,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                             const SizedBox(width: 6),
                             const Icon(Icons.arrow_forward_ios_rounded,
+                                size: 12, color: Color(kAccentLight)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // ── Professor View link ──────────────────────────────
+                    GestureDetector(
+                      onTap: _showProfessorPin,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(kSurfaceColor).withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: const Color(kAccentLight).withOpacity(0.15),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('🔬',
+                                style: TextStyle(fontSize: 18)),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Professor View',
+                              style: GoogleFonts.outfit(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(kAccentLight),
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.lock_outline_rounded,
                                 size: 12, color: Color(kAccentLight)),
                           ],
                         ),
@@ -506,6 +560,464 @@ class _StarRating extends StatelessWidget {
         }
         return Icon(icon, size: 14, color: const Color(0xFFFBBF24));
       }),
+    );
+  }
+}
+
+// ─── PIN Dialog ───────────────────────────────────────────────────────────
+
+class _PinDialog extends StatefulWidget {
+  final ApiService api;
+  const _PinDialog({required this.api});
+
+  @override
+  State<_PinDialog> createState() => _PinDialogState();
+}
+
+class _PinDialogState extends State<_PinDialog> {
+  final _controller = TextEditingController();
+  String? _error;
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final pin = _controller.text.trim();
+    if (pin.isEmpty) {
+      setState(() => _error = 'Enter the access code');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      // Validate by actually calling the endpoint
+      await widget.api.getTokenAnalytics(pin);
+      if (mounted) Navigator.of(context).pop(pin); // return the validated key
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString().contains('403')
+              ? 'Incorrect access code'
+              : e.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 360),
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: const Color(kSurfaceColor),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: const Color(kAccentLight).withOpacity(0.15), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 40,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text('🔬', style: TextStyle(fontSize: 22)),
+                const SizedBox(width: 10),
+                Text(
+                  'Professor Access',
+                  style: GoogleFonts.outfit(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(kTextPrimary),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Enter your 8-digit access code to view analytics.',
+              style: GoogleFonts.outfit(
+                fontSize: 13,
+                color: const Color(kTextSecondary),
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _controller,
+              obscureText: true,
+              maxLength: 8,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              onSubmitted: (_) => _submit(),
+              style: GoogleFonts.outfit(
+                color: const Color(kTextPrimary),
+                fontSize: 18,
+                letterSpacing: 4,
+              ),
+              decoration: InputDecoration(
+                hintText: '••••••••',
+                hintStyle: TextStyle(
+                    color: const Color(kTextSecondary).withOpacity(0.5),
+                    letterSpacing: 6),
+                filled: true,
+                fillColor: const Color(kCardColor),
+                counterText: '',
+                prefixIcon: const Icon(Icons.lock_outline_rounded,
+                    color: Color(kAccentLight), size: 20),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                      color: Colors.white.withOpacity(0.08), width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide:
+                      const BorderSide(color: Color(kAccentLight), width: 1.5),
+                ),
+                errorText: _error,
+                errorStyle:
+                    const TextStyle(color: Color(0xFFEF4444), fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(kTextSecondary),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Text('Cancel',
+                        style: GoogleFonts.outfit(
+                            fontSize: 14, fontWeight: FontWeight.w500)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(kAccentColor),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                          const Color(kAccentColor).withOpacity(0.4),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text('Unlock 🔬',
+                            style: GoogleFonts.outfit(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Professor Dashboard Dialog ────────────────────────────────────────
+
+class _ProfessorDashboardDialog extends StatefulWidget {
+  final ApiService api;
+  final String secretKey;
+  const _ProfessorDashboardDialog(
+      {required this.api, required this.secretKey});
+
+  @override
+  State<_ProfessorDashboardDialog> createState() =>
+      _ProfessorDashboardDialogState();
+}
+
+class _ProfessorDashboardDialogState
+    extends State<_ProfessorDashboardDialog> {
+  List<Map<String, dynamic>>? _sessions;
+  String? _error;
+  int _grandTotal = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final data = await widget.api.getTokenAnalytics(widget.secretKey);
+      if (mounted) {
+        setState(() {
+          _sessions = data;
+          _grandTotal = data.fold(
+              0, (sum, s) => sum + ((s['total_tokens'] as num?)?.toInt() ?? 0));
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  String _fmt(int n) {
+    // Format integer with comma thousands separator
+    final s = n.toString();
+    final buf = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return buf.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
+        decoration: BoxDecoration(
+          color: const Color(kSurfaceColor),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: const Color(kAccentLight).withOpacity(0.15), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 40,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Row(
+                children: [
+                  const Text('🔬', style: TextStyle(fontSize: 22)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Professor Dashboard',
+                          style: GoogleFonts.outfit(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(kTextPrimary),
+                          ),
+                        ),
+                        if (_sessions != null)
+                          Text(
+                            '${_sessions!.length} session${_sessions!.length == 1 ? '' : 's'} · ${_fmt(_grandTotal)} total tokens',
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              color: const Color(kTextSecondary),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: const Icon(Icons.close_rounded,
+                        color: Color(kTextSecondary), size: 20),
+                  ),
+                ],
+              ),
+            ),
+            // Column headers
+            if (_sessions != null && _sessions!.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                color: Colors.white.withOpacity(0.04),
+                child: Row(
+                  children: [
+                    _colHeader('Session', flex: 3),
+                    _colHeader('User', flex: 3),
+                    _colHeader('Model', flex: 3),
+                    _colHeader('Tokens', flex: 2, align: TextAlign.right),
+                  ],
+                ),
+              ),
+            const Divider(color: Color(0x22FFFFFF), height: 1),
+
+            // Body
+            Flexible(
+              child: _error != null
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(_error!,
+                          style: const TextStyle(
+                              color: Color(0xFFEF4444), fontSize: 13)),
+                    )
+                  : _sessions == null
+                      ? const Padding(
+                          padding: EdgeInsets.all(40),
+                          child: CircularProgressIndicator(
+                              color: Color(kAccentLight)),
+                        )
+                      : _sessions!.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(40),
+                              child: Text(
+                                'No sessions recorded yet.',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.outfit(
+                                  color: const Color(kTextSecondary),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 8),
+                              itemCount: _sessions!.length,
+                              separatorBuilder: (_, __) => const Divider(
+                                  color: Color(0x10FFFFFF), height: 1),
+                              itemBuilder: (_, i) {
+                                final s = _sessions![i];
+                                final sessionId =
+                                    (s['session_id'] as String? ?? '');
+                                final shortId = sessionId.length > 12
+                                    ? '${sessionId.substring(0, 12)}…'
+                                    : sessionId;
+                                final userName =
+                                    s['user_name'] as String? ?? 'Anonymous';
+                                final modelName =
+                                    s['model_name'] as String? ?? '-';
+                                final tokens =
+                                    (s['total_tokens'] as num?)?.toInt() ?? 0;
+                                return Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 10),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          shortId,
+                                          style: GoogleFonts.outfit(
+                                            fontSize: 12,
+                                            color: const Color(kTextSecondary),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          userName,
+                                          style: GoogleFonts.outfit(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: const Color(kTextPrimary),
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          modelName.replaceAll(
+                                              'gemini-', 'Gemini '),
+                                          style: GoogleFonts.outfit(
+                                            fontSize: 12,
+                                            color: const Color(kAccentLight),
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 2,
+                                        child: Text(
+                                          _fmt(tokens),
+                                          textAlign: TextAlign.right,
+                                          style: GoogleFonts.outfit(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: const Color(kTextPrimary),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+            ),
+
+            // Close button
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(kAccentLight),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Close',
+                      style: GoogleFonts.outfit(
+                          fontSize: 14, fontWeight: FontWeight.w500)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _colHeader(String label,
+      {int flex = 1, TextAlign align = TextAlign.left}) {
+    return Expanded(
+      flex: flex,
+      child: Text(
+        label.toUpperCase(),
+        textAlign: align,
+        style: GoogleFonts.outfit(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: const Color(kTextSecondary),
+          letterSpacing: 0.8,
+        ),
+      ),
     );
   }
 }
