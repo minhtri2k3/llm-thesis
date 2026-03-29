@@ -1,6 +1,6 @@
 %% ============================================================
 %%  Fashion Agent: An LLM-Powered Multimodal Fashion Retrieval
-%%  System Based on RAG and ReAct Agent Architecture
+%%  System Based on RAG and Direct Routing Agent Architecture
 %%  Article for LLM Thesis --- English
 %%  Compiled with: pdflatex fashion_agent_article.tex
 %% ============================================================
@@ -23,7 +23,7 @@
 \usepackage{fancyhdr}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small Fashion Agent: RAG + ReAct Architecture}
+\fancyhead[L]{\small Fashion Agent: RAG + Direct Routing Architecture}
 \fancyhead[R]{\small LLM Thesis}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
@@ -123,7 +123,7 @@
   Fashion Retrieval System}\\[0.8cm]
 
 {\large Based on Retrieval-Augmented Generation\\
-and ReAct Agent Architecture}\\[1.5cm]
+and Direct Routing Agent Architecture}\\[1.5cm]
 
 \rule{0.6\textwidth}{1pt}\\[1.5cm]
 
@@ -149,17 +149,19 @@ Faculty of Computer Science}\\[2cm]
 \noindent
 We present \textbf{Fashion Agent}, an intelligent multimodal fashion
 retrieval system that combines Retrieval-Augmented Generation (RAG)
-with a proactive ReAct (Reason + Act) agent loop.
+with a deterministic \emph{Direct Routing} orchestration layer.
 The system evolves through two phases:
 \emph{RAG v1.0}, a fixed nine-step hybrid-search pipeline using
 BM25 and Marqo-FashionSigLIP (768-d) vector embeddings; and
 \emph{Agent v2.0}, which introduces intent classification,
-a clarification gate, session memory backed by PostgreSQL, and
-a full ReAct orchestration loop powered by Gemini 2.5 Flash.
-A BAAI/BGE cross-encoder reranker and Gemini-driven query expansion
-further improve retrieval precision.
+a template-based slot gate, session memory backed by PostgreSQL,
+and a direct Gemini 2.5 Flash orchestrator requiring only 1--2 LLM
+calls per conversational turn --- with no iterative ReAct loop.
+A BAAI/BGE cross-encoder reranker further improves retrieval precision.
 End-to-end evaluation targets show Hit Rate@5 $\geq 93\%$,
 MRR $\geq 0.80$, and a P95 latency under 15 seconds.
+The Clothie Web frontend (Flutter, served via Nginx) connects to the
+FastAPI backend over a Cloudflare Tunnel.
 This article details the technical architecture, processing
 workflows, and key design decisions behind the system.
 \end{abstract}
@@ -182,7 +184,7 @@ Classical retrieval systems fail on all three counts.
 complementary mechanisms:
 \begin{enumerate}[label=(\arabic*)]
   \item \textbf{Hybrid retrieval} --- lexical BM25 for exact color/category matching combined with a fashion-specific SigLIP encoder for semantic similarity.
-  \item \textbf{LLM-orchestrated reasoning} --- Gemini 2.5 Flash classifies intent, expands queries, asks clarifying questions, and synthesizes a natural-language response, all inside a bounded ReAct loop.
+  \item \textbf{LLM-orchestrated reasoning} --- Gemini 2.5 Flash classifies intent and extracts structured slots in a single call, then routes deterministically through a template-based slot gate and hybrid search, and synthesises a natural-language response --- with no iterative ReAct loop.
   \item \textbf{Persistent session memory} --- PostgreSQL stores cross-turn context, liked products, and accumulated user preferences.
 \end{enumerate}
 
@@ -371,26 +373,32 @@ neighbors are retrieved by approximate nearest-neighbor search.
 \subsection{Reciprocal Rank Fusion (RRF)}
 
 RRF avoids the incompatibility of raw BM25 and cosine scores by
-blending \emph{rank positions} rather than absolute values:
+blending \emph{rank positions} rather than absolute values.
+The agent employs a \textbf{three-way} fusion over BM25,
+image-vector, and text-vector retrievers:
 \[
   \text{score}(d) =
     \frac{w_{\text{bm25}}}{k + r_{\text{bm25}}(d) + 1}
     +
-    \frac{w_{\text{vec}}}{k + r_{\text{vec}}(d) + 1}
+    \frac{w_{\text{img}}}{k + r_{\text{img}}(d) + 1}
+    +
+    \frac{w_{\text{text}}}{k + r_{\text{text}}(d) + 1}
 \]
-where $k=60$ acts as a rank smoothing constant,
-$w_{\text{bm25}} = 1.0$, and $w_{\text{vec}} = 2.5$.
-The higher weight on vector search reflects its superior semantic
-coverage.
+where $k=60$ is a rank smoothing constant,
+$w_{\text{bm25}} = 2.5$, $w_{\text{text}} = 1.5$, and
+$w_{\text{img}} = 1.0$.
+The higher weight on BM25 reflects the value of exact
+keyword matches for category and color queries;
+text-vector search provides semantic coverage;
+image-vector search captures visual style.
 
 \subsection{Query Expansion}
 
-Before retrieval, Gemini 2.5 Flash expands the user's query
-into a set of synonym sub-queries (e.g., \textit{``red dress''}
-$\to$ [``scarlet gown'', ``crimson frock'', ``ruby evening dress'']).
-Each sub-query is searched independently;
-results are aggregated and re-fused.
-This substantially improves recall for terse or colloquial inputs.
+The pipeline supports \emph{optional} Gemini-driven query expansion
+(synonym sub-queries), but it is \textbf{disabled} in the agent
+orchestrator by default (\texttt{use\_query\_expansion=False}) to
+reduce latency. Expansion may be enabled for RAG v1.0 standalone
+benchmarks.
 
 \subsection{BGE Cross-Encoder Reranker}
 
@@ -401,7 +409,10 @@ and produces a fine-grained relevance score.
 Unlike bi-encoders (which embed query and document independently),
 the cross-encoder has access to query-document interactions,
 yielding significantly higher precision at the cost of higher latency.
-The reranker is applied to the top-20 RRF results, returning the top-5.
+The reranker is applied to the top-20 RRF results, returning the top-6.
+A score threshold of $\geq 0.25$ is applied after reranking;
+results below this floor are dropped (minimum one result is always
+returned to avoid empty responses).
 
 \subsection{Retrieval Pipeline Architecture}
 
@@ -431,24 +442,27 @@ The reranker is applied to the top-20 RRF results, returning the top-5.
 %% Column 1: Expansion
 \node[qbox, right=of query] (expand) {Query\\Expansion\\(Gemini)};
 
-%% Column 2: Dual retrieval --- stacked
-\node[rbox, right=2.0cm of expand, yshift=0.85cm]  (bm25)   {BM25\\Keyword\\Search};
-\node[rbox, right=2.0cm of expand, yshift=-0.85cm] (vec)    {FashionSigLIP\\Vector\\Search};
+%% Column 2: Triple retrieval --- stacked
+\node[rbox, right=2.0cm of expand, yshift=1.4cm]  (bm25)   {BM25\\Keyword\\Search};
+\node[rbox, right=2.0cm of expand]               (txt)    {Text\\Vector\\Search};
+\node[rbox, right=2.0cm of expand, yshift=-1.4cm] (vec)    {FashionSigLIP\\Image\\Vector};
 
 %% Column 3: Fusion
-\node[obox, right=2.0cm of expand] (rrf) {RRF\\Fusion};
+\node[obox, right=2.0cm of expand] (rrf) {3-way\\RRF\\Fusion};
 
 %% Column 4: Reranker
 \node[obox, right=of rrf]   (rerank) {BGE\\Reranker};
 
 %% Column 5: Output
-\node[gbox, right=of rerank] (out)   {Top-5\\Results};
+\node[gbox, right=of rerank] (out)   {Top-6\\Results\\($\geq$0.25)};
 
 %% Arrows
 \draw[arrow] (query)  -- (expand);
 \draw[arrow] (expand.east) -- ++(0.4,0) |- (bm25.west);
+\draw[arrow] (expand.east) -- ++(0.4,0) |- (txt.west);
 \draw[arrow] (expand.east) -- ++(0.4,0) |- (vec.west);
 \draw[arrow] (bm25.east)   -- ++(0.3,0) |- (rrf.north);
+\draw[arrow] (txt.east)    --             (rrf.west);
 \draw[arrow] (vec.east)    -- ++(0.3,0) |- (rrf.south);
 \draw[arrow] (rrf)    -- (rerank);
 \draw[arrow] (rerank) -- (out);
@@ -458,15 +472,18 @@ The reranker is applied to the top-20 RRF results, returning the top-5.
 \node[label, above=0.1cm of out.west, xshift=-0.1cm] {rerank};
 
 \end{tikzpicture}
-\caption{Hybrid retrieval pipeline. The user query is first expanded
-         into synonym sub-queries, then searched in parallel via BM25
-         and FashionSigLIP vector search. RRF fuses the ranked lists;
-         a BGE cross-encoder reranker selects the final top-5.}
+\caption{Hybrid retrieval pipeline. The user query is searched in
+         parallel via BM25, text-vector search, and FashionSigLIP
+         image-vector search (query expansion is disabled in the agent
+         by default). 3-way RRF fuses the ranked lists with weights
+         $w_{\text{bm25}}=2.5$, $w_{\text{text}}=1.5$, $w_{\text{img}}=1.0$;
+         a BGE cross-encoder reranker selects the final top-6
+         (score threshold $\geq$\,0.25).}
 \label{fig:retrieval}
 \end{figure}
 
 %% ============================================================
-\section{Agent v2.0: ReAct Orchestration Pipeline}
+\section{Agent v2.0: Direct Routing Pipeline}
 \label{sec:agent}
 %% ============================================================
 
@@ -474,21 +491,25 @@ The reranker is applied to the top-20 RRF results, returning the top-5.
 
 RAG v1.0 executes a fixed nine-step pipeline regardless of query
 complexity or available context.
-Agent v2.0 replaces this with an \emph{adaptive} Orchestrator +
-Sub-agents + ReAct loop model.
-Gemini 2.5 Flash acts as the central orchestrator:
-it diagnoses intent, decides which tools to invoke, monitors
-result quality, and synthesises a natural final response.
+Agent v2.0 replaces this with a \emph{deterministic linear pipeline}:
+\textbf{Classify} $\to$ \textbf{Slot Gate} $\to$ \textbf{Search}
+$\to$ \textbf{Synthesise}.
+Gemini 2.5 Flash is called exactly twice per turn in the happy path
+(once for intent + slot extraction, once for response synthesis);
+there is no iterative loop, no dynamic tool selection, and no
+runaway latency risk.
 
 The design follows four principles:
 \begin{enumerate}[label=(\roman*)]
   \item \textbf{Intent-first} --- classify before acting,
         so downstream modules receive structured, validated signals.
-  \item \textbf{Fail fast, clarify early} --- ask for missing
-        information rather than guessing and returning poor results.
-  \item \textbf{Graceful degradation} --- when results fall below a
-        quality threshold, the agent lowers its bar progressively
-        and ultimately declines politely.
+  \item \textbf{Slot gate, not LLM clarification} --- missing
+        search parameters trigger pre-written template questions
+        (zero extra LLM calls), with a maximum of three
+        clarification turns.
+  \item \textbf{Deterministic routing} --- intent maps directly
+        to a code path; no Gemini reasoning is needed to decide
+        which tool to call next.
   \item \textbf{Persistent context} --- session preferences accumulated
         in PostgreSQL influence each new search within the conversation.
 \end{enumerate}
@@ -498,67 +519,69 @@ The design follows four principles:
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-  node distance=0.55cm and 0.8cm,
+  node distance=0.5cm and 0.7cm,
   sbox/.style={draw=agentblue!80, fill=lightblue, rounded corners=5pt,
-               text width=2.8cm, minimum height=1.0cm,
+               text width=2.6cm, minimum height=1.0cm,
                font=\small\bfseries, align=center},
   dec/.style={draw=agentorange!80, fill=lightorange,
-              rounded corners=8pt,
-              text width=2.5cm, minimum height=0.9cm,
+              rounded corners=6pt,
+              text width=2.4cm, minimum height=0.9cm,
               font=\small\bfseries,
-              inner sep=4pt, align=center},
+              inner sep=3pt, align=center},
   act/.style={draw=agentgreen!80, fill=lightgreen, rounded corners=5pt,
-              text width=2.8cm, minimum height=0.9cm,
+              text width=2.5cm, minimum height=0.85cm,
               font=\small, align=center},
   final/.style={draw=agentred!60, fill=lightred, rounded corners=5pt,
-                text width=3.0cm, minimum height=0.9cm,
+                text width=2.6cm, minimum height=0.9cm,
                 font=\small\bfseries, align=center},
   arrow/.style={-Stealth, thick, agentblue!70},
   label/.style={font=\scriptsize\itshape, color=agentgray},
-  loop/.style={draw=agentblue!40, thick, dashed},
 ]
 
-%% Steps (left-to-right across page)
-\node[sbox]  (s1)  {\textbf{Step 1}\\Intent\\Classification};
-\node[dec,   right=0.5cm of s1]  (d1)  {conf\\$\geq 0.6$?};
-\node[act,   above=0.6cm of d1, xshift=1.4cm] (clarify) {Clarification\\Gate\\(ask user)};
-\node[sbox,  right=0.8cm of d1]  (s3)  {\textbf{Step 2}\\Memory\\Agent};
-\node[sbox,  right=0.6cm of s3]  (s4)  {\textbf{Step 3}\\ReAct Loop\\(max 8 iter)};
-\node[final, right=0.6cm of s4]  (s5)  {\textbf{Step 4}\\LLM\\Synthesis};
+\node[sbox]  (s0)  {\textbf{Step 0}\\Session Setup\\(0 LLM)};
+\node[sbox,  right=0.55cm of s0]  (s1)  {\textbf{Step 1}\\Intent +\\Slots (1 LLM)};
+\node[dec,   right=0.55cm of s1]  (d1)  {Slot Gate\\complete?};
+\node[act,   above=0.6cm of d1, xshift=1.3cm] (clarify) {Template\\Question\\(0 LLM)};
+\node[sbox,  right=0.8cm of d1]   (s3)  {\textbf{Step 2}\\Log + Prefs\\(0 LLM)};
+\node[sbox,  right=0.55cm of s3]  (s4)  {\textbf{Step 3}\\3-way\\Hybrid Search};
+\node[final, right=0.55cm of s4]  (s5)  {\textbf{Step 4}\\Synthesis\\(1 LLM)};
 
 %% Input / output
-\node[left=0.6cm of s1, font=\small\bfseries, align=center] (input) {User\\Query};
-\node[right=0.6cm of s5, font=\small\bfseries, align=center] (output) {Agent\\Response};
+\node[left=0.5cm of s0, font=\small\bfseries, align=center] (input) {User\\Query};
+\node[right=0.5cm of s5, font=\small\bfseries, align=center] (output) {Agent\\Response};
 
 %% Main flow
-\draw[arrow] (input) -- (s1);
+\draw[arrow] (input) -- (s0);
+\draw[arrow] (s0)    -- (s1);
 \draw[arrow] (s1)    -- (d1);
 \draw[arrow] (d1) -- node[label, below]{Yes} (s3);
-\draw[arrow] (d1) -- node[label, right]{No\,(unclear)} ++(0,0.9) -| (clarify);
-\draw[arrow] (clarify.south) -- ++(0,-0.25) -| node[label, above left]{\scriptsize clarified} (s3.north);
+\draw[arrow] (d1) -- node[label, right]{No} ++(0,0.85) -| (clarify);
+\draw[arrow] (clarify.south) -- ++(0,-0.3) -| node[label, above left]{\scriptsize clarified\,(max 3)} (s1.north);
 \draw[arrow] (s3) -- (s4);
 \draw[arrow] (s4) -- (s5);
 \draw[arrow] (s5) -- (output);
 
-%% ReAct sub-loop annotation
-\draw[loop] ($(s4.south west)+(-0.2,-0.3)$) rectangle ($(s4.north east)+(0.2,0.3)$);
-\node[font=\scriptsize\itshape, color=agentblue!60, below=0.5cm of s4]
-  {Thought $\to$ Action $\to$ Observe};
+%% Annotation: LLM call count
+\node[font=\scriptsize, color=agentgray, below=0.85cm of s4]
+  {BM25 + Text Vec + Image Vec $\to$ RRF $\to$ BGE};
 
 \end{tikzpicture}
-\caption{End-to-end Agent v2.0 workflow for PATH~1 (Text-to-Image Search).
-         A clarification loop handles ambiguous queries before retrieval.}
+\caption{End-to-end Agent v2.0 workflow (Direct Routing Pipeline, PATH~1).
+         A template-based slot gate handles ambiguous queries with zero
+         additional LLM calls. The happy path costs exactly 2 LLM calls
+         (intent + synthesis).}
 \label{fig:agent_flow}
 \end{figure}
 
 \subsection{Step 1: Intent Classification}
 
 A few-shot prompt sent to Gemini maps each incoming message to one of
-five intent classes (Table~\ref{tab:intents}).
-The model also extracts structured \emph{filters}
-($\{\texttt{category}, \texttt{color}, \texttt{style},
-\texttt{occasion}\}$) and a \emph{refined query} string --- all in
-a single LLM call, avoiding a separate slot-filling step.
+seven intent classes (Table~\ref{tab:intents}).
+The model simultaneously extracts six structured \emph{slots}
+($\{\texttt{category}, \texttt{color}, \texttt{fabric},
+\texttt{fit}, \texttt{construction}, \texttt{aesthetic}\}$)
+and a \emph{refined query} string --- all in
+a single LLM call.
 
 \begin{table}[H]
 \centering
@@ -566,11 +589,13 @@ a single LLM call, avoiding a separate slot-filling step.
 \toprule
 \textbf{Intent} & \textbf{Confidence trigger} & \textbf{Agent action} \\
 \midrule
-\texttt{text\_search}   & $\geq 0.6$        & Execute hybrid search immediately \\
-\texttt{outfit\_request}& $\geq 0.6$        & Search + generate outfit advice \\
-\texttt{follow\_up}     & any               & Re-use session context, refine search \\
-\texttt{out\_of\_scope} & any               & Polite refusal, suggest alternatives \\
-\texttt{unclear}        & $< 0.6$           & Invoke clarification gate \\
+\texttt{text\_search}     & $\geq 0.6$  & Slot gate $\to$ hybrid search $\to$ synthesis \\
+\texttt{outfit\_request}  & $\geq 0.6$  & Search + generate outfit advice \\
+\texttt{follow\_up}       & any         & Merge slots from cache, refine search \\
+\texttt{product\_select}  & any         & Match number(s) against cached results, confirm save \\
+\texttt{view\_selections} & any         & List saved items from PostgreSQL \\
+\texttt{out\_of\_scope}   & any         & Template refusal (0 LLM) \\
+\texttt{unclear}          & $< 0.6$     & Slot gate / clarification (up to 3 turns) \\
 \bottomrule
 \end{tabularx}
 \caption{Intent taxonomy and corresponding agent actions.}
@@ -583,36 +608,51 @@ This allows the classifier to correctly label
 \textit{``the white one''} as a \texttt{follow\_up} rather than
 \texttt{unclear} when a prior turn established the category context.
 
-\subsection{Step 2: Clarification Gate}
+\subsection{Step 2: Slot Gate}
 
-When intent confidence falls below the threshold, the agent invokes
-a dedicated clarification module instead of proceeding with a
-potentially misspecified search.
-A targeted open-ended question is generated by Gemini and returned
-to the user.
-The user's answer is appended to history, and intent
-classification is re-run.
+The slot gate is a \emph{zero-LLM} completeness checker that runs
+before any search is executed.
+For \texttt{text\_search} intents, it merges newly extracted slots
+with those accumulated across the session (TTL cache, 30 minutes).
+A search proceeds only when the \emph{minimum slot set} is satisfied:
+
+\begin{center}
+\texttt{category} \textbf{AND} \texttt{color} \textbf{AND}
+(\texttt{fabric} \textbf{OR} \texttt{fit})
+\end{center}
+
+If any required slot is missing and fewer than three clarification
+turns have occurred, the gate emits a \emph{template question}
+(no Gemini call) targeting the most critical missing slot.
+After three turns the gate releases the search with whatever slots
+are available, preventing infinite loops.
 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-  node distance=0.45cm and 1.3cm,
+  node distance=0.45cm and 1.1cm,
   example/.style={draw=gray!60, rounded corners=3pt, fill=gray!8,
                   text width=5.5cm, font=\small, inner sep=6pt},
   arrow/.style={-Stealth, thick, agentgray},
 ]
 \node[example] (q1) {\textit{``toi muon ao''} \\ (\textit{``I want a top''})};
-\node[example, right=of q1] (a1) {\small Agent: ``What style of top --- shirt, T-shirt, or jacket?''};
+\node[example, right=of q1] (a1) {\small Agent: ``What color are you looking for?'' \emph{[template, 0 LLM]}};
 \node[example, below=0.5cm of q1] (q2) {\textit{``cai gi dep''} \\ (\textit{``what looks nice''})};
-\node[example, right=of q2] (a2) {\small Agent: ``For what occasion? A date, work, or casual outing?''};
+\node[example, right=of q2] (a2) {\small Agent: ``What category? (Dress, T-Shirt, Jacket\ldots)'' \emph{[template, 0 LLM]}};
 \draw[arrow] (q1) -- (a1);
 \draw[arrow] (q2) -- (a2);
 \end{tikzpicture}
-\caption{Example clarification gate dialogues.
-         Vague Vietnamese queries trigger targeted follow-up questions
-         in the same language.}
+\caption{Slot gate template clarification examples.
+         Vague queries trigger pre-written questions targeting the
+         most critical missing slot --- no additional LLM call needed.}
 \label{fig:clarify}
 \end{figure}
+
+\paragraph{\texttt{follow\_up} handling.}
+For \texttt{follow\_up} intents the gate skips completeness checking
+and simply merges the new slots with the cached ones, then composes
+a refined query from the accumulated slot values using
+\texttt{compose\_refined\_query\_from\_slots()}.
 
 \subsection{Step 3: Memory Agent (PostgreSQL)}
 
@@ -660,79 +700,43 @@ Three tables support memory:
 \end{tikzpicture}
 \end{center}
 
-\subsection{Step 4: ReAct Loop}
+\subsection{Step 4: Hybrid Search Execution}
 
-The ReAct loop is the engine of the agent.
-At each iteration, the orchestrator takes a
-\emph{Thought} (plan which tool to call next),
-executes an \emph{Action} (calls up to two tools per iteration),
-then inspects the \emph{Observation} (tool output and result quality)
-before deciding to continue or stop.
+Once the slot gate releases, the agent calls
+\texttt{\_route\_and\_execute()}, which invokes the full hybrid
+retrieval pipeline deterministically --- no LLM reasoning required.
 
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[
-  node distance=0.8cm and 1.6cm,
-  phase/.style={draw=agentblue!80, fill=lightblue, circle,
-                minimum size=1.3cm, font=\small\bfseries, text centered},
-  arrow/.style={-Stealth, very thick, agentblue!70},
-  label/.style={font=\small\itshape, color=agentgray, text width=3cm, align=center},
-  stop/.style={draw=agentred!70, fill=lightred, rounded corners=4pt,
-               minimum width=2.8cm, minimum height=0.85cm,
-               font=\small\bfseries, align=center},
-]
-
-\node[phase] (T) {Think};
-\node[phase, right=2.5cm of T] (A) {Act};
-\node[phase, right=2.5cm of A] (O) {Observe};
-\node[stop, below=1.4cm of A] (stop) {STOP\\(emit results)};
-
-%% Circular flow
-\draw[arrow] (T.east) -- node[label, above]{\scriptsize plan tools\\(up to 2 per iter)} (A.west);
-\draw[arrow] (A.east) -- node[label, above]{\scriptsize execute:\\search / memory /\\outfit\_hints} (O.west);
-\draw[arrow] (O.south) -| node[label, below left]{\scriptsize score $<$ threshold\\\& iter $<$ 8} (T.south);
-\draw[arrow, agentred!70, dashed] (O.south) -- ++(0,-0.5) -| node[label, below right]{\scriptsize score $\geq$ threshold\\\textbf{or} iter $= 8$} (stop.east);
-
-%% Loop counter
-\node[font=\scriptsize, color=agentblue!50, above=0.2cm of A] {max 8 iterations};
-
-\end{tikzpicture}
-\caption{ReAct loop structure. Each iteration executes at most two
-         tool calls. The loop terminates when retrieved product
-         quality passes a dynamic threshold or the iteration cap
-         is reached.}
-\label{fig:react}
-\end{figure}
-
-\paragraph{Dynamic threshold relaxation.}
-The loop starts with a score threshold of 0.5.
-If no satisfactory result is found within the first four iterations,
-the threshold is lowered by 0.2 to allow broader recall.
-This two-stage strategy balances precision and coverage.
-
-\paragraph{Available tools.}
-\begin{itemize}
-  \item \textbf{\texttt{search(query, top\_k)}}: Invokes the full hybrid
-    retrieval pipeline (query expansion + BM25 + vector search +
-    RRF + reranker).
-  \item \textbf{\texttt{memory\_enrich(query, preferences)}}: Rewrites the
-    search query by incorporating session-derived color/category
-    preferences.
-  \item \textbf{\texttt{outfit\_hints(occasion, style)}}: Asks Gemini to
-    suggest complementary fashion categories for the given occasion.
-\end{itemize}
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{BM25} retrieves top-5 candidates by keyword match
+        on \texttt{label + color}.
+  \item \textbf{Image Vector ANN} retrieves top-5 by FashionSigLIP
+        cosine similarity (768\,d).
+  \item \textbf{Text Vector ANN} retrieves top-5 by text-vector
+        cosine similarity.
+  \item \textbf{3-way RRF} fuses the three ranked lists with
+        $w_{\text{bm25}}=2.5$, $w_{\text{text}}=1.5$,
+        $w_{\text{img}}=1.0$.
+  \item \textbf{Soft Relevance Filter} (RapidFuzz) applies
+        category/color fuzzy matching on the fused list.
+  \item \textbf{BGE Reranker} re-scores the top-20 RRF candidates;
+        results below $0.25$ are dropped.
+  \item The final \textbf{top-6} results are returned to the
+        synthesis step.
+\end{enumerate}
 
 \subsection{Step 5: LLM Response Synthesis}
 
-Once the ReAct loop completes, all retrieved products,
-the full conversation history (last 6 turns), and user preferences
-are passed to a final Gemini call that:
+The top-6 retrieved products, the full conversation history
+(last 6 turns), and user preferences are streamed to a final
+Gemini 2.5 Flash call that:
 \begin{enumerate}[label=(\arabic*)]
   \item selects the most relevant items to mention;
-  \item generates a concise 2–4-sentence response
+  \item generates a concise response
         \emph{in the user's language} (bilingual: English or Vietnamese);
   \item appends a \texttt{styling\_suggestion} for
-        \texttt{outfit\_request} queries.
+        \texttt{outfit\_request} queries;
+  \item logs token usage (input + output + thinking tokens)
+        to the \texttt{llm\_token\_usage} table in PostgreSQL.
 \end{enumerate}
 
 %% ============================================================
@@ -768,7 +772,7 @@ P95 Latency & End-to-end wall time (95th percentile)   & $<15$\,s    & $<15$\,s 
 \toprule
 \textbf{Criterion} & \textbf{RAG v1.0} & \textbf{Agent v2.0} \\
 \midrule
-Query handling      & Fixed 9-step pipeline          & Adaptive ReAct loop \\
+Query handling      & Fixed 9-step pipeline          & Direct Routing Pipeline \\
 Ambiguous queries   & Search with partial info        & Proactive clarification \\
 Multi-turn context  & No memory                       & PostgreSQL session memory \\
 Embedding model     & FashionCLIP (512-d)             & FashionSigLIP (768-d) \\
@@ -1055,11 +1059,10 @@ Data Preprocessing& \texttt{pre\_processing/processing\_data.py} & 698 \\
   schema migrations as the session data model evolves.
   Atomic JSONB concatenation (\texttt{||}) is race-condition–safe.
 
-  \item \textbf{Bounded ReAct loop with dynamic threshold.}
-  A hard cap of 8 iterations prevents runaway latency.
-  The two-stage threshold (0.5 $\to$ 0.3 after iteration 4)
-  ensures the agent can gracefully escalate recall when precision
-  retrieval fails.
+  \item \textbf{Template-based slot gate (zero extra LLM calls).}
+  Pre-written clarification templates replace any iterative LLM
+  loop. The gate releases after at most 3 clarification turns,
+  bounding latency while preventing infinite loops.
 
 \end{enumerate}
 
@@ -1074,7 +1077,7 @@ Data Preprocessing& \texttt{pre\_processing/processing\_data.py} & 698 \\
 \toprule
 \textbf{Risk} & \textbf{Impact} & \textbf{Mitigation} \\
 \midrule
-High latency (multiple Gemini calls) & ReAct loop adds sequential LLM overhead & Parallel tool calls; cache query expansion results \\
+High latency (multiple Gemini calls) & sequential LLM overhead eliminated by deterministic routing & Parallel tool calls; cache query expansion results \\
 LLM hallucination & Agent fabricates product details & RAGAS faithfulness check; strict JSON output; fallback to product metadata only \\
 BM25 rebuild on restart & Cold-start delay & Serialise BM25 index to disk; load at startup \\
 PostgreSQL cold start & Connection spikes on container restart & Connection pooling (\texttt{psycopg2} pool); healthcheck service dependency \\
@@ -1093,7 +1096,7 @@ Dataset label noise & Poor retrieval for edge categories & EXCLUDED\_LABELS filt
 
 Fashion Agent demonstrates that combining a \emph{domain-specific
 multimodal embedding model} (Marqo-FashionSigLIP) with an
-\emph{LLM orchestration layer} (Gemini 2.5 Flash in a ReAct loop)
+\emph{LLM orchestration layer} (Gemini 2.5 Flash via direct routing)
 yields a retrieval system that is simultaneously more precise
 (by leveraging structured intent and session memory) and more
 resilient (by clarifying ambiguity rather than guessing), while
@@ -1101,7 +1104,7 @@ maintaining sub-15-second end-to-end latency.
 
 Key contributions of Agent v2.0 over the RAG v1.0 baseline:
 \begin{itemize}
-  \item Adaptive ReAct loop replacing a rigid 9-step pipeline.
+  \item Direct Routing Pipeline replacing a rigid 9-step pipeline.
   \item Intent classification eliminating irrelevant searches up front.
   \item Cross-encoder reranker (BGE v2-m3) improving precision without
         sacrificing recall.
