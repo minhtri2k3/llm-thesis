@@ -11,6 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import datetime
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -93,6 +94,22 @@ class HealthResponse(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     user_name: str = ""
+    year_of_birth: Optional[int] = None
+    gender: Optional[str] = None
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    def model_post_init(self, __context) -> None:  # noqa: D401
+        current_year = datetime.date.today().year
+        if self.year_of_birth is not None:
+            if not (1900 <= self.year_of_birth <= current_year):
+                raise ValueError(
+                    f"year_of_birth must be between 1900 and {current_year}"
+                )
+        if self.gender is not None and self.gender not in ("male", "female"):
+            raise ValueError('gender must be "male" or "female"')
 
 
 class CreateSessionResponse(BaseModel):
@@ -109,6 +126,23 @@ class RatingResponse(BaseModel):
     ok: bool
 
 
+class DemographicsGenderEntry(BaseModel):
+    gender: str
+    avg_rating: float
+    count: int
+
+
+class DemographicsAgeEntry(BaseModel):
+    age_group: str
+    avg_rating: float
+    count: int
+
+
+class DemographicsResponse(BaseModel):
+    by_gender: list[DemographicsGenderEntry] = []
+    by_age_group: list[DemographicsAgeEntry] = []
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -116,10 +150,14 @@ class RatingResponse(BaseModel):
 
 @app.post("/api/sessions", response_model=CreateSessionResponse)
 async def create_session_endpoint(req: CreateSessionRequest):
-    """Create a new chat session. Stores the user name for evaluation tracking."""
+    """Create a new chat session. Stores the user name and demographics for evaluation tracking."""
     from agent.memory import create_session
     try:
-        session_id = create_session(user_name=req.user_name)
+        session_id = create_session(
+            user_name=req.user_name,
+            year_of_birth=req.year_of_birth,
+            gender=req.gender,
+        )
         return CreateSessionResponse(session_id=session_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -196,9 +234,11 @@ async def get_ratings_endpoint():
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
                 """
-                SELECT user_name, rating, feedback, created_at
-                FROM user_ratings
-                ORDER BY rating DESC, created_at DESC;
+                SELECT r.user_name, r.rating, r.feedback, r.created_at,
+                       s.year_of_birth, s.gender
+                FROM user_ratings r
+                JOIN user_sessions s ON s.session_id = r.session_id
+                ORDER BY r.rating DESC, r.created_at DESC;
                 """
             )
             rows = cur.fetchall()
@@ -209,10 +249,98 @@ async def get_ratings_endpoint():
                 "rating": r["rating"],
                 "feedback": r["feedback"],
                 "rated_at": str(r["created_at"]),
+                "year_of_birth": r["year_of_birth"],
+                "gender": r["gender"],
             }
             for r in rows
         ]
         return {"entries": entries, "count": len(entries)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/demographics", response_model=DemographicsResponse)
+async def get_demographics_endpoint(request: Request):
+    """Return demographic breakdown of ratings — avg. by gender and by age group.
+
+    Protected by X-Admin-Key header.
+    Only sessions with both year_of_birth and gender are included.
+    """
+    admin_key = os.getenv("ADMIN_SECRET_KEY")
+    if not admin_key:
+        raise HTTPException(status_code=503, detail="Analytics not configured")
+
+    provided_key = request.headers.get("X-Admin-Key", "")
+    if provided_key != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        import psycopg2
+        from psycopg2.extras import DictCursor
+        conn = psycopg2.connect(
+            host=os.getenv("PGHOST", "localhost"),
+            port=int(os.getenv("PGPORT", "5432")),
+            dbname=os.getenv("PGDATABASE", "fashion_rag"),
+            user=os.getenv("PGUSER", "fashion_user"),
+            password=os.getenv("PGPASSWORD", ""),
+            connect_timeout=5,
+        )
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            # By gender
+            cur.execute(
+                """
+                SELECT s.gender,
+                       ROUND(AVG(r.rating)::numeric, 2) AS avg_rating,
+                       COUNT(*) AS count
+                FROM user_ratings r
+                JOIN user_sessions s ON s.session_id = r.session_id
+                WHERE s.gender IS NOT NULL
+                GROUP BY s.gender
+                ORDER BY s.gender;
+                """
+            )
+            gender_rows = cur.fetchall()
+
+            # By age group
+            cur.execute(
+                """
+                SELECT
+                    CASE
+                        WHEN EXTRACT(YEAR FROM s.created_at) - s.year_of_birth < 20 THEN 'Under 20'
+                        WHEN EXTRACT(YEAR FROM s.created_at) - s.year_of_birth < 30 THEN '20-29'
+                        WHEN EXTRACT(YEAR FROM s.created_at) - s.year_of_birth < 40 THEN '30-39'
+                        ELSE '40+'
+                    END AS age_group,
+                    ROUND(AVG(r.rating)::numeric, 2) AS avg_rating,
+                    COUNT(*) AS count
+                FROM user_ratings r
+                JOIN user_sessions s ON s.session_id = r.session_id
+                WHERE s.year_of_birth IS NOT NULL
+                GROUP BY age_group
+                ORDER BY MIN(EXTRACT(YEAR FROM s.created_at) - s.year_of_birth);
+                """
+            )
+            age_rows = cur.fetchall()
+        conn.close()
+
+        return DemographicsResponse(
+            by_gender=[
+                DemographicsGenderEntry(
+                    gender=r["gender"],
+                    avg_rating=float(r["avg_rating"]),
+                    count=r["count"],
+                )
+                for r in gender_rows
+            ],
+            by_age_group=[
+                DemographicsAgeEntry(
+                    age_group=r["age_group"],
+                    avg_rating=float(r["avg_rating"]),
+                    count=r["count"],
+                )
+                for r in age_rows
+            ],
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

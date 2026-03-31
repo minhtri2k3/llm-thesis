@@ -18,12 +18,23 @@ class ApiService {
   ApiService({http.Client? client}) : _client = client ?? http.Client();
 
   /// Creates a new session and returns the session_id.
-  Future<String> createSession(String userName) async {
+  ///
+  /// [userName] is the display name entered at registration.
+  /// [yearOfBirth] and [gender] are demographic fields for thesis research.
+  Future<String> createSession(
+    String userName,
+    int yearOfBirth,
+    String gender,
+  ) async {
     final uri = Uri.parse('$kApiBaseUrl/api/sessions');
     final response = await _client.post(
       uri,
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'user_name': userName}),
+      body: jsonEncode({
+        'user_name': userName,
+        'year_of_birth': yearOfBirth,
+        'gender': gender,
+      }),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to create session: ${response.body}');
@@ -138,6 +149,28 @@ class ApiService {
     return (json['sessions'] as List? ?? [])
         .whereType<Map<String, dynamic>>()
         .toList();
+  }
+
+  /// Fetches demographic aggregate stats for the professor dashboard.
+  ///
+  /// Returns a map with keys `by_gender` and `by_age_group`.
+  /// Throws an [Exception] on auth failure or server error.
+  Future<Map<String, dynamic>> getDemographics(String secretKey) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/demographics');
+    final response = await _client.get(
+      uri,
+      headers: {'X-Admin-Key': secretKey},
+    );
+    if (response.statusCode == 403) {
+      throw Exception('403: Incorrect access code');
+    }
+    if (response.statusCode == 503) {
+      throw Exception('503: Demographics not configured on server');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load demographics: ${response.body}');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   /// Submits a post-session rating and feedback.

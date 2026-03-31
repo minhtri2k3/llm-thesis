@@ -112,6 +112,12 @@ def init_memory_tables() -> None:
     ALTER TABLE user_sessions
         ADD COLUMN IF NOT EXISTS user_name TEXT NOT NULL DEFAULT '';
 
+    -- Thesis research: demographic fields for cross-age/gender analysis
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS year_of_birth INT;
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('male', 'female'));
+
     -- Clothie Web FE: thesis evaluation ratings
     CREATE TABLE IF NOT EXISTS user_ratings (
         id          SERIAL PRIMARY KEY,
@@ -162,18 +168,27 @@ def init_memory_tables() -> None:
         conn.commit()
 
 
-def create_session(user_name: str = "") -> str:
+def create_session(
+    user_name: str = "",
+    year_of_birth: int | None = None,
+    gender: str | None = None,
+) -> str:
     """Create a new session and return its ID.
 
     Args:
         user_name: Optional display name for the user (stored for evaluation).
+        year_of_birth: Optional birth year for demographic research.
+        gender: Optional gender ('male' | 'female') for demographic research.
     """
     session_id = str(uuid.uuid4())
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO user_sessions (session_id, user_name) VALUES (%s, %s);",
-                (session_id, user_name),
+                """
+                INSERT INTO user_sessions (session_id, user_name, year_of_birth, gender)
+                VALUES (%s, %s, %s, %s);
+                """,
+                (session_id, user_name, year_of_birth, gender),
             )
         conn.commit()
     return session_id

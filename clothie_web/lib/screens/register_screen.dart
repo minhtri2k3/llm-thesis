@@ -15,30 +15,46 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _nameController = TextEditingController();
+  final _yearController = TextEditingController();
   final _api = ApiService();
   bool _isLoading = false;
   String? _error;
+  String? _selectedGender; // 'male' or 'female'
 
   @override
   void dispose() {
     _nameController.dispose();
+    _yearController.dispose();
     _api.dispose();
     super.dispose();
   }
 
   Future<void> _startChat() async {
     final name = _nameController.text.trim();
+    final yearStr = _yearController.text.trim();
+    final currentYear = DateTime.now().year;
+
     if (name.isEmpty) {
       setState(() => _error = 'Please enter your name to continue.');
       return;
     }
+    final yearInt = int.tryParse(yearStr);
+    if (yearInt == null || yearInt < 1900 || yearInt > currentYear) {
+      setState(() => _error = 'Please enter a valid birth year (1900–$currentYear).');
+      return;
+    }
+    if (_selectedGender == null) {
+      setState(() => _error = 'Please select your gender.');
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
     try {
-      final sessionId = await _api.createSession(name);
+      final sessionId = await _api.createSession(name, yearInt, _selectedGender!);
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
@@ -252,7 +268,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Tell us your name to get started',
+            'Tell us a bit about yourself to get started',
             style: GoogleFonts.outfit(
               fontSize: 14,
               color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
@@ -287,11 +303,74 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 borderSide: BorderSide(
                     color: Theme.of(context).colorScheme.secondary, width: 1.5),
               ),
-              errorText: _error,
-              errorStyle:
-                  const TextStyle(color: Color(0xFFEF4444), fontSize: 12),
             ),
           ),
+          const SizedBox(height: 16),
+
+          // Birth year input
+          TextField(
+            controller: _yearController,
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+            style: GoogleFonts.outfit(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: 15,
+            ),
+            decoration: InputDecoration(
+              hintText: 'Year of birth (e.g. 2000)',
+              hintStyle: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+              filled: true,
+              fillColor: Theme.of(context).inputDecorationTheme.fillColor,
+              counterText: '',
+              prefixIcon: Icon(Icons.cake_outlined,
+                  color: Theme.of(context).colorScheme.secondary, size: 20),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1), width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.secondary, width: 1.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Gender toggle
+          Row(
+            children: [
+              Expanded(
+                child: _GenderButton(
+                  label: 'Boy 👦',
+                  value: 'male',
+                  selected: _selectedGender == 'male',
+                  onTap: () => setState(() => _selectedGender = 'male'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _GenderButton(
+                  label: 'Girl 👧',
+                  value: 'female',
+                  selected: _selectedGender == 'female',
+                  onTap: () => setState(() => _selectedGender = 'female'),
+                ),
+              ),
+            ],
+          ),
+
+          // Error message
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: const TextStyle(color: Color(0xFFEF4444), fontSize: 12),
+            ),
+          ],
+
           const SizedBox(height: 20),
 
           // CTA button
@@ -327,6 +406,52 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Styled gender selector button.
+class _GenderButton extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _GenderButton({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final surface = Theme.of(context).colorScheme.surface;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? primary.withOpacity(0.15) : surface.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? primary : onSurface.withOpacity(0.1),
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: GoogleFonts.outfit(
+            fontSize: 14,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? primary : onSurface.withOpacity(0.7),
+          ),
+        ),
       ),
     );
   }
@@ -780,6 +905,7 @@ class _ProfessorDashboardDialog extends StatefulWidget {
 class _ProfessorDashboardDialogState
     extends State<_ProfessorDashboardDialog> {
   List<Map<String, dynamic>>? _sessions;
+  Map<String, dynamic>? _demographics;
   String? _error;
   int _grandTotal = 0;
 
@@ -792,9 +918,11 @@ class _ProfessorDashboardDialogState
   Future<void> _load() async {
     try {
       final data = await widget.api.getTokenAnalytics(widget.secretKey);
+      final demo = await widget.api.getDemographics(widget.secretKey);
       if (mounted) {
         setState(() {
           _sessions = data;
+          _demographics = demo;
           _grandTotal = data.fold(
               0, (sum, s) => sum + ((s['total_tokens'] as num?)?.toInt() ?? 0));
         });
@@ -996,6 +1124,23 @@ class _ProfessorDashboardDialogState
                             ),
             ),
 
+            if (_demographics != null) ...[
+              const Divider(color: Color(0x33FFFFFF), height: 1),
+              Container(
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.only(left: 24, top: 16, right: 24),
+                child: Text(
+                  '📊 Demographics',
+                  style: GoogleFonts.outfit(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              _buildDemographicsSection(),
+            ],
+
             // Close button
             Padding(
               padding: const EdgeInsets.all(16),
@@ -1034,6 +1179,109 @@ class _ProfessorDashboardDialogState
           color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
           letterSpacing: 0.8,
         ),
+      ),
+    );
+  }
+
+  Widget _buildDemographicsSection() {
+    final byGender = (_demographics!['by_gender'] as List?) ?? [];
+    final byAgeGroup = (_demographics!['by_age_group'] as List?) ?? [];
+
+    if (byGender.isEmpty && byAgeGroup.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Text(
+          'No demographic data yet.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.outfit(
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+            fontSize: 13,
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'GENDER',
+                  style: GoogleFonts.outfit(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (byGender.isEmpty)
+                  Text('N/A', style: GoogleFonts.outfit(fontSize: 13, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))),
+                ...byGender.map((g) => _buildDemoItemRow(
+                  g['gender'] == 'male' ? 'Male' : (g['gender'] == 'female' ? 'Female' : 'Unknown'),
+                  (g['avg_rating'] as num?)?.toDouble() ?? 0.0,
+                  (g['count'] as num?)?.toInt() ?? 0,
+                )),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'AGE GROUP',
+                  style: GoogleFonts.outfit(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (byAgeGroup.isEmpty)
+                  Text('N/A', style: GoogleFonts.outfit(fontSize: 13, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))),
+                ...byAgeGroup.map((a) => _buildDemoItemRow(
+                  a['age_group'] as String? ?? 'Empty',
+                  (a['avg_rating'] as num?)?.toDouble() ?? 0.0,
+                  (a['count'] as num?)?.toInt() ?? 0,
+                )),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDemoItemRow(String label, double rating, int count) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.outfit(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          Text(
+            '${rating.toStringAsFixed(1)} ⭐️ ($count)',
+            style: GoogleFonts.outfit(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
+            ),
+          ),
+        ],
       ),
     );
   }
