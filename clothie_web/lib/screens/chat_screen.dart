@@ -165,7 +165,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Item saved! \u2728',
+                        'Added to your cart 🛍️',
                         style: GoogleFonts.outfit(
                           color: Theme.of(context).colorScheme.onPrimaryContainer,
                           fontWeight: FontWeight.w700,
@@ -174,7 +174,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Whenever you want to end, press the button and vote for me. Love you \u{1F495}',
+                        'Check the top‑right corner to see all your picks!',
                         style: GoogleFonts.outfit(
                           color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.7),
                           fontSize: 11,
@@ -267,7 +267,7 @@ class _ChatScreenState extends State<ChatScreen> {
         Consumer<CartProvider>(
           builder: (ctx, cart, _) => IconButton(
             tooltip: 'My selections',
-            onPressed: () => CartScreen.show(ctx),
+            onPressed: () => CartScreen.show(ctx, widget.sessionId),
             icon: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -361,7 +361,10 @@ class _ChatScreenState extends State<ChatScreen> {
       controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       itemCount: provider.messages.length,
-      itemBuilder: (_, i) => ChatBubble(message: provider.messages[i]),
+      itemBuilder: (_, i) => ChatBubble(
+        message: provider.messages[i],
+        sessionId: widget.sessionId,
+      ),
     );
   }
 

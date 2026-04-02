@@ -194,5 +194,86 @@ class ApiService {
     }
   }
 
+  // ── Behaviour Analytics ──────────────────────────────────────────────────
+
+  /// Batch-log product impressions shown in a search result.
+  /// Fire-and-forget — analytics errors must never disrupt the chat.
+  Future<void> logImpressions(
+    String sessionId,
+    List<Map<String, dynamic>> items,
+  ) async {
+    try {
+      await _client.post(
+        Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/impressions'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'items': items}),
+      );
+    } catch (_) {
+      // swallow — analytics must not break UX
+    }
+  }
+
+  /// Log a product card tap event (fire-and-forget).
+  Future<void> logClick(
+    String sessionId,
+    String imageId,
+    int position, {
+    String searchQuery = '',
+  }) async {
+    try {
+      await _client.post(
+        Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/clicks'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'image_id': imageId,
+          'position': position,
+          'search_query': searchQuery,
+        }),
+      );
+    } catch (_) {
+      // fire-and-forget
+    }
+  }
+
+  /// Log a purchase intent signal ('will_buy' | 'not_for_me').
+  /// Throws on failure — this is an explicit user action.
+  Future<void> logIntent(
+    String sessionId,
+    String imageId,
+    String intentType, {
+    String reason = '',
+  }) async {
+    final resp = await _client.post(
+      Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/intents'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'image_id': imageId,
+        'intent_type': intentType,
+        'reason': reason,
+      }),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('logIntent failed: ${resp.body}');
+    }
+  }
+
+  /// Place a simulated order (phone + address). Returns the new order ID.
+  /// Also marks the session as ended in the backend.
+  Future<int> placeOrder(
+    String sessionId,
+    String phone,
+    String address,
+  ) async {
+    final resp = await _client.post(
+      Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/orders'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'phone': phone, 'address': address}),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('Order failed: ${resp.body}');
+    }
+    return (jsonDecode(resp.body) as Map<String, dynamic>)['order_id'] as int;
+  }
+
   void dispose() => _client.close();
 }

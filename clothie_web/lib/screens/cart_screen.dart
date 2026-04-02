@@ -3,12 +3,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:clothie_web/models/cart_item.dart';
 import 'package:clothie_web/providers/cart_provider.dart';
+import 'package:clothie_web/services/api_service.dart';
 
 /// Modal bottom sheet showing all confirmed items in the session cart.
 class CartScreen extends StatelessWidget {
-  const CartScreen({super.key});
+  final String sessionId;
+  const CartScreen({super.key, required this.sessionId});
 
-  static Future<void> show(BuildContext context) {
+  static Future<void> show(BuildContext context, String sessionId) {
     // Refresh cart from backend before opening
     context.read<CartProvider>().reload();
     return showModalBottomSheet(
@@ -17,7 +19,7 @@ class CartScreen extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => ChangeNotifierProvider.value(
         value: context.read<CartProvider>(),
-        child: const CartScreen(),
+        child: CartScreen(sessionId: sessionId),
       ),
     );
   }
@@ -135,10 +137,39 @@ class CartScreen extends StatelessWidget {
                         childAspectRatio: 0.62,
                       ),
                       itemCount: cart.items.length,
-                      itemBuilder: (_, i) => _CartCard(item: cart.items[i]),
+                      itemBuilder: (_, i) => _CartCard(item: cart.items[i], sessionId: cart.sessionId),
                     );
                   },
                 ),
+              ),
+
+              // ── Let's make the order CTA ────────────────────────────────
+              Consumer<CartProvider>(
+                builder: (_, cart, __) {
+                  if (cart.count == 0) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Text('📦'),
+                        label: Text(
+                          "Let's make the order",
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: theme.colorScheme.onPrimary,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: () => _showOrderDialog(context, sessionId),
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -146,11 +177,107 @@ class CartScreen extends StatelessWidget {
       },
     );
   }
+
+  void _showOrderDialog(BuildContext context, String sessionId) {
+    final phoneCtrl = TextEditingController();
+    final addressCtrl = TextEditingController();
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          '📦 Place Your Order',
+          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: '📱 Phone number',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: addressCtrl,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: '🏠 Delivery address',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final phone = phoneCtrl.text.trim();
+              final address = addressCtrl.text.trim();
+              if (phone.isEmpty || address.isEmpty) return;
+              try {
+                await ApiService().placeOrder(sessionId, phone, address);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("🎉 Order placed! We'll be in touch."),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
+            child: Text('Confirm Order ✓', style: GoogleFonts.outfit()),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _CartCard extends StatelessWidget {
+class _CartCard extends StatefulWidget {
   final CartItem item;
-  const _CartCard({required this.item});
+  final String sessionId;
+  const _CartCard({required this.item, required this.sessionId});
+
+  @override
+  State<_CartCard> createState() => _CartCardState();
+}
+
+class _CartCardState extends State<_CartCard> {
+  String? _intentLogged;   // null | 'will_buy' | 'not_for_me'
+  bool _sending = false;
+
+  Future<void> _logIntent(String type) async {
+    if (_sending || _intentLogged != null) return;
+    setState(() => _sending = true);
+    try {
+      await ApiService().logIntent(widget.sessionId, widget.item.imageId, type);
+      setState(() => _intentLogged = type);
+    } catch (_) {
+      // Best-effort — silently fail
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -173,7 +300,7 @@ class _CartCard extends StatelessWidget {
           children: [
             Expanded(
               child: Image.network(
-                item.imageUrl,
+                widget.item.imageUrl,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Container(
                   color: theme.colorScheme.surface,
@@ -188,7 +315,7 @@ class _CartCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    item.label,
+                    widget.item.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -197,13 +324,51 @@ class _CartCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (item.color.isNotEmpty)
+                  if (widget.item.color.isNotEmpty)
                     Text(
-                      item.color,
+                      widget.item.color,
                       maxLines: 1,
                       style: TextStyle(
                           color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10),
                     ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        iconSize: 20,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        icon: Icon(
+                          _intentLogged == 'will_buy'
+                              ? Icons.thumb_up
+                              : Icons.thumb_up_outlined,
+                          color: _intentLogged == 'will_buy'
+                              ? Colors.green
+                              : theme.colorScheme.onSurface.withOpacity(0.5),
+                          size: 18,
+                        ),
+                        tooltip: "I'll buy this",
+                        onPressed: _sending ? null : () => _logIntent('will_buy'),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        iconSize: 20,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        icon: Icon(
+                          _intentLogged == 'not_for_me'
+                              ? Icons.thumb_down
+                              : Icons.thumb_down_outlined,
+                          color: _intentLogged == 'not_for_me'
+                              ? Colors.red
+                              : theme.colorScheme.onSurface.withOpacity(0.5),
+                          size: 18,
+                        ),
+                        tooltip: "Not for me",
+                        onPressed: _sending ? null : () => _logIntent('not_for_me'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

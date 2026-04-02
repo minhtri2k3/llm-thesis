@@ -9,13 +9,14 @@ import 'package:clothie_web/widgets/thinking_indicator.dart';
 
 class ChatBubble extends StatelessWidget {
   final ChatMessage message;
-  const ChatBubble({super.key, required this.message});
+  final String sessionId;
+  const ChatBubble({super.key, required this.message, required this.sessionId});
 
   @override
   Widget build(BuildContext context) {
     return message.role == MessageRole.user
         ? _UserBubble(message: message)
-        : _AssistantBubble(message: message);
+        : _AssistantBubble(message: message, sessionId: sessionId);
   }
 }
 
@@ -153,7 +154,8 @@ class _UserBubble extends StatelessWidget {
 /// Assistant message — left-aligned with thinking indicator + products
 class _AssistantBubble extends StatelessWidget {
   final ChatMessage message;
-  const _AssistantBubble({required this.message});
+  final String sessionId;
+  const _AssistantBubble({required this.message, required this.sessionId});
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +238,10 @@ class _AssistantBubble extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        ProductCardList(products: message.products),
+                        ProductCardList(
+                          products: message.products,
+                          sessionId: sessionId,
+                        ),
                       ],
 
                       // ── Confirm items strip (images from selection_confirm)

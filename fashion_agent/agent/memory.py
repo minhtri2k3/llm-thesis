@@ -144,6 +144,65 @@ def init_memory_tables() -> None:
 
     CREATE INDEX IF NOT EXISTS idx_llm_token_usage_session
         ON llm_token_usage(session_id, created_at);
+
+    -- ── Behaviour: products shown per search result ────────────────────
+    CREATE TABLE IF NOT EXISTS product_impressions (
+        id           BIGSERIAL PRIMARY KEY,
+        session_id   TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        image_id     VARCHAR NOT NULL,
+        search_query TEXT NOT NULL DEFAULT '',
+        position     INT NOT NULL DEFAULT 0,
+        shown_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_impressions_session
+        ON product_impressions(session_id, shown_at);
+
+    -- ── Behaviour: product card taps (click events) ────────────────────
+    CREATE TABLE IF NOT EXISTS product_clicks (
+        id           BIGSERIAL PRIMARY KEY,
+        session_id   TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        image_id     VARCHAR NOT NULL,
+        position     INT NOT NULL DEFAULT 0,
+        search_query TEXT NOT NULL DEFAULT '',
+        clicked_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_clicks_session
+        ON product_clicks(session_id, clicked_at);
+
+    -- ── Behaviour: purchase intent signals ────────────────────────────
+    CREATE TABLE IF NOT EXISTS product_intents (
+        id            BIGSERIAL PRIMARY KEY,
+        session_id    TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        image_id      VARCHAR NOT NULL,
+        intent_type   TEXT NOT NULL CHECK (intent_type IN ('will_buy', 'not_for_me')),
+        reason        TEXT NOT NULL DEFAULT '',
+        logged_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (session_id, image_id, intent_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_intents_session
+        ON product_intents(session_id, logged_at);
+
+    -- ── Checkout: simulated order (phone + address) ───────────────────
+    CREATE TABLE IF NOT EXISTS user_orders (
+        id          SERIAL PRIMARY KEY,
+        session_id  TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        phone       TEXT NOT NULL DEFAULT '',
+        address     TEXT NOT NULL DEFAULT '',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_orders_session
+        ON user_orders(session_id);
+
+    -- ── Session lifecycle: when and how session ended ─────────────────
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS ended_by TEXT
+            CHECK (ended_by IN ('order', 'rating', 'timeout'));
     """
 
     view_ddl = """
@@ -505,3 +564,186 @@ def get_token_analytics() -> list[dict]:
         }
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Behaviour Analytics: impression / click / intent / order / funnel
+# ---------------------------------------------------------------------------
+
+
+def log_impression_batch(session_id: str, items: list[dict]) -> int:
+    """Batch-insert product impressions shown in a search result.
+
+    Each item dict: {image_id, search_query, position}
+    Returns count of rows inserted.
+    """
+    if not items:
+        return 0
+    inserted = 0
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            for item in items:
+                cur.execute(
+                    """
+                    INSERT INTO product_impressions
+                        (session_id, image_id, search_query, position)
+                    VALUES (%s, %s, %s, %s);
+                    """,
+                    (
+                        session_id,
+                        item.get("image_id", ""),
+                        item.get("search_query", ""),
+                        item.get("position", 0),
+                    ),
+                )
+                inserted += 1
+        conn.commit()
+    return inserted
+
+
+def log_click(
+    session_id: str,
+    image_id: str,
+    position: int,
+    search_query: str = "",
+) -> None:
+    """Log a product card tap (click event)."""
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO product_clicks
+                    (session_id, image_id, position, search_query)
+                VALUES (%s, %s, %s, %s);
+                """,
+                (session_id, image_id, position, search_query),
+            )
+        conn.commit()
+
+
+def log_intent(
+    session_id: str,
+    image_id: str,
+    intent_type: str,
+    reason: str = "",
+) -> None:
+    """Log a purchase intent signal ('will_buy' | 'not_for_me'). Idempotent."""
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO product_intents
+                    (session_id, image_id, intent_type, reason)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (session_id, image_id, intent_type) DO NOTHING;
+                """,
+                (session_id, image_id, intent_type, reason),
+            )
+        conn.commit()
+
+
+def save_order(session_id: str, phone: str, address: str) -> int:
+    """Save a simulated order and mark the session as ended by order.
+
+    Returns the auto-generated order id.
+    """
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_orders (session_id, phone, address)
+                VALUES (%s, %s, %s)
+                RETURNING id;
+                """,
+                (session_id, phone, address),
+            )
+            order_id = cur.fetchone()[0]
+            cur.execute(
+                """
+                UPDATE user_sessions
+                SET ended_at = NOW(), ended_by = 'order'
+                WHERE session_id = %s;
+                """,
+                (session_id,),
+            )
+        conn.commit()
+    return order_id
+
+
+def get_session_funnel(session_id: str) -> dict:
+    """Return full funnel stats for one session.
+
+    Returns a dict with:
+        impressions, clicks, cart_adds, will_buy, not_for_me, converted,
+        ctr, cart_rate, intent_rate, precision_at_k,
+        model_name, total_tokens
+    """
+    with _db_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM product_impressions WHERE session_id = %s",
+                (session_id,),
+            )
+            impressions = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT COUNT(*) FROM product_clicks WHERE session_id = %s",
+                (session_id,),
+            )
+            clicks = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT COUNT(*) FROM selected_items WHERE session_id = %s",
+                (session_id,),
+            )
+            cart_adds = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                SELECT intent_type, COUNT(*) AS cnt
+                FROM product_intents
+                WHERE session_id = %s
+                GROUP BY intent_type;
+                """,
+                (session_id,),
+            )
+            intents = {row["intent_type"]: row["cnt"] for row in cur.fetchall()}
+
+            cur.execute(
+                "SELECT COUNT(*) FROM user_orders WHERE session_id = %s",
+                (session_id,),
+            )
+            converted = cur.fetchone()[0] > 0
+
+            # Token data from existing VIEW (may be None if no tokens logged)
+            cur.execute(
+                """
+                SELECT model_name, total_tokens
+                FROM session_token_summary
+                WHERE session_id = %s;
+                """,
+                (session_id,),
+            )
+            row = cur.fetchone()
+            model_name = row["model_name"] if row else ""
+            total_tokens = int(row["total_tokens"]) if row else 0
+
+    will_buy = intents.get("will_buy", 0)
+    not_for_me = intents.get("not_for_me", 0)
+
+    return {
+        "session_id": session_id,
+        "model_name": model_name,
+        "total_tokens": total_tokens,
+        "impressions": impressions,
+        "clicks": clicks,
+        "cart_adds": cart_adds,
+        "will_buy": will_buy,
+        "not_for_me": not_for_me,
+        "converted": converted,
+        "ctr": round(clicks / impressions, 3) if impressions else 0.0,
+        "cart_rate": round(cart_adds / clicks, 3) if clicks else 0.0,
+        "intent_rate": round(will_buy / cart_adds, 3) if cart_adds else 0.0,
+        "precision_at_k": round(will_buy / impressions, 3) if impressions else 0.0,
+    }
+

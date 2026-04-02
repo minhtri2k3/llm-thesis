@@ -21,6 +21,14 @@ class ChatProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
+  /// Current session id — used for impression + click tracking.
+  String _sessionId = '';
+
+  /// Called by [ChatScreen] once the session has been created.
+  void setSessionId(String id) {
+    _sessionId = id;
+  }
+
   /// Set to true when `selection_saved` fires. Consumed by [ChatScreen]
   /// to show the "End Session" hint SnackBar, then reset to false.
   bool pendingCartNotification = false;
@@ -112,6 +120,16 @@ class ChatProvider extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(Product.fromJson)
             .toList();
+
+        // ── Auto-log impressions (fire-and-forget) ────────────────────────
+        if (_sessionId.isNotEmpty && aiMsg.products.isNotEmpty) {
+          final impressionItems = aiMsg.products.asMap().entries.map((e) => {
+            'image_id': e.value.imageId,
+            'search_query': '',  // query not included in SSE payload
+            'position': e.key + 1,  // 1-based rank
+          }).toList();
+          _api.logImpressions(_sessionId, impressionItems); // non-awaited
+        }
 
       // ── Selection flow events ────────────────────────────────────────────
       case 'selection_confirm':

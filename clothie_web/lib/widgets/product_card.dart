@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:clothie_web/models/product.dart';
+import 'package:clothie_web/services/api_service.dart';
 
 /// Horizontally-scrollable row of fashion product cards.
 class ProductCardList extends StatelessWidget {
   final List<Product> products;
-  const ProductCardList({super.key, required this.products});
+  final String sessionId;
+  const ProductCardList({super.key, required this.products, required this.sessionId});
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +19,11 @@ class ProductCardList extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           itemCount: products.length,
           separatorBuilder: (_, __) => const SizedBox(width: 10),
-          itemBuilder: (_, i) => _ProductCard(product: products[i]),
+          itemBuilder: (_, i) => _ProductCard(
+            product: products[i],
+            productIndex: i,
+            sessionId: sessionId,
+          ),
         ),
       ),
     );
@@ -26,7 +32,13 @@ class ProductCardList extends StatelessWidget {
 
 class _ProductCard extends StatefulWidget {
   final Product product;
-  const _ProductCard({required this.product});
+  final int productIndex;
+  final String sessionId;
+  const _ProductCard({
+    required this.product,
+    required this.productIndex,
+    required this.sessionId,
+  });
 
   @override
   State<_ProductCard> createState() => _ProductCardState();
@@ -43,10 +55,19 @@ class _ProductCardState extends State<_ProductCard> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 130,
-        decoration: BoxDecoration(
+      child: GestureDetector(
+        onTap: () {
+          // Log click — fire-and-forget
+          ApiService().logClick(
+            widget.sessionId,
+            widget.product.imageId,
+            widget.productIndex + 1, // 1-based position
+          );
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 130,
+          decoration: BoxDecoration(
           color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
@@ -121,6 +142,7 @@ class _ProductCardState extends State<_ProductCard> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

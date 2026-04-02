@@ -377,6 +377,220 @@ async def get_token_usage_analytics(request: Request):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+
+# ---------------------------------------------------------------------------
+# Behaviour tracking — Pydantic models (Task 3)
+# ---------------------------------------------------------------------------
+
+
+class ImpressionItem(BaseModel):
+    image_id: str
+    search_query: str = ""
+    position: int = 0
+
+
+class LogImpressionsRequest(BaseModel):
+    items: list[ImpressionItem]
+
+
+class ClickRequest(BaseModel):
+    image_id: str
+    position: int = 0
+    search_query: str = ""
+
+
+class IntentRequest(BaseModel):
+    image_id: str
+    intent_type: str   # "will_buy" | "not_for_me"
+    reason: str = ""
+
+
+class OrderRequest(BaseModel):
+    phone: str
+    address: str
+
+
+# ---------------------------------------------------------------------------
+# Behaviour tracking — Endpoints (Tasks 4-8)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/sessions/{session_id}/impressions")
+async def log_impressions_endpoint(session_id: str, req: LogImpressionsRequest):
+    """Batch-log product impressions for a search result. Fire-and-forget safe."""
+    from agent.memory import log_impression_batch
+    try:
+        logged = log_impression_batch(
+            session_id,
+            [
+                {
+                    "image_id": i.image_id,
+                    "search_query": i.search_query,
+                    "position": i.position,
+                }
+                for i in req.items
+            ],
+        )
+        return {"ok": True, "logged": logged}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/sessions/{session_id}/clicks")
+async def log_click_endpoint(session_id: str, req: ClickRequest):
+    """Log a product card tap (click event). Fire-and-forget safe."""
+    from agent.memory import log_click
+    try:
+        log_click(
+            session_id,
+            req.image_id,
+            req.position,
+            req.search_query,
+        )
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/sessions/{session_id}/intents")
+async def log_intent_endpoint(session_id: str, req: IntentRequest):
+    """Log a purchase intent signal (will_buy | not_for_me)."""
+    if req.intent_type not in ("will_buy", "not_for_me"):
+        raise HTTPException(
+            status_code=400,
+            detail="intent_type must be 'will_buy' or 'not_for_me'",
+        )
+    from agent.memory import log_intent
+    try:
+        log_intent(session_id, req.image_id, req.intent_type, req.reason)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/sessions/{session_id}/orders")
+async def place_order_endpoint(session_id: str, req: OrderRequest):
+    """Save a simulated order and mark the session as ended (conversion event).
+
+    This is the primary signal for Conversion Rate (CR) analytics.
+    Atomically creates the order row and sets ended_at / ended_by on the session.
+    """
+    if not req.phone.strip():
+        raise HTTPException(status_code=400, detail="phone is required")
+    if not req.address.strip():
+        raise HTTPException(status_code=400, detail="address is required")
+    from agent.memory import save_order
+    try:
+        order_id = save_order(session_id, req.phone.strip(), req.address.strip())
+        return {"ok": True, "order_id": order_id}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/analytics/behaviour-funnel")
+async def get_behaviour_funnel_endpoint(request: Request):
+    """Full funnel analytics: per-session metrics + model comparison table.
+
+    Protected by X-Admin-Key header (same ADMIN_SECRET_KEY env var).
+
+    Returns:
+        sessions:          list of per-session funnel dicts
+        model_comparison:  aggregate stats grouped by LLM model
+        aggregate:         overall totals (total_sessions, cr, avg_precision_at_k)
+    """
+    from collections import defaultdict
+    from agent.memory import get_session_funnel
+
+    admin_key = os.getenv("ADMIN_SECRET_KEY", "")
+    if not admin_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Analytics not configured (ADMIN_SECRET_KEY missing)",
+        )
+    if request.headers.get("X-Admin-Key", "") != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        import psycopg2
+        from psycopg2.extras import DictCursor
+
+        conn = psycopg2.connect(
+            host=os.getenv("PGHOST", "localhost"),
+            port=int(os.getenv("PGPORT", "5432")),
+            dbname=os.getenv("PGDATABASE", "fashion_rag"),
+            user=os.getenv("PGUSER", "fashion_user"),
+            password=os.getenv("PGPASSWORD", ""),
+            connect_timeout=5,
+        )
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT s.session_id, s.user_name, s.gender,
+                       DATE_PART('year', NOW()) - s.year_of_birth AS age
+                FROM user_sessions s
+                ORDER BY s.created_at DESC
+                LIMIT 500;
+                """
+            )
+            session_rows = cur.fetchall()
+        conn.close()
+
+        # Build per-session funnel data
+        sessions = []
+        for row in session_rows:
+            funnel = get_session_funnel(row["session_id"])
+            funnel["user_name"] = row["user_name"]
+            funnel["gender"] = row["gender"]
+            funnel["age"] = int(row["age"]) if row["age"] else None
+            sessions.append(funnel)
+
+        # Model comparison aggregate
+        model_groups: dict = defaultdict(lambda: {
+            "sessions": 0,
+            "orders": 0,
+            "total_tokens": 0,
+            "precision_sum": 0.0,
+        })
+        for s in sessions:
+            model = s["model_name"] or "unknown"
+            model_groups[model]["sessions"] += 1
+            if s["converted"]:
+                model_groups[model]["orders"] += 1
+            model_groups[model]["total_tokens"] += s["total_tokens"] or 0
+            model_groups[model]["precision_sum"] += s["precision_at_k"]
+
+        model_comparison = []
+        for model, g in model_groups.items():
+            n = g["sessions"]
+            model_comparison.append({
+                "model": model,
+                "sessions": n,
+                "orders": g["orders"],
+                "conversion_rate": round(g["orders"] / n, 3) if n else 0.0,
+                "avg_precision_at_k": round(g["precision_sum"] / n, 3) if n else 0.0,
+                "avg_tokens": round(g["total_tokens"] / n) if n else 0,
+            })
+        model_comparison.sort(key=lambda x: -x["conversion_rate"])
+
+        total = len(sessions)
+        converted = sum(1 for s in sessions if s["converted"])
+
+        return {
+            "sessions": sessions,
+            "model_comparison": model_comparison,
+            "aggregate": {
+                "total_sessions": total,
+                "converted_sessions": converted,
+                "overall_cr": round(converted / total, 3) if total else 0.0,
+                "avg_precision_at_k": round(
+                    sum(s["precision_at_k"] for s in sessions) / total, 3
+                ) if total else 0.0,
+            },
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(req: ChatRequest):
     """Streaming chat endpoint — returns Server-Sent Events.
