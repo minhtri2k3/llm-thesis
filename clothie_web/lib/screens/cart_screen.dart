@@ -279,6 +279,23 @@ class _CartCardState extends State<_CartCard> {
     }
   }
 
+  Future<void> _removeItem() async {
+    if (_sending) return;
+    setState(() => _sending = true);
+    try {
+      await ApiService().removeCartItem(widget.sessionId, widget.item.imageId);
+      if (mounted) {
+        context.read<CartProvider>().reload();
+      }
+    } catch (_) {
+      // silently fail
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -299,14 +316,34 @@ class _CartCardState extends State<_CartCard> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: Image.network(
-                widget.item.imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: theme.colorScheme.surface,
-                  child: Icon(Icons.checkroom,
-                      color: theme.colorScheme.primary, size: 36),
-                ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.network(
+                    widget.item.imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: theme.colorScheme.surface,
+                      child: Icon(Icons.checkroom,
+                          color: theme.colorScheme.primary, size: 36),
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Material(
+                      color: theme.colorScheme.surface.withOpacity(0.8),
+                      shape: const CircleBorder(),
+                      child: IconButton(
+                        iconSize: 20,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        padding: EdgeInsets.zero,
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: _sending ? null : _removeItem,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             Padding(

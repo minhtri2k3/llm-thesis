@@ -108,6 +108,10 @@ def init_memory_tables() -> None:
     CREATE INDEX IF NOT EXISTS idx_selected_items_session
         ON selected_items(session_id, selected_at);
 
+    -- Model tracking: user intent over single model
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'gemini-2.5-flash';
+
     -- Clothie Web FE: user name tracking per session
     ALTER TABLE user_sessions
         ADD COLUMN IF NOT EXISTS user_name TEXT NOT NULL DEFAULT '';
@@ -144,6 +148,21 @@ def init_memory_tables() -> None:
 
     CREATE INDEX IF NOT EXISTS idx_llm_token_usage_session
         ON llm_token_usage(session_id, created_at);
+
+    -- Behaviour: tracking selection position in ranked list
+    ALTER TABLE selected_items
+        ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
+
+    -- Behaviour: cart removal logic
+    CREATE TABLE IF NOT EXISTS cart_removals (
+        id BIGSERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        image_id VARCHAR NOT NULL,
+        removed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cart_removals_session
+        ON cart_removals(session_id);
 
     -- ── Behaviour: products shown per search result ────────────────────
     CREATE TABLE IF NOT EXISTS product_impressions (
@@ -231,6 +250,7 @@ def create_session(
     user_name: str = "",
     year_of_birth: int | None = None,
     gender: str | None = None,
+    preferred_model: str = "gemini-2.5-flash",
 ) -> str:
     """Create a new session and return its ID.
 
@@ -238,19 +258,31 @@ def create_session(
         user_name: Optional display name for the user (stored for evaluation).
         year_of_birth: Optional birth year for demographic research.
         gender: Optional gender ('male' | 'female') for demographic research.
+        preferred_model: LLM chosen for the session.
     """
     session_id = str(uuid.uuid4())
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO user_sessions (session_id, user_name, year_of_birth, gender)
-                VALUES (%s, %s, %s, %s);
+                INSERT INTO user_sessions (session_id, user_name, year_of_birth, gender, preferred_model)
+                VALUES (%s, %s, %s, %s, %s);
                 """,
-                (session_id, user_name, year_of_birth, gender),
+                (session_id, user_name, year_of_birth, gender, preferred_model),
             )
         conn.commit()
     return session_id
+
+
+def get_session_model(session_id: str) -> str:
+    """Return the preferred_model for a given session."""
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT preferred_model FROM user_sessions WHERE session_id = %s;", (session_id,))
+            row = cur.fetchone()
+            if row and row[0]:
+                return row[0]
+            return "gemini-2.5-flash"
 
 
 def session_exists(session_id: str) -> bool:
@@ -453,8 +485,8 @@ def save_selected_items(session_id: str, items: list[dict]) -> int:
                 cur.execute(
                     """
                     INSERT INTO selected_items
-                        (session_id, image_id, label, color, caption, image_path, search_query)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (session_id, image_id, label, color, caption, image_path, search_query, position)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (session_id, image_id) DO NOTHING;
                     """,
                     (
@@ -465,6 +497,7 @@ def save_selected_items(session_id: str, items: list[dict]) -> int:
                         item.get("caption", ""),
                         item.get("image_path", ""),
                         item.get("search_query", ""),
+                        item.get("position", 0),
                     ),
                 )
                 inserted += cur.rowcount  # 1 if inserted, 0 if conflict
@@ -500,6 +533,32 @@ def get_selected_items(session_id: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def log_cart_removal(session_id: str, image_id: str) -> bool:
+    """Remove item from selections and log the cart removal event."""
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            # First, check if the item actually exists
+            cur.execute(
+                "SELECT id FROM selected_items WHERE session_id = %s AND image_id = %s;",
+                (session_id, image_id)
+            )
+            if not cur.fetchone():
+                return False
+
+            # Delete it
+            cur.execute(
+                "DELETE FROM selected_items WHERE session_id = %s AND image_id = %s;",
+                (session_id, image_id)
+            )
+            # Log the removal
+            cur.execute(
+                "INSERT INTO cart_removals (session_id, image_id) VALUES (%s, %s);",
+                (session_id, image_id)
+            )
+        conn.commit()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -621,8 +680,26 @@ def log_click(
         conn.commit()
 
 
+def get_last_click_position(session_id: str, image_id: str) -> int:
+    """Return the position from the latest click for this image in the session."""
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT position FROM product_clicks
+                WHERE session_id = %s AND image_id = %s
+                ORDER BY clicked_at DESC
+                LIMIT 1;
+                """,
+                (session_id, image_id)
+            )
+            row = cur.fetchone()
+            return row[0] if row else 0
+
+
 def log_intent(
     session_id: str,
+
     image_id: str,
     intent_type: str,
     reason: str = "",

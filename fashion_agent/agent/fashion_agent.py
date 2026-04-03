@@ -22,7 +22,7 @@ from typing import Generator, Optional, Union
 
 from agent.utils import parse_llm_json, fallback_text_response, format_history_text
 from agent.prompts import SYNTHESIS_PROMPT, STREAM_SYNTHESIS_PROMPT
-from shared.llm import get_model
+from shared.llm import get_client, LLMClient, TokenUsage
 
 from agent.intent_classifier import classify_intent, ClassifiedIntent, ExtractedSlots
 from agent.slot_completeness import (
@@ -43,6 +43,8 @@ from agent.memory import (
     get_preferences,
     save_selected_items,
     get_selected_items,
+    get_session_model,
+    get_last_click_position,
     log_token_usage,
     Message,
 )
@@ -77,15 +79,6 @@ class AgentResponse:
 
     def to_dict(self) -> dict:
         return asdict(self)
-
-
-@dataclass
-class TokenUsage:
-    """Token counts from a single LLM call."""
-
-    input_tokens: int = 0
-    output_tokens: int = 0
-    call_name: str = ""  # e.g. "intent", "synthesis"
 
 
 @dataclass
@@ -170,21 +163,15 @@ def _synthesize_response(
     products: list[NodeWithScore],
     history: list[Message],
     intent: str,
+    client: LLMClient,
     preferences: Optional[dict] = None,
 ) -> tuple[str, str]:
-    """Use Gemini to synthesize a natural response from search results."""
-    try:
-        model = get_model()
-    except RuntimeError:
-        return fallback_text_response(products), ""
-
+    """Use Gemini/GPT/Claude to synthesize a natural response from search results."""
     ctx = _build_synthesis_context(query, products, history, preferences)
-
     prompt = SYNTHESIS_PROMPT.format(query=query, **ctx)
-
     try:
-        response = model.generate_content(prompt)
-        data = parse_llm_json(response.text)
+        response_text = client.generate(prompt)
+        data = parse_llm_json(response_text)
         return data.get("answer", ""), data.get("styling_suggestion", "")
     except Exception:
         return fallback_text_response(products), ""
@@ -199,55 +186,27 @@ def _synthesize_response_stream(
     products: list[NodeWithScore],
     history: list[Message],
     intent: str,
+    client: LLMClient,
     preferences: Optional[dict] = None,
 ) -> Generator:
-    """Streaming version of synthesis — yields ``SynthesisChunk`` instances.
-
-    Uses ``stream=True`` with Gemini for token-by-token output.
-    Separates Gemini thinking tokens (``part.thought=True``) from
-    response tokens.
-
-    Yields:
-        ThinkingToken | ResponseToken: Chunks as they arrive from the LLM.
-    """
-    try:
-        model = get_model()
-    except RuntimeError:
-        yield ResponseToken(fallback_text_response(products))
-        return
-
+    """Streaming version of synthesis — yields ``SynthesisChunk`` instances."""
     ctx = _build_synthesis_context(query, products, history, preferences)
-
     prompt = STREAM_SYNTHESIS_PROMPT.format(query=query, **ctx)
-
     try:
-        response = model.generate_content(prompt, stream=True)
-        for chunk in response:
-            # Try iterating parts for thinking/response separation
-            if hasattr(chunk, "parts") and chunk.parts:
-                for part in chunk.parts:
-                    text = getattr(part, "text", None)
-                    if not text:
-                        continue
-                    if getattr(part, "thought", False):
-                        yield ThinkingToken(text)
-                    else:
-                        yield ResponseToken(text)
-            elif chunk.text:
-                # Fallback: SDK without parts support
-                yield ResponseToken(chunk.text)
-
-        # After stream completes — extract token usage
-        try:
-            usage = getattr(response, "usage_metadata", None)
-            if usage:
-                yield TokenUsage(
-                    input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
-                    output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
-                    call_name="synthesis",
-                )
-        except Exception:
-            pass  # Token info is optional — never crash for it
+        gen = client.stream(prompt)
+        while True:
+            try:
+                text = next(gen)
+                yield ResponseToken(text)
+            except StopIteration as e:
+                usage = e.value
+                if usage:
+                    usage.call_name = "synthesis"
+                    yield usage
+                break
+    except Exception as e:
+        logger.error(f"Synthesis stream error: {e}")
+        yield ResponseToken(fallback_text_response(products))
 
     except Exception as exc:
         logger.warning("Streaming synthesis failed: %s", exc)
@@ -479,6 +438,9 @@ def _orchestrate_stream(
     # Session setup
     if not (session_id and session_exists(session_id)):
         session_id = create_session()
+        
+    model_name = get_session_model(session_id)
+    client = get_client(model_name)
 
     add_message(session_id, "user", query)
     history = get_history(session_id, limit=20)
@@ -533,7 +495,7 @@ def _orchestrate_stream(
         log_token_usage(
             session_id=session_id,
             call_name="intent",
-            model_name="gemini-2.5-flash",
+            model_name=client.model_name,
             input_tokens=intent_tokens.input_tokens,
             output_tokens=intent_tokens.output_tokens,
         )
@@ -733,17 +695,18 @@ def _handle_confirm(session_id: str) -> Generator:
         })
         return
 
-    items_to_save = [
-        {
+    items_to_save = []
+    for it in pending.items:
+        position = get_last_click_position(session_id, it.image_id)
+        items_to_save.append({
             "image_id": it.image_id,
             "label": it.label,
             "color": it.color,
             "caption": it.caption,
             "image_path": it.image_path,
             "search_query": pending.search_query,
-        }
-        for it in pending.items
-    ]
+            "position": position,
+        })
     inserted = save_selected_items(session_id, items_to_save)
     skipped = len(items_to_save) - inserted
 
@@ -813,11 +776,13 @@ def chat(
         )
 
     # Synthesize response (1 LLM call)
+    client = get_client(get_session_model(result.session_id))
     answer, styling = _synthesize_response(
         query=query,
         products=result.products,
         history=result.history,
         intent=result.intent,
+        client=client,
         preferences=result.preferences,
     )
 
@@ -945,11 +910,13 @@ def chat_stream(
     # Stream synthesis tokens — separate thinking vs response
     full_text_parts: list[str] = []
     synthesis_tokens = TokenUsage()  # collect synthesis tokens
+    client = get_client(get_session_model(result.session_id))
     for chunk in _synthesize_response_stream(
         query=query,
         products=result.products,
         history=result.history,
         intent=result.intent,
+        client=client,
         preferences=result.preferences,
     ):
         if isinstance(chunk, ThinkingToken):
@@ -974,7 +941,7 @@ def chat_stream(
         log_token_usage(
             session_id=result.session_id,
             call_name="synthesis",
-            model_name="gemini-2.5-flash",
+            model_name=client.model_name,
             input_tokens=synthesis_tokens.input_tokens,
             output_tokens=synthesis_tokens.output_tokens,
         )

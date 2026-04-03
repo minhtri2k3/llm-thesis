@@ -20,6 +20,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
   String? _error;
   String? _selectedGender; // 'male' or 'female'
+  String _selectedModel = 'gemini-2.5-flash';
 
   @override
   void dispose() {
@@ -54,7 +55,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      final sessionId = await _api.createSession(name, yearInt, _selectedGender!);
+      final sessionId = await _api.createSession(name, yearInt, _selectedGender!, _selectedModel);
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
@@ -343,7 +344,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           Row(
             children: [
               Expanded(
-                child: _GenderButton(
+                child: _SelectButton(
                   label: 'Boy 👦',
                   value: 'male',
                   selected: _selectedGender == 'male',
@@ -352,11 +353,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _GenderButton(
+                child: _SelectButton(
                   label: 'Girl 👧',
                   value: 'female',
                   selected: _selectedGender == 'female',
                   onTap: () => setState(() => _selectedGender = 'female'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Model toggle
+          Row(
+            children: [
+              Expanded(
+                child: _SelectButton(
+                  label: 'Gemini',
+                  value: 'gemini-2.5-flash',
+                  selected: _selectedModel == 'gemini-2.5-flash',
+                  onTap: () => setState(() => _selectedModel = 'gemini-2.5-flash'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SelectButton(
+                  label: 'GPT-4o',
+                  value: 'gpt-4o',
+                  selected: _selectedModel == 'gpt-4o',
+                  onTap: () => setState(() => _selectedModel = 'gpt-4o'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SelectButton(
+                  label: 'Claude',
+                  value: 'claude-3-5-sonnet-20241022',
+                  selected: _selectedModel == 'claude-3-5-sonnet-20241022',
+                  onTap: () => setState(() => _selectedModel = 'claude-3-5-sonnet-20241022'),
                 ),
               ),
             ],
@@ -411,14 +445,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 }
 
-/// Styled gender selector button.
-class _GenderButton extends StatelessWidget {
+/// Styled selector button.
+class _SelectButton extends StatelessWidget {
   final String label;
   final String value;
   final bool selected;
   final VoidCallback onTap;
 
-  const _GenderButton({
+  const _SelectButton({
     required this.label,
     required this.value,
     required this.selected,
@@ -576,6 +610,22 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                     e['user_name'] as String? ?? 'Anonymous';
                                 final feedback =
                                     e['feedback'] as String? ?? '';
+                                final modelName = e['model_name'] as String? ?? '—';
+                                final totalTokens = (e['total_tokens'] as num?)?.toInt() ?? 0;
+
+                                String shortModel = '—';
+                                Color modelColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3);
+                                if (modelName.contains('gemini')) {
+                                  shortModel = 'Gemini';
+                                  modelColor = Colors.blue;
+                                } else if (modelName.contains('gpt-4o')) {
+                                  shortModel = 'GPT-4o';
+                                  modelColor = Colors.green;
+                                } else if (modelName.contains('claude')) {
+                                  shortModel = 'Claude';
+                                  modelColor = Colors.orange;
+                                }
+
                                 return Padding(
                                   padding:
                                       const EdgeInsets.symmetric(vertical: 12),
@@ -597,7 +647,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                           style: TextStyle(
                                             fontSize: i < 3 ? 18 : 13,
                                             color:
-                                                Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                           ),
                                         ),
                                       ),
@@ -617,6 +667,23 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                                     color: Theme.of(context).colorScheme.onSurface,
                                                   ),
                                                 ),
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: modelColor.withValues(alpha: 0.15),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    border: Border.all(color: modelColor.withValues(alpha: 0.5)),
+                                                  ),
+                                                  child: Text(
+                                                    shortModel,
+                                                    style: GoogleFonts.outfit(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w600,
+                                                      color: modelColor,
+                                                    ),
+                                                  ),
+                                                ),
                                                 const Spacer(),
                                                 // Star rating
                                                 _StarRating(rating: rating),
@@ -632,6 +699,17 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                                                 ),
                                               ],
                                             ),
+                                            if (totalTokens > 0)
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 2, bottom: 2),
+                                                child: Text(
+                                                  '$totalTokens tokens',
+                                                  style: GoogleFonts.outfit(
+                                                    fontSize: 11,
+                                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+                                                  ),
+                                                ),
+                                              ),
                                             if (feedback.isNotEmpty) ...[
                                               const SizedBox(height: 4),
                                               Text(

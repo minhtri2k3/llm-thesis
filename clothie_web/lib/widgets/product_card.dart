@@ -47,6 +47,60 @@ class _ProductCard extends StatefulWidget {
 class _ProductCardState extends State<_ProductCard> {
   bool _hovered = false;
 
+  void _showFullscreenImage(BuildContext context, String imageUrl, String label) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.9),
+      builder: (ctx) => Stack(
+        fit: StackFit.expand,
+        children: [
+          InteractiveViewer(
+            panEnabled: true,
+            boundaryMargin: const EdgeInsets.all(20),
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: GestureDetector(
+              onTap: () => Navigator.of(ctx).pop(),
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+          Positioned(
+            top: 40,
+            right: 20,
+            child: Material(
+              color: Colors.transparent,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Material(
+              color: Colors.transparent,
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  decoration: TextDecoration.none,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -63,6 +117,7 @@ class _ProductCardState extends State<_ProductCard> {
             widget.product.imageId,
             widget.productIndex + 1, // 1-based position
           );
+          _showFullscreenImage(context, widget.product.imageUrl, widget.product.label);
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),

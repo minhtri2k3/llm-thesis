@@ -25,6 +25,7 @@ class ApiService {
     String userName,
     int yearOfBirth,
     String gender,
+    String preferredModel,
   ) async {
     final uri = Uri.parse('$kApiBaseUrl/api/sessions');
     final response = await _client.post(
@@ -34,6 +35,7 @@ class ApiService {
         'user_name': userName,
         'year_of_birth': yearOfBirth,
         'gender': gender,
+        'preferred_model': preferredModel,
       }),
     );
     if (response.statusCode != 200) {
@@ -273,6 +275,15 @@ class ApiService {
       throw Exception('Order failed: ${resp.body}');
     }
     return (jsonDecode(resp.body) as Map<String, dynamic>)['order_id'] as int;
+  }
+
+  Future<void> removeCartItem(String sessionId, String imageId) async {
+    final resp = await _client.delete(
+      Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/selections/$imageId'),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to remove item: ${resp.body}');
+    }
   }
 
   void dispose() => _client.close();

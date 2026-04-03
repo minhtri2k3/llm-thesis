@@ -96,6 +96,7 @@ class CreateSessionRequest(BaseModel):
     user_name: str = ""
     year_of_birth: Optional[int] = None
     gender: Optional[str] = None
+    preferred_model: str = "gemini-2.5-flash"
 
     @classmethod
     def __get_validators__(cls):
@@ -110,6 +111,8 @@ class CreateSessionRequest(BaseModel):
                 )
         if self.gender is not None and self.gender not in ("male", "female"):
             raise ValueError('gender must be "male" or "female"')
+        if self.preferred_model not in ("gemini-2.5-flash", "gpt-4o", "claude-3-7-sonnet-latest"):
+            raise ValueError('preferred_model must be one of: gemini-2.5-flash, gpt-4o, claude-3-7-sonnet-latest')
 
 
 class CreateSessionResponse(BaseModel):
@@ -157,8 +160,24 @@ async def create_session_endpoint(req: CreateSessionRequest):
             user_name=req.user_name,
             year_of_birth=req.year_of_birth,
             gender=req.gender,
+            preferred_model=req.preferred_model,
         )
         return CreateSessionResponse(session_id=session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/sessions/{session_id}/selections/{image_id}")
+async def remove_cart_item(session_id: str, image_id: str):
+    """Remove a selected item from the cart log."""
+    from agent.memory import log_cart_removal
+    try:
+        success = log_cart_removal(session_id, image_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Cart item not found")
+        return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -235,9 +254,11 @@ async def get_ratings_endpoint():
             cur.execute(
                 """
                 SELECT r.user_name, r.rating, r.feedback, r.created_at,
-                       s.year_of_birth, s.gender
+                       s.year_of_birth, s.gender,
+                       sts.model_name, sts.total_tokens
                 FROM user_ratings r
                 JOIN user_sessions s ON s.session_id = r.session_id
+                LEFT JOIN session_token_summary sts ON sts.session_id = r.session_id
                 ORDER BY r.rating DESC, r.created_at DESC;
                 """
             )
@@ -251,6 +272,8 @@ async def get_ratings_endpoint():
                 "rated_at": str(r["created_at"]),
                 "year_of_birth": r["year_of_birth"],
                 "gender": r["gender"],
+                "model_name": r["model_name"] or "gemini-2.5-flash",
+                "total_tokens": r["total_tokens"] or 0,
             }
             for r in rows
         ]
