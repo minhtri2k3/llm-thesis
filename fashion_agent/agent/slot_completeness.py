@@ -51,12 +51,13 @@ def check_slot_completeness(
 # ---------------------------------------------------------------------------
 
 # Pre-built template parts — imported from centralized prompts module.
-from agent.prompts import SLOT_TEMPLATES, COMBO_TEMPLATES
+from agent.prompts import SLOT_TEMPLATES, COMBO_TEMPLATES, detect_language, get_template
 
 
 def build_template_question(
     missing_slots: list[str],
     slots: ExtractedSlots,
+    query: str = "",
 ) -> str:
     """Build a clarification question from templates (0 LLM calls).
 
@@ -66,26 +67,44 @@ def build_template_question(
     Args:
         missing_slots: List of missing slot names from ``check_slot_completeness``.
         slots: Current accumulated slot data (used for template interpolation).
+        query: The original user query, used for language detection.
 
     Returns:
-        A friendly English clarification question string.
+        A friendly clarification question string in the user's language.
     """
+    lang = detect_language(query)
     missing_key = frozenset(missing_slots)
 
     # Try exact match first, then fallback to generic build
-    template = COMBO_TEMPLATES.get(missing_key)
-    if template:
-        return template.format(
-            category=slots.category or "clothing",
-            color=slots.color or "your preferred color",
+    template_str = get_template(COMBO_TEMPLATES, missing_key, lang)
+    if template_str:
+        # Provide safe fallbacks for format variables
+        if lang == "vi":
+            category_val = slots.category or "trang phục"
+            color_val = slots.color or "màu bạn thích"
+        elif lang == "es":
+            category_val = slots.category or "ropa"
+            color_val = slots.color or "tu color preferido"
+        else:
+            category_val = slots.category or "clothing"
+            color_val = slots.color or "your preferred color"
+        return template_str.format(
+            category=category_val,
+            color=color_val,
         )
 
     # Generic fallback: list each missing slot individually
-    parts = ["Could you tell me a bit more? 💬"]
+    if lang == "vi":
+        parts = ["Bạn có thể cho tôi biết thêm không? 💬"]
+    elif lang == "es":
+        parts = ["¿Podrías contarme un poco más? 💬"]
+    else:
+        parts = ["Could you tell me a bit more? 💬"]
     for slot in missing_slots:
-        label = SLOT_TEMPLATES.get(slot, slot)
+        label = get_template(SLOT_TEMPLATES, slot, lang) or slot
         parts.append(f"• **{slot.capitalize()}**: {label}")
     return "\n".join(parts)
+
 
 
 

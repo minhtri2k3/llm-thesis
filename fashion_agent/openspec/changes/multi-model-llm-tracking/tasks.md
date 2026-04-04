@@ -58,7 +58,7 @@
 - [x] 9.1 Add `removeCartItem(sessionId, imageId)` method to `ApiService` calling `DELETE /api/sessions/{id}/selections/{imageId}`
 - [x] 9.2 Add remove button (IconButton with `Icons.delete_outline`) to `_CartCard` in `cart_screen.dart`
 - [x] 9.3 On remove button tap: call `removeCartItem()`, then call `context.read<CartProvider>().reload()`
-- [ ] 9.4 Verify cart badge count decrements correctly after removal
+- [x] 9.4 Verify cart badge count decrements correctly after removal
 
 ## 10. Flutter Frontend — Leaderboard Model Column
 

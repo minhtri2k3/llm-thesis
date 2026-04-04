@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Generator, Optional, Union
 
 from agent.utils import parse_llm_json, fallback_text_response, format_history_text
-from agent.prompts import SYNTHESIS_PROMPT, STREAM_SYNTHESIS_PROMPT
+from agent.prompts import SYNTHESIS_PROMPT, STREAM_SYNTHESIS_PROMPT, detect_language
 from shared.llm import get_client, LLMClient, TokenUsage
 
 from agent.intent_classifier import classify_intent, ClassifiedIntent, ExtractedSlots
@@ -144,11 +144,20 @@ def _build_synthesis_context(
         prefs_parts.append(f"Preferred categories: {', '.join(prefs['preferred_categories'])}")
     preferences_text = "; ".join(prefs_parts) if prefs_parts else "No preferences yet."
 
+    lang = detect_language(query)
+    if lang == "vi":
+        cta_example = f"👉 Gõ một số (1-{len(products)}) để chọn sản phẩm bạn thích!"
+    elif lang == "es":
+        cta_example = f"👉 ¡Escribe un número (1-{len(products)}) para seleccionar tu favorito!"
+    else:
+        cta_example = f"👉 Type a number (1-{len(products)}) to select your favorite!"
+
     return {
         "products_text": products_text,
         "history_text": history_text,
         "preferences_text": preferences_text,
         "num_results": len(products),
+        "cta_example": cta_example,
     }
 
 
@@ -225,10 +234,20 @@ def _extract_styling_from_text(full_text: str) -> str:
 # Direct routing (replacement for ReAct loop)
 # ---------------------------------------------------------------------------
 
-OUT_OF_SCOPE_RESPONSE = (
-    "Sorry, I only help with fashion search and styling advice. "
-    "Would you like to look for any outfit?"
-)
+OUT_OF_SCOPE_RESPONSE = {
+    "en": (
+        "Sorry, I only help with fashion search and styling advice. "
+        "Would you like to look for any outfit?"
+    ),
+    "vi": (
+        "Xin lỗi, tôi chỉ hỗ trợ tìm kiếm thời trang và tư vấn phối đồ. "
+        "Bạn có muốn tìm trang phục nào không?"
+    ),
+    "es": (
+        "Lo siento, solo puedo ayudarte con búsqueda de moda y consejos de estilo. "
+        "¿Te gustaría buscar alguna prenda?"
+    ),
+}
 
 MAX_CLARIFICATION_TURNS = 3
 
@@ -256,10 +275,14 @@ CONFIRM_KEYWORDS = {
     "yes", "ok", "okay", "confirm", "đúng", "đúng rồi", "oke",
     "sure", "yep", "yeah", "đồng ý", "lưu", "save", "y", "ừ",
     "uh", "uh huh", "được", "chốt",
+    # Spanish
+    "sí", "si", "confirmar", "guardar", "claro", "dale", "bueno", "de acuerdo",
 }
 REJECT_KEYWORDS = {
     "no", "không", "cancel", "hủy", "thôi", "skip", "n",
     "nope", "bỏ", "không lưu",
+    # Spanish
+    "cancelar", "cancela", "omitir", "quitar", "no gracias",
 }
 
 
@@ -317,6 +340,7 @@ def _resolve_search_query(
     intent_result: ClassifiedIntent,
     session_id: str,
     history: list[Message],
+    query: str = "",
 ) -> tuple[str, str]:
     """Resolve the search query and check if clarification is needed.
 
@@ -343,7 +367,7 @@ def _resolve_search_query(
             clarify_count = _count_clarification_turns(history)
             if clarify_count < MAX_CLARIFICATION_TURNS:
                 question = build_template_question(
-                    missing_slots=missing, slots=accumulated,
+                    missing_slots=missing, slots=accumulated, query=query,
                 )
                 reasoning = (
                     f"Slots incomplete ({', '.join(missing)}). "
@@ -449,13 +473,13 @@ def _orchestrate_stream(
     if session_id in _session_pending_selection:
         normalized = query.strip().lower()
         if normalized in CONFIRM_KEYWORDS:
-            yield from _handle_confirm(session_id)
+            yield from _handle_confirm(session_id, query)
             return
         if normalized in REJECT_KEYWORDS:
-            yield from _handle_reject(session_id)
+            yield from _handle_reject(session_id, query)
             return
-        # Not a keyword match — fall through to normal classification
-        # (pending state remains; if user searches, it will be ignored via TTL)
+        # Not a keyword match — clear pending state before falling through
+        _session_pending_selection.pop(session_id, None)
 
     # Step 1: Intent classification (1 LLM call)
     yield ThinkingEvent("classify", "Classifying intent...")
@@ -504,12 +528,14 @@ def _orchestrate_stream(
 
     # Step 2: Out-of-scope — early exit
     if intent == "out_of_scope":
-        add_message(session_id, "assistant", OUT_OF_SCOPE_RESPONSE)
+        lang = detect_language(query)
+        msg_text = OUT_OF_SCOPE_RESPONSE.get(lang, OUT_OF_SCOPE_RESPONSE["en"])
+        add_message(session_id, "assistant", msg_text)
         yield ThinkingEvent("done", f"Out of scope — {time.time() - start_time:.1f}s")
         yield OrchestrateResult(
             intent="out_of_scope",
             session_id=session_id,
-            clarification=OUT_OF_SCOPE_RESPONSE,
+            clarification=msg_text,
             history=history,
             filters=intent_result.filters,
         )
@@ -520,19 +546,19 @@ def _orchestrate_stream(
         selected_nums = intent_result.extracted_slots.selected_numbers
         yield ThinkingEvent("done", f"Product selection — {time.time() - start_time:.1f}s")
         yield from _handle_product_select(
-            session_id, selected_nums, intent_result.refined_query or query,
+            session_id, selected_nums, intent_result.refined_query or query, query,
         )
         return
 
     # Step 2c: View selections — early exit (0 LLM calls)
     if intent == "view_selections":
         yield ThinkingEvent("done", f"View selections — {time.time() - start_time:.1f}s")
-        yield from _handle_view_selections(session_id)
+        yield from _handle_view_selections(session_id, query)
         return
 
     # Step 3: Slot gate + search query resolution
     search_query, clarification = _resolve_search_query(
-        intent, intent_result, session_id, history,
+        intent, intent_result, session_id, history, query,
     )
 
     if clarification:
@@ -608,19 +634,33 @@ def _handle_product_select(
     session_id: str,
     selected_numbers: list[int],
     search_query: str,
+    query: str,
 ) -> Generator:
     """Validate selections against cached results and create pending confirmation."""
+    lang = detect_language(query)
     cached_results = _session_last_results.get(session_id)
     if not cached_results:
+        if lang == "vi":
+            text = "⚠️ Không có kết quả tìm kiếm gần đây. Vui lòng tìm kiếm sản phẩm trước!"
+        elif lang == "es":
+            text = "⚠️ No hay resultados recientes. ¡Por favor busca productos primero!"
+        else:
+            text = "⚠️ No recent search results. Please search for products first!"
         yield _sse("clarification", {
-            "text": "⚠️ No recent search results. Please search for products first!",
+            "text": text,
             "intent": "product_select",
         })
         return
 
     if not selected_numbers:
+        if lang == "vi":
+            text = f"Bạn muốn chọn sản phẩm nào? Vui lòng nhập một số (1-{len(cached_results)})."
+        elif lang == "es":
+            text = f"¿Qué artículo deseas? Por favor indica un número (1-{len(cached_results)})."
+        else:
+            text = f"Which item would you like? Please specify a number (1-{len(cached_results)})."
         yield _sse("clarification", {
-            "text": "Which item would you like? Please specify a number (1-{}).".format(len(cached_results)),
+            "text": text,
             "intent": "product_select",
         })
         return
@@ -636,8 +676,14 @@ def _handle_product_select(
             invalid_nums.append(num)
 
     if not valid_items:
+        if lang == "vi":
+            text = f"❌ Số không hợp lệ! Vui lòng chọn từ 1 đến {max_idx}."
+        elif lang == "es":
+            text = f"❌ ¡Selección inválida! Por favor elige entre 1 y {max_idx}."
+        else:
+            text = f"❌ Invalid selection! Please choose between 1 and {max_idx}."
         yield _sse("clarification", {
-            "text": f"❌ Invalid selection! Please choose between 1 and {max_idx}.",
+            "text": text,
             "intent": "product_select",
         })
         return
@@ -649,7 +695,13 @@ def _handle_product_select(
     _session_pending_selection[session_id] = pending
 
     # Build confirmation preview
-    lines = ["✅ **You selected:**\n"]
+    if lang == "vi":
+        lines = ["✅ **Bạn đã chọn:**\n"]
+    elif lang == "es":
+        lines = ["✅ **Has seleccionado:**\n"]
+    else:
+        lines = ["✅ **You selected:**\n"]
+        
     for i, item in enumerate(valid_items, 1):
         color_str = f" — {item.color}" if item.color else ""
         lines.append(f"{i}. **{item.label}**{color_str}")
@@ -659,9 +711,21 @@ def _handle_product_select(
         if item.image_path:
             filename = os.path.basename(item.image_path)
             lines.append(f"\n![{item.label}](/api/images/{filename})\n")
+    
     if invalid_nums:
-        lines.append(f"\n⚠️ Skipped invalid: {', '.join(str(n) for n in invalid_nums)} (only 1-{max_idx})")
-    lines.append("\n**Confirm? (yes/no)**")
+        if lang == "vi":
+            lines.append(f"\n⚠️ Bỏ qua số không hợp lệ: {', '.join(str(n) for n in invalid_nums)} (chỉ từ 1-{max_idx})")
+        elif lang == "es":
+            lines.append(f"\n⚠️ Omitidos inválidos: {', '.join(str(n) for n in invalid_nums)} (solo entre 1-{max_idx})")
+        else:
+            lines.append(f"\n⚠️ Skipped invalid: {', '.join(str(n) for n in invalid_nums)} (only 1-{max_idx})")
+
+    if lang == "vi":
+        lines.append("\n**Xác nhận lưu? (có/không)**")
+    elif lang == "es":
+        lines.append("\n**¿Confirmar? (sí/no)**")
+    else:
+        lines.append("\n**Confirm? (yes/no)**")
 
     preview_text = "\n".join(lines)
     add_message(session_id, "assistant", preview_text)
@@ -685,12 +749,17 @@ def _handle_product_select(
     })
 
 
-def _handle_confirm(session_id: str) -> Generator:
+def _handle_confirm(session_id: str, query: str) -> Generator:
     """Save pending items to DB and clear pending state."""
+    lang = detect_language(query)
     pending = _session_pending_selection.pop(session_id, None)
     if not pending:
+        text = (
+            "Nothing to confirm. Please select products first." if lang == "en"
+            else "Không có gì để lưu. Vui lòng chọn sản phẩm trước."
+        )
         yield _sse("clarification", {
-            "text": "Nothing to confirm. Please select products first.",
+            "text": text,
             "intent": "product_confirm",
         })
         return
@@ -710,10 +779,21 @@ def _handle_confirm(session_id: str) -> Generator:
     inserted = save_selected_items(session_id, items_to_save)
     skipped = len(items_to_save) - inserted
 
-    parts = [f"💾 **Saved {inserted} item(s)!**"]
-    if skipped > 0:
-        parts.append(f"({skipped} already in your selections)")
-    parts.append('\n💡 Continue searching or type "show selections" to view all picks.')
+    if lang == "vi":
+        parts = [f"💾 **Đã lưu {inserted} sản phẩm!**"]
+        if skipped > 0:
+            parts.append(f"({skipped} sản phẩm đã có trong danh sách)")
+        parts.append('\n💡 Tiếp tục tìm kiếm hoặc gõ "xem các mục đã chọn" để xem.')
+    elif lang == "es":
+        parts = [f"💾 **¡{inserted} artículo(s) guardado(s)!**"]
+        if skipped > 0:
+            parts.append(f"({skipped} ya estaban en tus selecciones)")
+        parts.append('\n💡 Continúa buscando o escribe "ver mis selecciones" para verlas.')
+    else:
+        parts = [f"💾 **Saved {inserted} item(s)!**"]
+        if skipped > 0:
+            parts.append(f"({skipped} already in your selections)")
+        parts.append('\n💡 Continue searching or type "show selections" to view all picks.')
     text = " ".join(parts)
 
     add_message(session_id, "assistant", text)
@@ -721,29 +801,75 @@ def _handle_confirm(session_id: str) -> Generator:
     yield _sse("done", {"session_id": session_id, "intent": "product_confirm", "styling": ""})
 
 
-def _handle_reject(session_id: str) -> Generator:
+def _handle_reject(session_id: str, query: str) -> Generator:
     """Discard pending selection."""
+    lang = detect_language(query)
     _session_pending_selection.pop(session_id, None)
-    text = "❌ Selection cancelled. Feel free to search again or pick different items!"
+    
+    cached_results = _session_last_results.get(session_id)
+    
+    if not cached_results:
+        if lang == "vi":
+            text = "❌ Đã hủy chọn. Vui lòng tìm kiếm lại."
+        elif lang == "es":
+            text = "❌ Selección cancelada. Por favor busca de nuevo."
+        else:
+            text = "❌ Selection cancelled. Please search again."
+        add_message(session_id, "assistant", text)
+        yield _sse("selection_cancelled", {"text": text})
+        yield _sse("done", {"session_id": session_id, "intent": "product_reject", "styling": ""})
+        return
+
+    if lang == "vi":
+        lines = ["❌ Đã hủy chọn. Dưới đây là các sản phẩm. Gõ một số khác để chọn lại nhé!\n"]
+    elif lang == "es":
+        lines = ["❌ Selección cancelada. Aquí están los artículos. ¡Escribe un número diferente para seleccionar otro!\n"]
+    else:
+        lines = ["❌ Selection cancelled. Here are the items again. Type a number to select a different one!\n"]
+        
+    for i, item in enumerate(cached_results, 1):
+        color_str = f" — {item.color}" if item.color else ""
+        lines.append(f"{i}. **{item.label}**{color_str}")
+
+    text = "\n".join(lines)
     add_message(session_id, "assistant", text)
     yield _sse("selection_cancelled", {"text": text})
     yield _sse("done", {"session_id": session_id, "intent": "product_reject", "styling": ""})
 
 
-def _handle_view_selections(session_id: str) -> Generator:
+def _handle_view_selections(session_id: str, query: str) -> Generator:
     """Retrieve and display all saved selections for the session."""
+    lang = detect_language(query)
     items = get_selected_items(session_id)
+    
     if not items:
-        text = "📋 You haven't selected anything yet. Search for products and pick your favorites!"
+        if lang == "vi":
+            text = "📋 Bạn chưa chọn sản phẩm nào. Hãy tìm kiếm và chọn sản phẩm yêu thích nhé!"
+        elif lang == "es":
+            text = "📋 Aún no has seleccionado nada. ¡Busca productos y elige tus favoritos!"
+        else:
+            text = "📋 You haven't selected anything yet. Search for products and pick your favorites!"
     else:
-        lines = [f"📋 **Your Selections ({len(items)} items):**\n"]
+        if lang == "vi":
+            lines = [f"📋 **Sản phẩm đã chọn ({len(items)}):**\n"]
+        elif lang == "es":
+            lines = [f"📋 **Tus Selecciones ({len(items)} artículos):**\n"]
+        else:
+            lines = [f"📋 **Your Selections ({len(items)} items):**\n"]
+            
         for i, it in enumerate(items, 1):
             color_str = f" — {it['color']}" if it.get('color') else ""
             lines.append(f"{i}. **{it['label']}**{color_str}")
             if it.get('caption'):
                 lines.append(f"   _{it['caption']}_")
             if it.get('search_query'):
-                lines.append(f"   🔍 Found via: _{it['search_query']}_")
+                if lang == "vi":
+                    found_prefix = "Tìm với:"
+                elif lang == "es":
+                    found_prefix = "Encontrado con:"
+                else:
+                    found_prefix = "Found via:"
+                lines.append(f"   🔍 {found_prefix} _{it['search_query']}_")
         text = "\n".join(lines)
 
     add_message(session_id, "assistant", text)

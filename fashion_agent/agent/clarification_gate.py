@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent.utils import parse_llm_json, format_history_text
-from agent.prompts import CLARIFICATION_PROMPT, FALLBACK_QUESTION
+from agent.prompts import CLARIFICATION_PROMPT, FALLBACK_QUESTION, detect_language
 from shared.llm import get_model
 
 
@@ -25,12 +25,15 @@ def check_clarification(
     is too vague. Always returns ``needs_clarification=True`` since this
     function is only called when confidence < 0.6 or intent == "unclear".
     """
+    lang = detect_language(query)
+    fallback_q = FALLBACK_QUESTION.get(lang, FALLBACK_QUESTION["en"])
+
     try:
         model = get_model()
     except RuntimeError:
         return ClarificationResult(
             needs_clarification=True,
-            question=FALLBACK_QUESTION,
+            question=fallback_q,
         )
 
     history_text = format_history_text(history, limit=4)
@@ -56,5 +59,5 @@ def check_clarification(
     # Fallback
     return ClarificationResult(
         needs_clarification=True,
-        question=FALLBACK_QUESTION,
+        question=fallback_q,
     )
