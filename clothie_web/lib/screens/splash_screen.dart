@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 import 'package:clothie_web/config.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
 import 'package:clothie_web/screens/register_screen.dart';
@@ -33,14 +34,7 @@ class _SplashScreenState extends State<SplashScreen>
     // Navigate to Register after splash duration
     Future.delayed(Duration(seconds: kSplashDurationSeconds + 1), () {
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            transitionDuration: const Duration(milliseconds: 600),
-            pageBuilder: (_, anim, __) => const RegisterScreen(),
-            transitionsBuilder: (_, anim, __, child) =>
-                FadeTransition(opacity: anim, child: child),
-          ),
-        );
+        context.goNamed('register');
       }
     });
   }

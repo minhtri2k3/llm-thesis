@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:clothie_web/providers/theme_provider.dart';
 import 'package:clothie_web/providers/cart_provider.dart';
 import 'package:clothie_web/providers/chat_provider.dart';
@@ -240,7 +241,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               Text(
-                'Hi \${widget.userName} 👋',
+                'Hi ${widget.userName} 👋',
                 style: GoogleFonts.outfit(
                   fontSize: 11,
                   color: Theme.of(context).colorScheme.primary,
@@ -287,7 +288,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             color: Theme.of(context).colorScheme.surface, width: 1.5),
                       ),
                       child: Text(
-                        '\${cart.count}',
+                        '${cart.count}',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onPrimary,
                           fontSize: 10,
@@ -426,15 +427,7 @@ class _ChatScreenState extends State<ChatScreen> {
         sessionId: widget.sessionId,
         userName: widget.userName,
         onComplete: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            PageRouteBuilder(
-              transitionDuration: const Duration(milliseconds: 600),
-              pageBuilder: (_, anim, __) => const SplashScreen(),
-              transitionsBuilder: (_, anim, __, child) =>
-                  FadeTransition(opacity: anim, child: child),
-            ),
-            (_) => false,
-          );
+          context.goNamed('splash');
         },
       ),
     );

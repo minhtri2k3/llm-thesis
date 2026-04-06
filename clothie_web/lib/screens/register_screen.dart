@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:clothie_web/providers/theme_provider.dart';
 import 'package:clothie_web/services/api_service.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
-import 'package:clothie_web/screens/chat_screen.dart';
+import 'package:clothie_web/router/app_router.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -57,13 +58,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       final sessionId = await _api.createSession(name, yearInt, _selectedGender!, _selectedModel);
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            transitionDuration: const Duration(milliseconds: 500),
-            pageBuilder: (_, anim, __) =>
-                ChatScreen(sessionId: sessionId, userName: name),
-            transitionsBuilder: (_, anim, __, child) =>
-                FadeTransition(opacity: anim, child: child),
+        context.goNamed(
+          'chat',
+          extra: ChatRouteArgs(
+            sessionId: sessionId,
+            userName: name,
           ),
         );
       }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:clothie_web/screens/splash_screen.dart';
 import 'package:clothie_web/providers/theme_provider.dart';
 import 'package:clothie_web/theme/app_theme.dart';
+import 'package:clothie_web/router/app_router.dart';
 
 void main() {
   runApp(
@@ -22,13 +22,13 @@ class ClothieApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
-        return MaterialApp(
+        return MaterialApp.router(
           title: 'Clothie — AI Fashion Assistant',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: themeProvider.themeMode,
-          home: const SplashScreen(),
+          routerConfig: appRouter,
         );
       },
     );

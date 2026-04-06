@@ -274,7 +274,8 @@ class PendingSelection:
 CONFIRM_KEYWORDS = {
     "yes", "ok", "okay", "confirm", "đúng", "đúng rồi", "oke",
     "sure", "yep", "yeah", "đồng ý", "lưu", "save", "y", "ừ",
-    "uh", "uh huh", "được", "chốt",
+    "uh", "uh huh", "được", "chốt", "vâng", "vâng ạ", "dạ", "da",
+    "chốt đơn", "chuẩn", "có", "có ạ",
     # Spanish
     "sí", "si", "confirmar", "guardar", "claro", "dale", "bueno", "de acuerdo",
 }
@@ -478,8 +479,9 @@ def _orchestrate_stream(
         if normalized in REJECT_KEYWORDS:
             yield from _handle_reject(session_id, query)
             return
-        # Not a keyword match — clear pending state before falling through
-        _session_pending_selection.pop(session_id, None)
+        # Not a keyword match — ask for clarification instead of clearing
+        yield from _handle_ambiguous_response(session_id, query)
+        return
 
     # Step 1: Intent classification (1 LLM call)
     yield ThinkingEvent("classify", "Classifying intent...")
@@ -805,9 +807,9 @@ def _handle_reject(session_id: str, query: str) -> Generator:
     """Discard pending selection."""
     lang = detect_language(query)
     _session_pending_selection.pop(session_id, None)
-    
+
     cached_results = _session_last_results.get(session_id)
-    
+
     if not cached_results:
         if lang == "vi":
             text = "❌ Đã hủy chọn. Vui lòng tìm kiếm lại."
@@ -826,7 +828,7 @@ def _handle_reject(session_id: str, query: str) -> Generator:
         lines = ["❌ Selección cancelada. Aquí están los artículos. ¡Escribe un número diferente para seleccionar otro!\n"]
     else:
         lines = ["❌ Selection cancelled. Here are the items again. Type a number to select a different one!\n"]
-        
+
     for i, item in enumerate(cached_results, 1):
         color_str = f" — {item.color}" if item.color else ""
         lines.append(f"{i}. **{item.label}**{color_str}")
@@ -835,6 +837,50 @@ def _handle_reject(session_id: str, query: str) -> Generator:
     add_message(session_id, "assistant", text)
     yield _sse("selection_cancelled", {"text": text})
     yield _sse("done", {"session_id": session_id, "intent": "product_reject", "styling": ""})
+
+
+def _handle_ambiguous_response(session_id: str, query: str) -> Generator:
+    """Handle ambiguous responses when pending selection exists — ask for confirmation."""
+    lang = detect_language(query)
+    pending = _session_pending_selection.get(session_id)
+    
+    if not pending:
+        # Should not happen, but handle gracefully
+        text = (
+            "No pending selection. Please search for products first." if lang == "en"
+            else "Không có sản phẩm đang chờ. Vui lòng tìm kiếm trước."
+        )
+        yield _sse("clarification", {"text": text, "intent": "product_confirm"})
+        return
+
+    # Re-display pending items with clarification prompt
+    if lang == "vi":
+        lines = ["🤔 **Vui lòng xác nhận:**\n"]
+    elif lang == "es":
+        lines = ["🤔 **Por favor confirma:**\n"]
+    else:
+        lines = ["🤔 **Please confirm:**\n"]
+
+    for i, item in enumerate(pending.items, 1):
+        color_str = f" — {item.color}" if item.color else ""
+        lines.append(f"{i}. **{item.label}**{color_str}")
+        if item.caption:
+            lines.append(f"   _{item.caption}_")
+
+    if lang == "vi":
+        lines.append('\n**Gõ "có" hoặc "yes" để lưu vào giỏ hàng**')
+        lines.append('**Gõ "không" hoặc "no" để hủy**')
+    elif lang == "es":
+        lines.append('\n**Escribe "sí" o "yes" para guardar en el carrito**')
+        lines.append('**Escribe "no" para cancelar**')
+    else:
+        lines.append('\n**Type "yes" or "ok" to save to cart**')
+        lines.append('**Type "no" to cancel**')
+
+    text = "\n".join(lines)
+    add_message(session_id, "assistant", text)
+    yield _sse("clarification", {"text": text, "intent": "product_confirm"})
+    yield _sse("done", {"session_id": session_id, "intent": "product_confirm", "styling": ""})
 
 
 def _handle_view_selections(session_id: str, query: str) -> Generator:
