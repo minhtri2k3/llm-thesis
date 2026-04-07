@@ -21,7 +21,13 @@ from dataclasses import dataclass, field, asdict
 from typing import Generator, Optional, Union
 
 from agent.utils import parse_llm_json, fallback_text_response, format_history_text
-from agent.prompts import SYNTHESIS_PROMPT, STREAM_SYNTHESIS_PROMPT, detect_language
+from agent.prompts import (
+    SYNTHESIS_PROMPT,
+    STREAM_SYNTHESIS_PROMPT,
+    STREAM_SYNTHESIS_PROMPT_AGENTIC,
+    detect_language,
+    _LANG_NAMES,
+)
 from shared.llm import get_client, LLMClient, TokenUsage
 
 from agent.intent_classifier import classify_intent, ClassifiedIntent, ExtractedSlots
@@ -44,6 +50,7 @@ from agent.memory import (
     save_selected_items,
     get_selected_items,
     get_session_model,
+    get_session_gender,
     get_last_click_position,
     log_token_usage,
     Message,
@@ -119,11 +126,13 @@ def _build_synthesis_context(
     products: list,
     history: list[Message],
     preferences: Optional[dict] = None,
+    session_id: Optional[str] = None,
 ) -> dict[str, str]:
-    """Format products, history, and preferences into text for synthesis prompts.
+    """Format products, history, preferences, language, and gender context for synthesis.
 
     Returns:
-        Dict with keys ``products_text``, ``history_text``, ``preferences_text``.
+        Dict with keys: ``products_text``, ``history_text``, ``preferences_text``,
+        ``language``, ``gender_context``, ``num_results``, ``cta_example``.
     """
     # Format products
     products_lines = []
@@ -145,6 +154,8 @@ def _build_synthesis_context(
     preferences_text = "; ".join(prefs_parts) if prefs_parts else "No preferences yet."
 
     lang = detect_language(query)
+    lang_name = _LANG_NAMES.get(lang, "English")
+
     if lang == "vi":
         cta_example = f"👉 Gõ một số (1-{len(products)}) để chọn sản phẩm bạn thích!"
     elif lang == "es":
@@ -152,10 +163,26 @@ def _build_synthesis_context(
     else:
         cta_example = f"👉 Type a number (1-{len(products)}) to select your favorite!"
 
+    # Gender context: inject only when hint is enabled and gender is known
+    gender_context = ""
+    if session_id:
+        try:
+            gender, hint_enabled = get_session_gender(session_id)
+            if hint_enabled and gender:
+                wardrobe = "menswear" if gender == "male" else "womenswear"
+                gender_context = (
+                    f"\nUser profile: gender = {gender}. "
+                    f"Prioritize {wardrobe} appropriate items.\n"
+                )
+        except Exception:
+            pass  # Non-fatal — continue without gender hint
+
     return {
         "products_text": products_text,
         "history_text": history_text,
         "preferences_text": preferences_text,
+        "language": lang_name,
+        "gender_context": gender_context,
         "num_results": len(products),
         "cta_example": cta_example,
     }
@@ -174,9 +201,10 @@ def _synthesize_response(
     intent: str,
     client: LLMClient,
     preferences: Optional[dict] = None,
+    session_id: Optional[str] = None,
 ) -> tuple[str, str]:
     """Use Gemini/GPT/Claude to synthesize a natural response from search results."""
-    ctx = _build_synthesis_context(query, products, history, preferences)
+    ctx = _build_synthesis_context(query, products, history, preferences, session_id)
     prompt = SYNTHESIS_PROMPT.format(query=query, **ctx)
     try:
         response_text = client.generate(prompt)
@@ -197,9 +225,10 @@ def _synthesize_response_stream(
     intent: str,
     client: LLMClient,
     preferences: Optional[dict] = None,
+    session_id: Optional[str] = None,
 ) -> Generator:
     """Streaming version of synthesis — yields ``SynthesisChunk`` instances."""
-    ctx = _build_synthesis_context(query, products, history, preferences)
+    ctx = _build_synthesis_context(query, products, history, preferences, session_id)
     prompt = STREAM_SYNTHESIS_PROMPT.format(query=query, **ctx)
     try:
         gen = client.stream(prompt)
@@ -939,6 +968,29 @@ def _handle_view_selections(session_id: str, query: str) -> Generator:
 
 
 # ---------------------------------------------------------------------------
+# Orchestration mode helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_orchestration_mode(model_id: str) -> tuple[str, str, str]:
+    """Map a session model ID to (mode, orchestrator_model, synthesizer_model).
+
+    Mode A (Gemini): direct routing + Gemini synthesis.
+    Mode B (GPT-4o): Gemini orchestrates (agentic) + GPT-4o synthesizes.
+    Mode C (Claude): GPT-4o orchestrates (agentic) + Claude synthesizes.
+
+    Returns:
+        Tuple of (mode, orchestrator_model, synthesizer_model).
+    """
+    if model_id.startswith("gpt-"):
+        return "agentic", "gemini-2.0-flash", model_id
+    elif model_id.startswith("claude-"):
+        return "agentic", "gpt-4o", model_id
+    else:
+        return "direct", "fixed", model_id
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -971,6 +1023,7 @@ def chat(
         intent=result.intent,
         client=client,
         preferences=result.preferences,
+        session_id=result.session_id,
     )
 
     # Convert NodeWithScore → ProductResult
@@ -1080,7 +1133,7 @@ def chat_stream(
         })
         return
 
-    # Emit product cards
+    # Emit product cards (only for direct / after agentic orchestration)
     product_dicts = [
         {
             "image_id": p.image_id,
@@ -1094,43 +1147,151 @@ def chat_stream(
     ]
     yield _sse("products", {"products": product_dicts})
 
-    # Stream synthesis tokens — separate thinking vs response
+    # Determine orchestration mode and pick synthesizer
+    preferred_model = get_session_model(result.session_id)
+    orch_mode, orchestrator_model, synthesizer_model = _get_orchestration_mode(preferred_model)
+
+    # Collect synthesis tokens and tool call metadata
     full_text_parts: list[str] = []
-    synthesis_tokens = TokenUsage()  # collect synthesis tokens
-    client = get_client(get_session_model(result.session_id))
-    for chunk in _synthesize_response_stream(
-        query=query,
-        products=result.products,
-        history=result.history,
-        intent=result.intent,
-        client=client,
-        preferences=result.preferences,
-    ):
-        if isinstance(chunk, ThinkingToken):
-            yield _sse("model_thinking", {"text": chunk.text})
-        elif isinstance(chunk, ResponseToken):
-            full_text_parts.append(chunk.text)
-            yield _sse("token", {"text": chunk.text})
-        elif isinstance(chunk, TokenUsage):
-            synthesis_tokens = chunk
+    synthesis_tokens = TokenUsage()
+    tool_calls_for_log: list[dict] = []
+    orchestrator_in_tokens = 0
+    orchestrator_out_tokens = 0
+
+    if orch_mode == "direct":
+        # Mode A: regular stream synthesis (existing path)
+        client = get_client(preferred_model)
+        for chunk in _synthesize_response_stream(
+            query=query,
+            products=result.products,
+            history=result.history,
+            intent=result.intent,
+            client=client,
+            preferences=result.preferences,
+            session_id=result.session_id,
+        ):
+            if isinstance(chunk, ThinkingToken):
+                yield _sse("model_thinking", {"text": chunk.text})
+            elif isinstance(chunk, ResponseToken):
+                full_text_parts.append(chunk.text)
+                yield _sse("token", {"text": chunk.text})
+            elif isinstance(chunk, TokenUsage):
+                synthesis_tokens = chunk
+            else:
+                full_text_parts.append(str(chunk))
+                yield _sse("token", {"text": str(chunk)})
+    else:
+        # Mode B (Gemini orchestrates) or Mode C (GPT orchestrates)
+        from agent.agentic_orchestrator import (
+            orchestrate_with_gemini,
+            orchestrate_with_gpt,
+        )
+        from agent.utils import format_history_text
+        from agent.prompts import _LANG_NAMES
+
+        history_text = format_history_text(result.history, limit=4)
+        gender, gender_hint = None, False
+        try:
+            from agent.memory import get_session_gender
+            gender, gender_hint = get_session_gender(result.session_id)
+        except Exception:
+            pass
+
+        yield _sse("thinking_step", {"step": "agentic_start", "detail": f"{orchestrator_model} orchestrating..."})
+
+        if orchestrator_model.startswith("gemini"):
+            orch_result = orchestrate_with_gemini(
+                query=query,
+                history_text=history_text,
+                gender=gender,
+                gender_hint=gender_hint,
+            )
         else:
-            # Fallback for plain strings (shouldn't happen but defensive)
-            full_text_parts.append(str(chunk))
-            yield _sse("token", {"text": str(chunk)})
+            orch_result = orchestrate_with_gpt(
+                query=query,
+                history_text=history_text,
+                gender=gender,
+                gender_hint=gender_hint,
+            )
+
+        tool_calls_for_log = [tc.to_dict() for tc in orch_result.tool_calls]
+        orchestrator_in_tokens = orch_result.orchestrator_input_tokens
+        orchestrator_out_tokens = orch_result.orchestrator_output_tokens
+
+        yield _sse("thinking_step", {"step": "agentic_done", "detail": f"{len(orch_result.tool_calls)} tool calls"})
+
+        # Build synthesis context using agentic tool results
+        lang = detect_language(query)
+        lang_name = _LANG_NAMES.get(lang, "English")
+        num_products = len(orch_result.products)
+        if lang == "vi":
+            cta = f"👉 Gõ một số (1-{num_products}) để chọn sản phẩm bạn thích!"
+        elif lang == "es":
+            cta = f"👉 ¡Escribe un número (1-{num_products}) para seleccionar tu favorito!"
+        else:
+            cta = f"👉 Type a number (1-{num_products}) to select your favorite!"
+
+        gender_ctx = ""
+        if gender_hint and gender:
+            wardrobe = "menswear" if gender == "male" else "womenswear"
+            gender_ctx = f"\nUser profile: gender = {gender}. Prioritize {wardrobe} appropriate items.\n"
+
+        prefs = result.preferences or {}
+        prefs_parts = []
+        if prefs.get("preferred_colors"):
+            prefs_parts.append(f"Preferred colors: {', '.join(prefs['preferred_colors'])}")
+        if prefs.get("preferred_categories"):
+            prefs_parts.append(f"Preferred categories: {', '.join(prefs['preferred_categories'])}")
+        preferences_text = "; ".join(prefs_parts) or "No preferences yet."
+
+        prompt = STREAM_SYNTHESIS_PROMPT_AGENTIC.format(
+            language=lang_name,
+            gender_context=gender_ctx,
+            query=query,
+            tool_results=orch_result.tool_results_text,
+            preferences_text=preferences_text,
+            history_text=format_history_text(result.history, limit=4),
+            cta_example=cta,
+        )
+
+        synth_client = get_client(synthesizer_model)
+        try:
+            gen = synth_client.stream(prompt)
+            while True:
+                try:
+                    chunk = next(gen)
+                    if isinstance(chunk, str):
+                        full_text_parts.append(chunk)
+                        yield _sse("token", {"text": chunk})
+                except StopIteration as e:
+                    if isinstance(e.value, TokenUsage):
+                        synthesis_tokens = e.value
+                    break
+        except Exception as _synth_err:
+            logger.error("Agentic synthesis failed: %s", _synth_err)
+            fallback = "I found some products for you. Please review the results above."
+            full_text_parts.append(fallback)
+            yield _sse("token", {"text": fallback})
 
     full_text = "".join(full_text_parts)
     styling = _extract_styling_from_text(full_text)
 
     add_message(result.session_id, "assistant", full_text)
 
-    # Persist synthesis token usage to DB (non-fatal)
+    # Persist synthesis token usage + orchestration metadata to DB (non-fatal)
     try:
         log_token_usage(
             session_id=result.session_id,
             call_name="synthesis",
-            model_name=client.model_name,
+            model_name=synthesizer_model,
             input_tokens=synthesis_tokens.input_tokens,
             output_tokens=synthesis_tokens.output_tokens,
+            orchestration_mode=orch_mode,
+            orchestrator_model=orchestrator_model,
+            synthesizer_model=synthesizer_model,
+            tool_calls_json=tool_calls_for_log,
+            orchestrator_input_tokens=orchestrator_in_tokens,
+            orchestrator_output_tokens=orchestrator_out_tokens,
         )
     except Exception as _tok_err:
         logger.debug("Token logging failed (synthesis): %s", _tok_err)
@@ -1139,8 +1300,9 @@ def chat_stream(
         "session_id": result.session_id,
         "intent": result.intent,
         "styling": styling,
-        "total_input_tokens": intent_tokens.input_tokens + synthesis_tokens.input_tokens,
-        "total_output_tokens": intent_tokens.output_tokens + synthesis_tokens.output_tokens,
+        "orchestration_mode": orch_mode,
+        "total_input_tokens": intent_tokens.input_tokens + synthesis_tokens.input_tokens + orchestrator_in_tokens,
+        "total_output_tokens": intent_tokens.output_tokens + synthesis_tokens.output_tokens + orchestrator_out_tokens,
     })
 
 

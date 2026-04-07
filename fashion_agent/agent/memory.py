@@ -222,6 +222,24 @@ def init_memory_tables() -> None:
     ALTER TABLE user_sessions
         ADD COLUMN IF NOT EXISTS ended_by TEXT
             CHECK (ended_by IN ('order', 'rating', 'timeout'));
+
+    -- ── Multi-model A/B: gender hint control group ────────────────────
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS gender_hint_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+    -- ── Multi-model A/B: orchestration analytics per conversation turn ─
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS orchestration_mode TEXT;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS orchestrator_model TEXT;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS synthesizer_model TEXT;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS tool_calls_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS orchestrator_input_tokens INT NOT NULL DEFAULT 0;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS orchestrator_output_tokens INT NOT NULL DEFAULT 0;
     """
 
     view_ddl = """
@@ -251,6 +269,7 @@ def create_session(
     year_of_birth: int | None = None,
     gender: str | None = None,
     preferred_model: str = "gemini-2.5-flash",
+    gender_hint_enabled: bool | None = None,
 ) -> str:
     """Create a new session and return its ID.
 
@@ -259,16 +278,22 @@ def create_session(
         year_of_birth: Optional birth year for demographic research.
         gender: Optional gender ('male' | 'female') for demographic research.
         preferred_model: LLM chosen for the session.
+        gender_hint_enabled: A/B control flag. If None, assigned randomly (50/50).
     """
+    import random
     session_id = str(uuid.uuid4())
+    # 50/50 random A/B assignment if not explicitly set
+    if gender_hint_enabled is None:
+        gender_hint_enabled = random.random() < 0.5
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO user_sessions (session_id, user_name, year_of_birth, gender, preferred_model)
-                VALUES (%s, %s, %s, %s, %s);
+                INSERT INTO user_sessions
+                    (session_id, user_name, year_of_birth, gender, preferred_model, gender_hint_enabled)
+                VALUES (%s, %s, %s, %s, %s, %s);
                 """,
-                (session_id, user_name, year_of_birth, gender, preferred_model),
+                (session_id, user_name, year_of_birth, gender, preferred_model, gender_hint_enabled),
             )
         conn.commit()
     return session_id
@@ -283,6 +308,25 @@ def get_session_model(session_id: str) -> str:
             if row and row[0]:
                 return row[0]
             return "gemini-2.5-flash"
+
+
+def get_session_gender(session_id: str) -> tuple[str | None, bool]:
+    """Return (gender, gender_hint_enabled) for a session.
+
+    Returns:
+        Tuple of (gender str or None, gender_hint_enabled bool).
+        gender is 'male', 'female', or None if not set.
+    """
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT gender, gender_hint_enabled FROM user_sessions WHERE session_id = %s;",
+                (session_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                return row[0], bool(row[1])
+            return None, False
 
 
 def session_exists(session_id: str) -> bool:
@@ -572,21 +616,43 @@ def log_token_usage(
     model_name: str,
     input_tokens: int,
     output_tokens: int,
+    orchestration_mode: str = "direct",
+    orchestrator_model: str = "fixed",
+    synthesizer_model: str | None = None,
+    tool_calls_json: list | None = None,
+    orchestrator_input_tokens: int = 0,
+    orchestrator_output_tokens: int = 0,
 ) -> None:
-    """Persist one LLM call's token counts to the database.
+    """Persist one LLM call's token counts + orchestration metadata to the database.
 
     This is intentionally fire-and-log — callers should wrap in try/except
     so a DB error never disrupts the chat stream.
+
+    Args:
+        orchestration_mode: 'direct' for Mode A, 'agentic' for Modes B/C.
+        orchestrator_model: Model ID used as orchestrator, or 'fixed' for Mode A.
+        synthesizer_model: Model ID used for synthesis (if different from model_name).
+        tool_calls_json: List of tool call dicts [{tool, args, result_count, duration_ms}].
+        orchestrator_input_tokens: Token count for orchestrator calls (Modes B/C).
+        orchestrator_output_tokens: Token count for orchestrator calls (Modes B/C).
     """
+    import json as _json
+    tool_calls_str = _json.dumps(tool_calls_json or [])
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO llm_token_usage
-                    (session_id, call_name, model_name, input_tokens, output_tokens)
-                VALUES (%s, %s, %s, %s, %s);
+                    (session_id, call_name, model_name, input_tokens, output_tokens,
+                     orchestration_mode, orchestrator_model, synthesizer_model,
+                     tool_calls_json, orchestrator_input_tokens, orchestrator_output_tokens)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s);
                 """,
-                (session_id, call_name, model_name, input_tokens, output_tokens),
+                (
+                    session_id, call_name, model_name, input_tokens, output_tokens,
+                    orchestration_mode, orchestrator_model, synthesizer_model or model_name,
+                    tool_calls_str, orchestrator_input_tokens, orchestrator_output_tokens,
+                ),
             )
         conn.commit()
 

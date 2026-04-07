@@ -69,6 +69,10 @@ services:
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       # Gemini API
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required}
+      # OpenAI API
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Anthropic API
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Analytics (Professor Dashboard)
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-21042024}
       # HuggingFace cache

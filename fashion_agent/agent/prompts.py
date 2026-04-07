@@ -15,8 +15,12 @@ def detect_language(text: str) -> str:
 
     Detection order:
     1. Vietnamese — unique diacritics (tones + ă/â/đ/ơ/ư) not found in Spanish
-    2. Spanish — ñ, ¿, ¡, or Spanish-only accented vowels (á/é/í/ó/ú without tones)
+    2. Spanish — ñ, ¿, ¡, or UNAMBIGUOUSLY Spanish words (not shared with English)
     3. English — default fallback
+
+    NOTE: Short common words like 'el', 'la', 'un', 'una', 'es', 'son' are
+    intentionally EXCLUDED because they appear frequently in English text
+    (e.g. "I want a lace dress in unique style") and cause false positives.
     """
     if not text or not text.strip():
         return "en"
@@ -27,9 +31,13 @@ def detect_language(text: str) -> str:
     )
     if vi_pattern.search(text):
         return "vi"
-    # Spanish: ñ, inverted punctuation, or unambiguous accented vowels
+    # Spanish: unambiguous tokens ONLY
+    # - Special chars: ñ, ¿, ¡
+    # - Unambiguously Spanish words not shared with English
     es_pattern = re.compile(
-        r'[ñ¿¡]|\b(el|la|los|las|un|una|es|son|qué|cómo|quiero|busco|muéstrame|tengo|para|con|por|también|más|me|mis|ver|selecciones|ropa|vestido|camisa|pantalón|falda)\b',
+        r'[ñ¿¡]|\b(quiero|necesito|busco|muéstrame|vestido|ropa|camisa|pantalón|falda|'
+        r'también|cómo|gracias|hola|tengo|dónde|cuánto|quieres|tiene|tienes|'
+        r'qué|está|estás|estoy|ser|del|una que|unos|unas)\b',
         re.IGNORECASE
     )
     if es_pattern.search(text):
@@ -317,10 +325,14 @@ COMBO_TEMPLATES: dict[frozenset[str], dict[str, str]] = {
 # Synthesis  (used by agent/fashion_agent.py)
 # ---------------------------------------------------------------------------
 
-_BASE_SYNTHESIS_PROMPT = """You are operating within a multilingual fashion recommendation research system designed to study LLM recommendation quality and user purchase intent. You serve Vietnamese, Spanish, and English users. All your responses MUST be in the same language as the user's message. User selections are academic data points (not real purchases), and you should encourage users to select products they genuinely prefer without mentioning real transaction language.
+_LANG_NAMES = {"en": "English", "vi": "Vietnamese", "es": "Spanish"}
 
-You are a helpful fashion shopping assistant. Based on the search results and user query, provide a natural, helpful response in the same language as the user's query.
+_BASE_SYNTHESIS_PROMPT = """You are operating within a multilingual fashion recommendation research system designed to study LLM recommendation quality and user purchase intent. You serve Vietnamese, Spanish, and English users. User selections are academic data points (not real purchases), and you should encourage users to select products they genuinely prefer without mentioning real transaction language.
 
+YOU MUST respond exclusively in {language}. Do not use any other language, even if the conversation history contains other languages.
+
+You are a helpful fashion shopping assistant. Based on the search results and user query, provide a natural, helpful response.
+{gender_context}
 User query: {query}
 
 Search results (top products):
@@ -332,7 +344,7 @@ Conversation history:
 {history_text}
 
 Instructions:
-1. Respond naturally in the same language as the user's query (Vietnamese, Spanish, or English).
+1. Respond EXCLUSIVELY in {language}. This is mandatory — do not switch languages.
 2. Briefly describe the top recommendations and why they match.
 3. If this is a "recommend" intent, include styling suggestions.
 4. Keep the response concise (2-4 sentences for search, 3-5 for recommendations).
@@ -352,6 +364,47 @@ Respond with ONLY a JSON object:
 """
 
 STREAM_SYNTHESIS_PROMPT = _BASE_SYNTHESIS_PROMPT + """
+IMPORTANT: Respond with plain text only (NO JSON format). Just write the response directly.
+If you have styling suggestions, add them at the end after "💡 Styling tip: ".
+"""
+
+# Agentic synthesis prompts (Mode B and C) — tool_results replaces products_text
+_BASE_SYNTHESIS_PROMPT_AGENTIC = """You are operating within a multilingual fashion recommendation research system designed to study LLM recommendation quality and user purchase intent. You serve Vietnamese, Spanish, and English users. User selections are academic data points (not real purchases).
+
+YOU MUST respond exclusively in {language}. Do not use any other language, even if the conversation history contains other languages.
+
+You are a helpful fashion shopping assistant. An AI orchestrator has already searched for products on your behalf. Use the tool results below to compose a natural, helpful response.
+{gender_context}
+User query: {query}
+
+Tool Results:
+{tool_results}
+
+User preferences: {preferences_text}
+
+Conversation history:
+{history_text}
+
+Instructions:
+1. Respond EXCLUSIVELY in {language}. This is mandatory — do not switch languages.
+2. Briefly describe the top recommendations and why they match the user's request.
+3. If this is a styling/outfit request, include styling suggestions.
+4. Keep the response concise (2-4 sentences for search, 3-5 for recommendations).
+5. Reference specific products by their NUMBER (1, 2, 3...) as shown in Tool Results.
+6. If user preferences are available, personalize recommendations accordingly.
+7. NEVER mention cart, purchase, checkout, or "added to cart". Present results only.
+8. End your response with exactly this call-to-action: "{cta_example}"
+"""
+
+SYNTHESIS_PROMPT_AGENTIC = _BASE_SYNTHESIS_PROMPT_AGENTIC + """
+Respond with ONLY a JSON object:
+{{
+    "answer": "<your natural language response>",
+    "styling_suggestion": "<optional styling tips, empty string if not applicable>"
+}}
+"""
+
+STREAM_SYNTHESIS_PROMPT_AGENTIC = _BASE_SYNTHESIS_PROMPT_AGENTIC + """
 IMPORTANT: Respond with plain text only (NO JSON format). Just write the response directly.
 If you have styling suggestions, add them at the end after "💡 Styling tip: ".
 """
