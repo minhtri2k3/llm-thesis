@@ -782,20 +782,35 @@ def _handle_confirm(session_id: str, query: str) -> Generator:
     skipped = len(items_to_save) - inserted
 
     if lang == "vi":
-        parts = [f"💾 **Đã lưu {inserted} sản phẩm!**"]
+        if inserted == 1:
+            parts = [f"💾 **Đã lưu {inserted} sản phẩm!**"]
+        else:
+            parts = [f"💾 **Đã lưu {inserted} sản phẩm!**"]
         if skipped > 0:
             parts.append(f"({skipped} sản phẩm đã có trong danh sách)")
-        parts.append('\n💡 Tiếp tục tìm kiếm hoặc gõ "xem các mục đã chọn" để xem.')
+        parts.append('\n\nBạn có muốn tìm thêm gì không?')
+        parts.append('Mình ở đây để giúp bạn tìm kiếm.')
+        parts.append('Hoặc bạn có thể đặt hàng trong giỏ hàng.')
     elif lang == "es":
-        parts = [f"💾 **¡{inserted} artículo(s) guardado(s)!**"]
+        if inserted == 1:
+            parts = [f"💾 **¡{inserted} producto guardado!**"]
+        else:
+            parts = [f"💾 **¡{inserted} productos guardados!**"]
         if skipped > 0:
             parts.append(f"({skipped} ya estaban en tus selecciones)")
-        parts.append('\n💡 Continúa buscando o escribe "ver mis selecciones" para verlas.')
+        parts.append('\n\n¿Quieres algo más?')
+        parts.append('Estoy aquí para ayudarte a encontrar.')
+        parts.append('O puedes hacer un pedido en el carrito.')
     else:
-        parts = [f"💾 **Saved {inserted} item(s)!**"]
+        if inserted == 1:
+            parts = [f"💾 **Saved {inserted} product!**"]
+        else:
+            parts = [f"💾 **Saved {inserted} products!**"]
         if skipped > 0:
             parts.append(f"({skipped} already in your selections)")
-        parts.append('\n💡 Continue searching or type "show selections" to view all picks.')
+        parts.append('\n\nDo you want anything else?')
+        parts.append("I'm here to help you to find.")
+        parts.append('Or you can make an order in the cart.')
     text = " ".join(parts)
 
     add_message(session_id, "assistant", text)

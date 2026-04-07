@@ -387,9 +387,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               Expanded(
                 child: _SelectButton(
                   label: 'Claude',
-                  value: 'claude-3-5-sonnet-20241022',
-                  selected: _selectedModel == 'claude-3-5-sonnet-20241022',
-                  onTap: () => setState(() => _selectedModel = 'claude-3-5-sonnet-20241022'),
+                  value: 'claude-3-7-sonnet-latest',
+                  selected: _selectedModel == 'claude-3-7-sonnet-latest',
+                  onTap: () => setState(() => _selectedModel = 'claude-3-7-sonnet-latest'),
                 ),
               ),
             ],

@@ -3,6 +3,5 @@
     "allow": [
       "Bash(docker compose up *)"
     ]
-  },
-  "$version": 3
+  }
 }
