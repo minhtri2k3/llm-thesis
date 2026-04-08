@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:clothie_web/services/api_service.dart';
 import 'package:clothie_web/widgets/star_rating.dart';
-import 'package:clothie_web/screens/splash_screen.dart';
+import 'package:clothie_web/screens/register_screen.dart';
 
 class RatingScreen extends StatefulWidget {
   final String sessionId;
@@ -71,7 +71,7 @@ class _RatingScreenState extends State<RatingScreen> {
           Navigator.of(context).pushAndRemoveUntil(
             PageRouteBuilder(
               transitionDuration: const Duration(milliseconds: 600),
-              pageBuilder: (_, anim, __) => const SplashScreen(),
+              pageBuilder: (_, anim, __) => const RegisterScreen(),
               transitionsBuilder: (_, anim, __, child) =>
                   FadeTransition(opacity: anim, child: child),
             ),

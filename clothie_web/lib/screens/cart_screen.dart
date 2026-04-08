@@ -8,18 +8,19 @@ import 'package:clothie_web/services/api_service.dart';
 /// Modal bottom sheet showing all confirmed items in the session cart.
 class CartScreen extends StatelessWidget {
   final String sessionId;
-  const CartScreen({super.key, required this.sessionId});
+  final String userName;
+  const CartScreen({super.key, required this.sessionId, required this.userName});
 
-  static Future<void> show(BuildContext context, String sessionId) {
+  static Future<bool?> show(BuildContext context, String sessionId, String userName) {
     // Refresh cart from backend before opening
     context.read<CartProvider>().reload();
-    return showModalBottomSheet(
+    return showModalBottomSheet<bool?>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => ChangeNotifierProvider.value(
         value: context.read<CartProvider>(),
-        child: CartScreen(sessionId: sessionId),
+        child: CartScreen(sessionId: sessionId, userName: userName),
       ),
     );
   }
@@ -227,13 +228,10 @@ class CartScreen extends StatelessWidget {
               if (phone.isEmpty || address.isEmpty) return;
               try {
                 await ApiService().placeOrder(sessionId, phone, address);
-                if (ctx.mounted) Navigator.pop(ctx);
+                if (ctx.mounted) Navigator.pop(ctx); // close order dialog
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("🎉 Order placed! We'll be in touch."),
-                    ),
-                  );
+                  // Close the bottom sheet and signal that an order was placed
+                  Navigator.pop(context, true);
                 }
               } catch (e) {
                 if (ctx.mounted) {

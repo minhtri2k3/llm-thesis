@@ -268,7 +268,12 @@ class _ChatScreenState extends State<ChatScreen> {
         Consumer<CartProvider>(
           builder: (ctx, cart, _) => IconButton(
             tooltip: 'My selections',
-            onPressed: () => CartScreen.show(ctx, widget.sessionId),
+            onPressed: () async {
+              final orderPlaced = await CartScreen.show(ctx, widget.sessionId, widget.userName);
+              if (orderPlaced == true && ctx.mounted) {
+                _showRatingDialog(ctx);
+              }
+            },
             icon: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -418,7 +423,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// Shows the rating dialog; on submit navigates back to [SplashScreen].
+  /// Shows the rating dialog; on submit navigates back to [RegisterScreen].
   void _showRatingDialog(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -427,7 +432,7 @@ class _ChatScreenState extends State<ChatScreen> {
         sessionId: widget.sessionId,
         userName: widget.userName,
         onComplete: () {
-          context.goNamed('splash');
+          context.goNamed('register');
         },
       ),
     );
