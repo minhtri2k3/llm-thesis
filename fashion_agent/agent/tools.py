@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from agent.utils import SUPPORTED_CATEGORIES, _find_category_suggestions
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,8 +32,18 @@ def run_search_tool(
 
     Returns:
         List of product dicts with keys: image_id, image_path, label, color, caption, score.
+        If category is unsupported, returns error dict instead.
     """
     from search.search_engine import search as hybrid_search
+
+    # ── Safety-net: reject unsupported categories ──────────────────────
+    if category and category not in SUPPORTED_CATEGORIES:
+        suggestions = _find_category_suggestions(category)
+        return [{
+            "__error__": "unsupported_category",
+            "requested": category,
+            "suggestions": suggestions,
+        }]
 
     filters: dict[str, str] = {}
     if gender and gender not in ("", "unisex"):

@@ -52,6 +52,63 @@ def get_template(template_store: dict, key: any, lang: str) -> str:
     return item.get(lang, item.get("en", ""))
 
 # ---------------------------------------------------------------------------
+# Out-of-Scope Response  (used by agent/fashion_agent.py)
+# ---------------------------------------------------------------------------
+
+OUT_OF_SCOPE_RESPONSE = {
+    "en": (
+        "Sorry, I only help with fashion search and styling advice. "
+        "Would you like to look for any outfit?"
+    ),
+    "vi": (
+        "Xin lỗi, tôi chỉ hỗ trợ tìm kiếm thời trang và tư vấn phối đồ. "
+        "Bạn có muốn tìm trang phục nào không?"
+    ),
+    "es": (
+        "Lo siento, solo puedo ayudarte con búsqueda de moda y consejos de estilo. "
+        "¿Te gustaría buscar alguna prenda?"
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Unsupported Category Response  (used by agent/fashion_agent.py)
+# ---------------------------------------------------------------------------
+
+UNSUPPORTED_CATEGORY_RESPONSE = {
+    "en": "Sorry, we don't carry {category} in our catalog. You might enjoy: {suggestions}.",
+    "vi": "Xin lỗi, chúng tôi không có {category} trong danh mục. Bạn có thể thích: {suggestions}.",
+    "es": "Lo siento, no tenemos {category} en nuestro catálogo. Podrías disfrutar: {suggestions}.",
+}
+
+UNSUPPORTED_CATEGORY_NO_SUGGESTIONS = {
+    "en": "Sorry, we don't carry {category} in our catalog. Please browse our available categories!",
+    "vi": "Xin lỗi, chúng tôi không có {category} trong danh mục. Vui lòng xem các danh mục hiện có!",
+    "es": "Lo siento, no tenemos {category} en nuestro catálogo. ¡Por favor explora nuestras categorías disponibles!",
+}
+
+
+def build_unsupported_category_message(category: str, suggestions: list[str], lang: str) -> str:
+    """Build a multilingual refusal message for an unsupported category.
+
+    Args:
+        category: The unsupported category name the user requested.
+        suggestions: List of suggested alternatives (may be empty).
+        lang: Language code ('en', 'vi', 'es').
+
+    Returns:
+        Formatted refusal message string.
+    """
+    if suggestions:
+        template = UNSUPPORTED_CATEGORY_RESPONSE.get(lang, UNSUPPORTED_CATEGORY_RESPONSE["en"])
+        suggestions_text = ", ".join(suggestions[:-1]) + f", or {suggestions[-1]}" if len(suggestions) > 1 else suggestions[0]
+        return template.format(category=category.title(), suggestions=suggestions_text)
+    else:
+        template = UNSUPPORTED_CATEGORY_NO_SUGGESTIONS.get(lang, UNSUPPORTED_CATEGORY_NO_SUGGESTIONS["en"])
+        return template.format(category=category.title())
+
+
+# ---------------------------------------------------------------------------
 # Intent Classification  (used by agent/intent_classifier.py)
 # ---------------------------------------------------------------------------
 

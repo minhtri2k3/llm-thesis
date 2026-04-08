@@ -20,13 +20,17 @@ import time
 from dataclasses import dataclass, field, asdict
 from typing import Generator, Optional, Union
 
-from agent.utils import parse_llm_json, fallback_text_response, format_history_text
+from agent.utils import (
+    parse_llm_json, fallback_text_response, format_history_text,
+    SUPPORTED_CATEGORIES, _find_category_suggestions,
+)
 from agent.prompts import (
     SYNTHESIS_PROMPT,
     STREAM_SYNTHESIS_PROMPT,
     STREAM_SYNTHESIS_PROMPT_AGENTIC,
     detect_language,
     _LANG_NAMES,
+    build_unsupported_category_message,
 )
 from shared.llm import get_client, LLMClient, TokenUsage
 
@@ -392,6 +396,14 @@ def _resolve_search_query(
         accumulated = merge_slots(accumulated, new_slots)
         _session_accumulated_slots[session_id] = accumulated
 
+        # ── Category validation guard (Mode A) ────────────────────────
+        slot_category = accumulated.category
+        if slot_category and slot_category not in SUPPORTED_CATEGORIES:
+            lang = detect_language(query)
+            suggestions = _find_category_suggestions(slot_category)
+            refusal = build_unsupported_category_message(slot_category, suggestions, lang)
+            return "", refusal
+
         is_complete, missing = check_slot_completeness(accumulated)
         if not is_complete:
             clarify_count = _count_clarification_turns(history)
@@ -415,6 +427,14 @@ def _resolve_search_query(
         accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
         accumulated = merge_slots(accumulated, new_slots)
         _session_accumulated_slots[session_id] = accumulated
+
+        # ── Category validation guard (follow-up) ─────────────────────
+        slot_category = accumulated.category
+        if slot_category and slot_category not in SUPPORTED_CATEGORIES:
+            lang = detect_language(query)
+            suggestions = _find_category_suggestions(slot_category)
+            refusal = build_unsupported_category_message(slot_category, suggestions, lang)
+            return "", refusal
 
         slot_query = compose_refined_query_from_slots(accumulated)
         search_query = slot_query if slot_query.strip() else (intent_result.refined_query or "")
@@ -1181,6 +1201,25 @@ def chat_stream(
                 full_text_parts.append(str(chunk))
                 yield _sse("token", {"text": str(chunk)})
     else:
+        # ── Mode B/C pre-flight category validation ────────────────────
+        slot_category = result.filters.get("category", "")
+        if not slot_category:
+            # Also check intent_result slots if available
+            slot_category = getattr(result, "slot_category", "") or ""
+        if slot_category and slot_category not in SUPPORTED_CATEGORIES:
+            lang = detect_language(query)
+            suggestions = _find_category_suggestions(slot_category)
+            refusal = build_unsupported_category_message(slot_category, suggestions, lang)
+            yield _sse("clarification", {"text": refusal, "intent": "unsupported_category"})
+            yield _sse("done", {
+                "session_id": result.session_id,
+                "intent": "unsupported_category",
+                "styling": "",
+                "total_input_tokens": intent_tokens.input_tokens,
+                "total_output_tokens": intent_tokens.output_tokens,
+            })
+            return
+
         # Mode B (Gemini orchestrates) or Mode C (GPT orchestrates)
         from agent.agentic_orchestrator import (
             orchestrate_with_gemini,
