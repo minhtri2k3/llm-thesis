@@ -96,9 +96,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: fashion-cloudflared-fe
     restart: unless-stopped
-    command: tunnel run
-    environment:
-      TUNNEL_TOKEN: ${CF_FE_TUNNEL_TOKEN:?CF_FE_TUNNEL_TOKEN is required}
+    command: tunnel --url http://clothie-web:80
     networks:
       - internal
     depends_on:

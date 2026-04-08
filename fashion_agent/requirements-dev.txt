@@ -1,0 +1,14 @@
+# Dev-only dependencies for thesis evaluation analysis.
+# NOT included in the production Docker image (requirements-docker.txt).
+#
+# Usage:
+#   pip install -r requirements-dev.txt
+#   jupyter notebook analysis/thesis_evaluation.ipynb
+
+scipy>=1.11
+pandas>=2.1
+matplotlib>=3.8
+seaborn>=0.13
+jupyter>=1.0
+notebook>=7.0
+ipykernel>=6.0

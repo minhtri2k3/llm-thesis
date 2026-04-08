@@ -400,6 +400,16 @@ async def get_token_usage_analytics(request: Request):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Thesis evaluation analytics (token costs, accuracy, gender A/B)
+# ---------------------------------------------------------------------------
+
+from api.analytics import get_token_costs, get_accuracy, get_gender_ab
+
+app.add_api_route("/api/analytics/token-costs", get_token_costs, methods=["GET"])
+app.add_api_route("/api/analytics/accuracy",    get_accuracy,    methods=["GET"])
+app.add_api_route("/api/analytics/gender-ab",    get_gender_ab,   methods=["GET"])
+
 
 # ---------------------------------------------------------------------------
 # Behaviour tracking — Pydantic models (Task 3)

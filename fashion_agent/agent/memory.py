@@ -251,16 +251,64 @@ def init_memory_tables() -> None:
         SUM(u.input_tokens)            AS total_input_tokens,
         SUM(u.output_tokens)           AS total_output_tokens,
         SUM(u.input_tokens + u.output_tokens) AS total_tokens,
+        SUM(u.orchestrator_input_tokens)  AS total_orchestrator_input_tokens,
+        SUM(u.orchestrator_output_tokens) AS total_orchestrator_output_tokens,
+        MAX(u.orchestration_mode)      AS orchestration_mode,
+        MAX(u.orchestrator_model)      AS orchestrator_model,
+        MAX(u.synthesizer_model)       AS synthesizer_model,
         s.created_at::date             AS session_date
     FROM llm_token_usage u
     JOIN user_sessions s USING (session_id)
     GROUP BY s.session_id, s.user_name, s.created_at;
     """
 
+    # ── Thesis evaluation: mode cost summary view ──────────────────────
+    # Aggregates token costs by orchestration mode with estimated USD
+    # pricing. Used by GET /api/analytics/token-costs and the analysis
+    # notebook.  Pricing constants (as of early 2025):
+    #   Gemini 2.0 Flash: $0.075 input / $0.30 output per 1M tokens
+    #   GPT-4o:           $2.50  input / $10.00 output per 1M tokens
+    #   Claude 3.5 Sonnet: $3.00 input / $15.00 output per 1M tokens
+    mode_cost_view_ddl = """
+    CREATE OR REPLACE VIEW mode_cost_summary AS
+    SELECT
+      ltu.orchestration_mode,
+      ltu.orchestrator_model,
+      ltu.synthesizer_model,
+      COUNT(DISTINCT ltu.session_id)                                      AS n_sessions,
+      COUNT(*)                                                            AS n_turns,
+      ROUND(AVG(ltu.input_tokens + ltu.output_tokens
+        + ltu.orchestrator_input_tokens + ltu.orchestrator_output_tokens)) AS avg_total_tokens,
+      ROUND(AVG(jsonb_array_length(ltu.tool_calls_json)), 2)             AS avg_tool_calls,
+      ROUND(AVG(
+        CASE
+          WHEN ltu.orchestrator_model LIKE 'gemini%'
+            THEN (ltu.orchestrator_input_tokens * 0.075 + ltu.orchestrator_output_tokens * 0.30) / 1e6
+          WHEN ltu.orchestrator_model LIKE 'gpt%'
+            THEN (ltu.orchestrator_input_tokens * 2.50 + ltu.orchestrator_output_tokens * 10.00) / 1e6
+          ELSE 0
+        END
+        +
+        CASE
+          WHEN ltu.synthesizer_model LIKE 'gemini%'
+            THEN (ltu.input_tokens * 0.075 + ltu.output_tokens * 0.30) / 1e6
+          WHEN ltu.synthesizer_model LIKE 'gpt%'
+            THEN (ltu.input_tokens * 2.50 + ltu.output_tokens * 10.00) / 1e6
+          WHEN ltu.synthesizer_model LIKE 'claude%'
+            THEN (ltu.input_tokens * 3.00 + ltu.output_tokens * 15.00) / 1e6
+          ELSE 0
+        END
+      ), 8)                                                              AS avg_usd_per_turn
+    FROM llm_token_usage ltu
+    WHERE ltu.call_name = 'synthesis'
+    GROUP BY ltu.orchestration_mode, ltu.orchestrator_model, ltu.synthesizer_model;
+    """
+
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(ddl)
             cur.execute(view_ddl)
+            cur.execute(mode_cost_view_ddl)
         conn.commit()
 
 
