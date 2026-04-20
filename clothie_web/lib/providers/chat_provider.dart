@@ -33,6 +33,15 @@ class ChatProvider extends ChangeNotifier {
   /// to show the "End Session" hint SnackBar, then reset to false.
   bool pendingCartNotification = false;
 
+  /// When true, the next `selection_confirm` SSE will be silently
+  /// auto-confirmed (FE sends "yes" invisibly) without rendering a chat bubble.
+  /// Set BEFORE calling [sendMessage] from the FAB-triggered pre-confirm dialog.
+  bool autoConfirmNext = false;
+
+  /// Internal flag: set when [autoConfirmNext] consumed a `selection_confirm`;
+  /// triggers silent "yes" send after the `done` event arrives.
+  bool _pendingAutoConfirm = false;
+
   /// Called by [ChatScreen] after the notification has been shown.
   void clearCartNotification() {
     pendingCartNotification = false;
@@ -89,13 +98,19 @@ class ChatProvider extends ChangeNotifier {
         aiMsg.status = MessageStatus.thinking;
 
       case 'thinking_step':
-        final text = data is Map ? (data['step'] as String? ?? '') : data.toString();
-        if (text.isNotEmpty) {
-          aiMsg.thinkingSteps.add(ThinkingStep(text));
+        final step = data is Map ? (data['step'] as String? ?? '') : data.toString();
+        // Track when the agent enters the search phase → triggers shimmer
+        if (step == 'search') {
+          aiMsg.isSearching = true;
+        }
+        if (step.isNotEmpty) {
+          final detail = data is Map ? (data['detail'] as String? ?? step) : step;
+          aiMsg.thinkingSteps.add(ThinkingStep(detail));
         }
 
       case 'thinking_end':
         // Keep thinking steps visible but switch to streaming mode
+        aiMsg.isSearching = false;
         aiMsg.status = MessageStatus.streaming;
 
       case 'token':
@@ -133,6 +148,14 @@ class ChatProvider extends ChangeNotifier {
 
       // ── Selection flow events ────────────────────────────────────────────
       case 'selection_confirm':
+        if (autoConfirmNext) {
+          // Suppress visible bubble — auto-confirm silently after done event
+          autoConfirmNext = false;
+          _pendingAutoConfirm = true;
+          aiMsg.status = MessageStatus.done;
+          // content and confirmItems left empty → bubble renders nothing
+          return;
+        }
         if (data is Map) {
           // Strip markdown image syntax (![alt](/path)) from text so the
           // bubble doesn't display the raw markdown string.
@@ -174,9 +197,25 @@ class ChatProvider extends ChangeNotifier {
             aiMsg.stylingTip = tip;
           }
         }
+        // Auto-confirm: fire "yes" silently after the stream completes
+        if (_pendingAutoConfirm) {
+          _pendingAutoConfirm = false;
+          final sid = data is Map ? (data['session_id'] as String? ?? '') : '';
+          if (sid.isNotEmpty) {
+            Future.microtask(() => sendMessage('yes', sid));
+          }
+        }
+        aiMsg.status = MessageStatus.done;
+
+      case 'offer_prompt':
+        final text = data is Map ? (data['text'] as String? ?? '') : '';
+        if (text.isNotEmpty) aiMsg.content += '\n\n$text';
+        aiMsg.showOfferDialog = true;
         aiMsg.status = MessageStatus.done;
 
       case 'error':
+        autoConfirmNext = false;
+        _pendingAutoConfirm = false;
         final msg = data is Map
             ? (data['message'] as String? ?? 'Unknown error')
             : data.toString();

@@ -9,11 +9,11 @@ class AppColors {
   static const Color lightCard = Colors.white;
 
   // Dark Mode ("Y3K Cyber-Noir")
-  static const Color darkBackground = Color(0xFF0C0C0C);   // Dark Space Black
-  static const Color darkBotBubble = Color(0xFF232323);    // Elevated Dark Gray
+  static const Color darkBackground = Color(0xFF1A1A2E);   // Dark Indigo-Grey
+  static const Color darkBotBubble = Color(0xFF2E2E42);    // Bot Bubble Indigo-Grey
   static const Color darkUserBubbleStart = Color(0xFF00FFC2); // Carbon Mint (Gradient Start)
   static const Color darkUserBubbleEnd = Color(0xFF00BFA5);  // Deeper Teal (Gradient End)
   static const Color darkUserBubbleAlt = Color(0xFFFF1F8A);  // Cyber Pink Pulse
   static const Color darkTextPrimary = Color(0xFFF0EEE9);  // Cloud Dancer
-  static const Color darkCard = Color(0xFF161616);
+  static const Color darkCard = Color(0xFF252535);
 }

@@ -135,6 +135,17 @@ def init_memory_tables() -> None:
     CREATE INDEX IF NOT EXISTS idx_user_ratings_session
         ON user_ratings(session_id);
 
+    -- Thesis evaluation v2: 1-5 scale, three targeted questions
+    ALTER TABLE user_ratings
+        ADD COLUMN IF NOT EXISTS rating_overall INT
+            CHECK (rating_overall BETWEEN 1 AND 5);
+    ALTER TABLE user_ratings
+        ADD COLUMN IF NOT EXISTS rating_suggestions INT
+            CHECK (rating_suggestions BETWEEN 1 AND 5);
+    ALTER TABLE user_ratings
+        ADD COLUMN IF NOT EXISTS rating_conversation INT
+            CHECK (rating_conversation BETWEEN 1 AND 5);
+
     -- LLM Token Usage: per-call token tracking for thesis reporting
     CREATE TABLE IF NOT EXISTS llm_token_usage (
         id          BIGSERIAL PRIMARY KEY,
@@ -326,13 +337,12 @@ def create_session(
         year_of_birth: Optional birth year for demographic research.
         gender: Optional gender ('male' | 'female') for demographic research.
         preferred_model: LLM chosen for the session.
-        gender_hint_enabled: A/B control flag. If None, assigned randomly (50/50).
+        gender_hint_enabled: A/B control flag. If None, set True when gender is provided, False otherwise.
     """
-    import random
     session_id = str(uuid.uuid4())
-    # 50/50 random A/B assignment if not explicitly set
+    # Always enable gender filter when user declared a gender
     if gender_hint_enabled is None:
-        gender_hint_enabled = random.random() < 0.5
+        gender_hint_enabled = (gender is not None)
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(

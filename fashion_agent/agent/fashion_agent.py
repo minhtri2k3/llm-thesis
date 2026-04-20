@@ -64,6 +64,14 @@ from search.fusion import NodeWithScore
 
 logger = logging.getLogger(__name__)
 
+# Gender category sets (mirrors analytics.py to avoid circular import)
+_MALE_CATEGORIES: frozenset[str] = frozenset({
+    "Longsleeve", "T-Shirt", "Shirt", "Hoodie", "Shorts", "Pants", "Blazer", "Polo"
+})
+_FEMALE_CATEGORIES: frozenset[str] = frozenset({
+    "Dress", "Skirt", "Blouse", "Top"
+})
+
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -161,11 +169,11 @@ def _build_synthesis_context(
     lang_name = _LANG_NAMES.get(lang, "English")
 
     if lang == "vi":
-        cta_example = f"👉 Gõ một số (1-{len(products)}) để chọn sản phẩm bạn thích!"
+        cta_example = "👉 Hãy cho tôi biết bạn thích cái nào — tôi sẽ thêm vào giỏ hàng ngay!"
     elif lang == "es":
-        cta_example = f"👉 ¡Escribe un número (1-{len(products)}) para seleccionar tu favorito!"
+        cta_example = "👉 Dime cuál te gusta, ¡lo añadiré al carrito!"
     else:
-        cta_example = f"👉 Type a number (1-{len(products)}) to select your favorite!"
+        cta_example = "👉 Tell me which one you like — I'll add it to your cart!"
 
     # Gender context: inject only when hint is enabled and gender is known
     gender_context = ""
@@ -250,10 +258,6 @@ def _synthesize_response_stream(
         logger.error(f"Synthesis stream error: {e}")
         yield ResponseToken(fallback_text_response(products))
 
-    except Exception as exc:
-        logger.warning("Streaming synthesis failed: %s", exc)
-        yield ResponseToken(fallback_text_response(products))
-
 
 def _extract_styling_from_text(full_text: str) -> str:
     """Extract styling suggestion from streamed text."""
@@ -325,11 +329,12 @@ def _route_and_execute(
     search_query: str,
     session_id: str,
     filters: Optional[dict] = None,
+    preferences: Optional[dict] = None,  # NEW: soft personalisation hints
 ) -> tuple[list[NodeWithScore], str]:
     """Deterministic routing based on intent — no planner LLM call.
 
     Routes:
-    - text_search / follow_up → ``hybrid_search(use_query_expansion=False)``
+    - text_search / follow_up → ``hybrid_search``
     - outfit_request → search + outfit hint via LLM
     - out_of_scope → empty products + template message
     - unclear → empty products (caller handles clarification)
@@ -337,13 +342,27 @@ def _route_and_execute(
     Returns:
         (products, reasoning_text)
     """
+    # Soft preference injection: append top colour/category as hints
+    if preferences:
+        pref_hints: list[str] = []
+        top_color = (preferences.get("preferred_colors") or [None])[0]
+        top_cat   = (preferences.get("preferred_categories") or [None])[0]
+        if top_color and top_color.lower() not in search_query.lower():
+            pref_hints.append(top_color)
+        if top_cat and top_cat.lower() not in search_query.lower():
+            pref_hints.append(top_cat)
+        if pref_hints:
+            search_query = search_query + " " + " ".join(pref_hints)
+
     if intent in ("text_search", "follow_up"):
+        use_expansion = (intent == "follow_up")  # broader results for follow-ups
         products = hybrid_search(
             search_query,
             top_k=6,
-            use_query_expansion=False,
+            use_query_expansion=use_expansion,
             filters=filters,
         )
+        products = _filter_by_gender(products, session_id)
         reasoning = f"Direct search '{search_query}' → {len(products)} results"
         if products:
             top = products[0]
@@ -357,11 +376,39 @@ def _route_and_execute(
             use_query_expansion=False,
             filters=filters,
         )
+        products = _filter_by_gender(products, session_id)
         reasoning = f"Outfit search '{search_query}' → {len(products)} results"
         return products, reasoning
 
     # out_of_scope / unclear — no products
     return [], f"Intent '{intent}' — no search performed"
+
+
+def _filter_by_gender(
+    products: list[NodeWithScore],
+    session_id: Optional[str],
+) -> list[NodeWithScore]:
+    """Post-search label filter: remove gender-inappropriate products.
+
+    - Skips filtering when ``gender_hint_enabled`` is False or gender is None.
+    - Safety net: if filtering leaves 0 results, returns original list.
+    - Non-fatal: any exception returns original products unchanged.
+    """
+    if not session_id:
+        return products
+    try:
+        gender, hint_enabled = get_session_gender(session_id)
+        if not hint_enabled or not gender:
+            return products
+        if gender == "male":
+            filtered = [p for p in products if p.label not in _FEMALE_CATEGORIES]
+        elif gender == "female":
+            filtered = [p for p in products if p.label not in _MALE_CATEGORIES]
+        else:
+            return products
+        return filtered if filtered else products
+    except Exception:
+        return products
 
 
 # ---------------------------------------------------------------------------
@@ -375,16 +422,20 @@ def _resolve_search_query(
     session_id: str,
     history: list[Message],
     query: str = "",
-) -> tuple[str, str]:
-    """Resolve the search query and check if clarification is needed.
+) -> tuple[str, str, "ExtractedSlots"]:
+    """Resolve the search query for the current turn.
 
-    Handles slot merging, completeness checking, and query composition
-    for ``text_search`` and ``follow_up`` intents.
+    Always attempts to build a search query from available slots.
+    Clarification is deferred to AFTER the search (post-search gate),
+    so users are never blocked by missing slots when intent is clear.
 
     Returns:
-        (search_query, clarification_message)
+        (search_query, clarification_message, accumulated_slots)
         ``clarification_message`` is non-empty when the caller should
-        return early with a clarification question.
+        return early with a clarification question (category validation
+        failure only — slot completeness no longer blocks pre-search).
+        ``accumulated_slots`` is the merged slot state for use in the
+        post-search zero-results gate.
     """
     if intent == "text_search":
         new_slots = intent_result.extracted_slots
@@ -396,31 +447,23 @@ def _resolve_search_query(
         accumulated = merge_slots(accumulated, new_slots)
         _session_accumulated_slots[session_id] = accumulated
 
-        # ── Category validation guard (Mode A) ────────────────────────
+        # ── Category validation guard (Mode A) — kept pre-search ──────────
+        # Unsupported categories must be caught before search; the index
+        # has no data for them so search would return irrelevant results.
         slot_category = accumulated.category
         if slot_category and slot_category not in SUPPORTED_CATEGORIES:
             lang = detect_language(query)
             suggestions = _find_category_suggestions(slot_category)
             refusal = build_unsupported_category_message(slot_category, suggestions, lang)
-            return "", refusal
+            return "", refusal, accumulated
 
-        is_complete, missing = check_slot_completeness(accumulated)
-        if not is_complete:
-            clarify_count = _count_clarification_turns(history)
-            if clarify_count < MAX_CLARIFICATION_TURNS:
-                question = build_template_question(
-                    missing_slots=missing, slots=accumulated, query=query,
-                )
-                reasoning = (
-                    f"Slots incomplete ({', '.join(missing)}). "
-                    f"Turn {clarify_count + 1}/{MAX_CLARIFICATION_TURNS}."
-                )
-                return "", question
-
+        # Build the best search query from slots — never block on missing slots
         search_query = compose_refined_query_from_slots(accumulated)
         if not search_query.strip():
-            search_query = intent_result.refined_query or ""
-        return search_query, ""
+            search_query = intent_result.refined_query or query
+
+        # Always proceed to search — zero-results clarification fires AFTER
+        return search_query, "", accumulated
 
     if intent == "follow_up":
         new_slots = intent_result.extracted_slots
@@ -428,17 +471,17 @@ def _resolve_search_query(
         accumulated = merge_slots(accumulated, new_slots)
         _session_accumulated_slots[session_id] = accumulated
 
-        # ── Category validation guard (follow-up) ─────────────────────
+        # ── Category validation guard (follow-up) ─────────────────────────
         slot_category = accumulated.category
         if slot_category and slot_category not in SUPPORTED_CATEGORIES:
             lang = detect_language(query)
             suggestions = _find_category_suggestions(slot_category)
             refusal = build_unsupported_category_message(slot_category, suggestions, lang)
-            return "", refusal
+            return "", refusal, accumulated
 
         slot_query = compose_refined_query_from_slots(accumulated)
         search_query = slot_query if slot_query.strip() else (intent_result.refined_query or "")
-        return search_query, ""
+        return search_query, "", accumulated
 
     # outfit_request, unclear, etc.
     if intent_result.confidence < 0.6 or intent == "unclear":
@@ -446,9 +489,9 @@ def _resolve_search_query(
             intent_result.refined_query or "", history=history,
         )
         if clarification.needs_clarification:
-            return "", clarification.question
+            return "", clarification.question, ExtractedSlots()
 
-    return intent_result.refined_query or "", ""
+    return intent_result.refined_query or "", "", ExtractedSlots()
 
 
 # ---------------------------------------------------------------------------
@@ -532,6 +575,11 @@ def _orchestrate_stream(
         yield from _handle_ambiguous_response(session_id, query)
         return
 
+    # --- Offer-declined sentinel (0 LLM calls) ---
+    if query.strip() == "__offer_declined__":
+        yield from _handle_offer_declined(session_id)
+        return
+
     # Step 1: Intent classification (1 LLM call)
     yield ThinkingEvent("classify", "Classifying intent...")
     intent_result = classify_intent(query, history=history)
@@ -607,8 +655,8 @@ def _orchestrate_stream(
         yield from _handle_view_selections(session_id, query)
         return
 
-    # Step 3: Slot gate + search query resolution
-    search_query, clarification = _resolve_search_query(
+    # Step 3: Search query resolution (slot gate removed — search-first)
+    search_query, clarification, accumulated_slots = _resolve_search_query(
         intent, intent_result, session_id, history, query,
     )
 
@@ -640,11 +688,44 @@ def _orchestrate_stream(
         search_query=search_query,
         session_id=session_id,
         filters=intent_result.filters,
+        preferences=preferences,  # soft personalisation hints
     )
     yield ThinkingEvent(
         "search_done",
-        f"Tìm thấy {len(products)} sản phẩm — reranking...",
+        f"Found {len(products)} products — reranking...",
     )
+
+    # ── Post-search zero-results clarification gate ──────────────────────
+    # Only fires when search returns nothing AND we haven't hit the turn limit.
+    # This replaces the old pre-search slot-completeness gate to prevent the
+    # "blocked before any search" problem while still bounding clarification loops.
+    if not products and intent in ("text_search", "follow_up"):
+        clarify_count = _count_clarification_turns(history)
+        if clarify_count < MAX_CLARIFICATION_TURNS:
+            question = build_template_question(
+                missing_slots=["category"],
+                slots=accumulated_slots,
+                query=query,
+            )
+            add_message(session_id, "assistant", question)
+            yield ThinkingEvent(
+                "done",
+                f"No results — clarification turn "
+                f"{clarify_count + 1}/{MAX_CLARIFICATION_TURNS} — "
+                f"{time.time() - start_time:.1f}s",
+            )
+            yield OrchestrateResult(
+                intent="clarification",
+                session_id=session_id,
+                clarification=question,
+                reasoning="Zero search results — requesting more detail.",
+                history=history,
+                filters=intent_result.filters,
+            )
+            return
+        # MAX_CLARIFICATION_TURNS reached — fall through so synthesis LLM
+        # can handle zero-results gracefully ("I couldn't find anything...")
+    # ── End post-search gate ────────────────────────────────────────
 
     # Cache search results for product selection
     if products:
@@ -887,11 +968,11 @@ def _handle_reject(session_id: str, query: str) -> Generator:
         return
 
     if lang == "vi":
-        lines = ["❌ Đã hủy chọn. Dưới đây là các sản phẩm. Gõ một số khác để chọn lại nhé!\n"]
+        lines = ["❌ Không sao! Đây là các sản phẩm — hãy cho tôi biết bạn muốn thêm cái nào vào giỏ hàng.\n"]
     elif lang == "es":
-        lines = ["❌ Selección cancelada. Aquí están los artículos. ¡Escribe un número diferente para seleccionar otro!\n"]
+        lines = ["❌ ¡Sin problema! Aquí están los artículos — dime cuál quieres añadir al carrito.\n"]
     else:
-        lines = ["❌ Selection cancelled. Here are the items again. Type a number to select a different one!\n"]
+        lines = ["❌ No problem! Here are the items again — tell me which one you'd like to add to your cart.\n"]
 
     for i, item in enumerate(cached_results, 1):
         color_str = f" — {item.color}" if item.color else ""
@@ -985,6 +1066,32 @@ def _handle_view_selections(session_id: str, query: str) -> Generator:
     add_message(session_id, "assistant", text)
     yield _sse("selections_list", {"text": text, "count": len(items)})
     yield _sse("done", {"session_id": session_id, "intent": "view_selections", "styling": ""})
+
+
+def _handle_offer_declined(session_id: str) -> Generator:
+    """Handle the __offer_declined__ sentinel from the frontend offer dialog."""
+    try:
+        gender, _ = get_session_gender(session_id)
+    except Exception:
+        gender = None
+
+    # Detect language from session history
+    try:
+        history = get_history(session_id, limit=4)
+        last_user_msgs = [m.content for m in history if m.role == "user"]
+        lang = detect_language(last_user_msgs[-1]) if last_user_msgs else "en"
+    except Exception:
+        lang = "en"
+
+    decline_texts = {
+        "vi": "Không sao! Hãy tiếp tục tìm thêm, hoặc gõ 'đặt hàng' khi bạn sẵn sàng. 😊",
+        "es": "¡Sin problema! Sigue buscando o escribe 'pedir' cuando estés listo. 😊",
+        "en": "No problem! Keep browsing, or say 'order' whenever you're ready to checkout. 😊",
+    }
+    text = decline_texts.get(lang, decline_texts["en"])
+    add_message(session_id, "assistant", text)
+    yield _sse("clarification", {"text": text, "intent": "offer_declined"})
+    yield _sse("done", {"session_id": session_id, "intent": "offer_declined", "styling": ""})
 
 
 # ---------------------------------------------------------------------------
@@ -1157,7 +1264,7 @@ def chat_stream(
     product_dicts = [
         {
             "image_id": p.image_id,
-            "image_path": p.image_path,
+            "image_path": os.path.basename(p.image_path),  # strip full path → filename only
             "label": p.label,
             "color": p.color,
             "caption": p.caption,
@@ -1264,11 +1371,11 @@ def chat_stream(
         lang_name = _LANG_NAMES.get(lang, "English")
         num_products = len(orch_result.products)
         if lang == "vi":
-            cta = f"👉 Gõ một số (1-{num_products}) để chọn sản phẩm bạn thích!"
+            cta = "👉 Hãy cho tôi biết bạn thích cái nào — tôi sẽ thêm vào giỏ hàng ngay!"
         elif lang == "es":
-            cta = f"👉 ¡Escribe un número (1-{num_products}) para seleccionar tu favorito!"
+            cta = "👉 Dime cuál te gusta, ¡lo añadiré al carrito!"
         else:
-            cta = f"👉 Type a number (1-{num_products}) to select your favorite!"
+            cta = "👉 Tell me which one you like — I'll add it to your cart!"
 
         gender_ctx = ""
         if gender_hint and gender:
@@ -1343,6 +1450,17 @@ def chat_stream(
         "total_input_tokens": intent_tokens.input_tokens + synthesis_tokens.input_tokens + orchestrator_in_tokens,
         "total_output_tokens": intent_tokens.output_tokens + synthesis_tokens.output_tokens + orchestrator_out_tokens,
     })
+
+    # Emit offer_prompt only after a successful product search
+    if result.intent in ("text_search", "follow_up") and len(result.products) > 0:
+        lang = detect_language(query)
+        offer_texts = {
+            "vi": "Bạn muốn đặt hàng những sản phẩm này không, hay muốn tiếp tục tìm thêm? 🛒",
+            "es": "¿Te gustaría realizar un pedido con estos artículos o seguir buscando? 🛒",
+            "en": "Would you like to place an order for these items, or continue looking? 🛒",
+        }
+        offer_text = offer_texts.get(lang, offer_texts["en"])
+        yield _sse("offer_prompt", {"text": offer_text, "lang": lang})
 
 
 def _sse(event: str, data: dict) -> str:

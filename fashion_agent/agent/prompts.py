@@ -423,6 +423,11 @@ Respond with ONLY a JSON object:
 STREAM_SYNTHESIS_PROMPT = _BASE_SYNTHESIS_PROMPT + """
 IMPORTANT: Respond with plain text only (NO JSON format). Just write the response directly.
 If you have styling suggestions, add them at the end after "💡 Styling tip: ".
+
+After presenting the products, if items were found, add 1–2 sentences proactively suggesting
+what might pair well or what the user might want to explore next (e.g. matching trousers for a
+shirt, or a bag to complete the look). Keep it concise, natural, and specific to the items shown.
+Label it naturally as a suggestion — do NOT add this section if no products were found.
 """
 
 # Agentic synthesis prompts (Mode B and C) — tool_results replaces products_text

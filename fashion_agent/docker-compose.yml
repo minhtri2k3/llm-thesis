@@ -66,7 +66,7 @@ services:
       # Qdrant (Docker internal)
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
-      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_API_KEY: "" # Override host env var to force HTTP to local container
       # Gemini API
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required}
       # OpenAI API
@@ -95,8 +95,8 @@ services:
   cloudflared-fe:
     image: cloudflare/cloudflared:latest
     container_name: fashion-cloudflared-fe
-    restart: unless-stopped
-    command: tunnel --url http://clothie-web:80
+    restart: on-failure
+    command: tunnel --no-autoupdate --url http://clothie-web:80
     networks:
       - internal
     depends_on:

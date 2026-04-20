@@ -6,7 +6,13 @@ import 'package:clothie_web/services/api_service.dart';
 class ProductCardList extends StatelessWidget {
   final List<Product> products;
   final String sessionId;
-  const ProductCardList({super.key, required this.products, required this.sessionId});
+  final Function(int)? onCartTap;
+  const ProductCardList({
+    super.key,
+    required this.products,
+    required this.sessionId,
+    this.onCartTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +29,7 @@ class ProductCardList extends StatelessWidget {
             product: products[i],
             productIndex: i,
             sessionId: sessionId,
+            onCartTap: onCartTap,
           ),
         ),
       ),
@@ -34,10 +41,12 @@ class _ProductCard extends StatefulWidget {
   final Product product;
   final int productIndex;
   final String sessionId;
+  final Function(int)? onCartTap;
   const _ProductCard({
     required this.product,
     required this.productIndex,
     required this.sessionId,
+    this.onCartTap,
   });
 
   @override
@@ -47,7 +56,12 @@ class _ProductCard extends StatefulWidget {
 class _ProductCardState extends State<_ProductCard> {
   bool _hovered = false;
 
-  void _showFullscreenImage(BuildContext context, String imageUrl, String label) {
+  void _showFullscreenImage(
+    BuildContext context,
+    String imageUrl,
+    String label, {
+    VoidCallback? onAddToCart,
+  }) {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.9),
@@ -96,6 +110,92 @@ class _ProductCardState extends State<_ProductCard> {
               ),
             ),
           ),
+          if (onAddToCart != null)
+            Positioned(
+              left: 20,
+              bottom: 100,
+              child: Material(
+                color: Colors.transparent,
+                child: FloatingActionButton.extended(
+                  backgroundColor: Theme.of(ctx).colorScheme.primary,
+                  foregroundColor: Theme.of(ctx).colorScheme.onPrimary,
+                  icon: const Icon(Icons.shopping_cart_rounded),
+                  label: const Text('Add to Cart'),
+                  onPressed: onAddToCart,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddToCartDialog(
+    BuildContext context,
+    Product product,
+    VoidCallback onConfirm,
+  ) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('\u{1F6D2} Add to cart?'),
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                product.imageUrl,
+                width: 72,
+                height: 72,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 72,
+                  height: 72,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: const Icon(Icons.checkroom),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.label,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  if (product.color.isNotEmpty)
+                    Text(
+                      product.color,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.6),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onConfirm();
+            },
+            child: const Text('Add to Cart \u2713'),
+          ),
         ],
       ),
     );
@@ -117,7 +217,21 @@ class _ProductCardState extends State<_ProductCard> {
             widget.product.imageId,
             widget.productIndex + 1, // 1-based position
           );
-          _showFullscreenImage(context, widget.product.imageUrl, widget.product.label);
+          _showFullscreenImage(
+            context,
+            widget.product.imageUrl,
+            widget.product.label,
+            onAddToCart: widget.onCartTap != null
+                ? () {
+                    Navigator.pop(context); // close fullscreen first
+                    _showAddToCartDialog(
+                      context,
+                      widget.product,
+                      () => widget.onCartTap!(widget.productIndex + 1),
+                    );
+                  }
+                : null,
+          );
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),

@@ -178,8 +178,10 @@ class ApiService {
   /// Submits a post-session rating and feedback.
   Future<void> submitRating({
     required String sessionId,
-    required int rating,
-    required String feedback,
+    required int ratingOverall,
+    required int ratingSuggestions,
+    required int ratingConversation,
+    String feedback = '',
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/rating');
     final response = await _client.post(
@@ -187,7 +189,9 @@ class ApiService {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'session_id': sessionId,
-        'rating': rating,
+        'rating_overall': ratingOverall,
+        'rating_suggestions': ratingSuggestions,
+        'rating_conversation': ratingConversation,
         'feedback': feedback,
       }),
     );

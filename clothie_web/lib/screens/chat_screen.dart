@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +11,7 @@ import 'package:clothie_web/screens/rating_screen.dart';
 import 'package:clothie_web/screens/splash_screen.dart';
 import 'package:clothie_web/widgets/chat_bubble.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
+import 'package:clothie_web/models/product.dart';
 
 class ChatScreen extends StatefulWidget {
   final String sessionId;
@@ -28,6 +30,8 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
+  int _lastMessageCount = 0;
+  bool _offerDialogShown = false;
 
   // ── Top-banner notification state ──────────────────────────────
   bool _showTopBanner = false;
@@ -86,6 +90,22 @@ class _ChatScreenState extends State<ChatScreen> {
         builder: (context) {
           final provider = context.watch<ChatProvider>();
           if (provider.messages.isNotEmpty) _scrollToBottom();
+
+          // Reset offer dialog flag when a new search cycle starts (messages grow)
+          if (provider.messages.length != _lastMessageCount) {
+            _lastMessageCount = provider.messages.length;
+            _offerDialogShown = false;
+          }
+
+          // ── Offer prompt: trigger dialog after successful search ───────────
+          final lastMsg = provider.messages.isNotEmpty ? provider.messages.last : null;
+          if (lastMsg != null && lastMsg.showOfferDialog && !_offerDialogShown) {
+            _offerDialogShown = true;
+            final offerProducts = lastMsg.products; // same list shown in chat
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _showOfferDialog(context, provider, offerProducts),
+            );
+          }
 
           // ── Cart save: trigger top banner ─────────────────────────────
           if (provider.pendingCartNotification) {
@@ -386,29 +406,51 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Row(
         children: [
           Expanded(
-            child: TextField(
-              controller: _inputController,
-              onSubmitted: (_) => _sendMessage(context.read<ChatProvider>()),
-              style: GoogleFonts.outfit(
-                  color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
-              decoration: InputDecoration(
-                hintText: 'Ask about fashion...',
-                hintStyle: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                    fontSize: 14),
-                filled: true,
-                fillColor: Theme.of(context).inputDecorationTheme.fillColor,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide:
-                      BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary, width: 1.5),
+            child: CallbackShortcuts(
+              bindings: <ShortcutActivator, VoidCallback>{
+                // Shift+Enter inserts a newline at cursor position
+                const SingleActivator(LogicalKeyboardKey.enter, shift: true): () {
+                  final ctrl = _inputController;
+                  final text = ctrl.text;
+                  final sel  = ctrl.selection;
+                  final before = text.substring(0, sel.start < 0 ? 0 : sel.start);
+                  final after  = text.substring(sel.end < 0 ? 0 : sel.end);
+                  ctrl.value = TextEditingValue(
+                    text: '$before\n$after',
+                    selection: TextSelection.collapsed(offset: before.length + 1),
+                  );
+                },
+                // Plain Enter sends (convenience on desktop)
+                const SingleActivator(LogicalKeyboardKey.enter): () =>
+                    _sendMessage(context.read<ChatProvider>()),
+              },
+              child: TextField(
+                controller: _inputController,
+                maxLines: null,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                onSubmitted: null, // handled by CallbackShortcuts above
+                style: GoogleFonts.outfit(
+                    color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Ask about fashion...',
+                  hintStyle: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                      fontSize: 14),
+                  filled: true,
+                  fillColor: Theme.of(context).inputDecorationTheme.fillColor,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide:
+                        BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                        color: Theme.of(context).colorScheme.primary, width: 1.5),
+                  ),
                 ),
               ),
             ),
@@ -434,6 +476,122 @@ class _ChatScreenState extends State<ChatScreen> {
         onComplete: () {
           context.goNamed('register');
         },
+      ),
+    );
+  }
+
+  /// Shows the offer dialog after a successful product search.
+  void _showOfferDialog(
+    BuildContext context,
+    ChatProvider provider,
+    List<Product> products,
+  ) {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '\u{1F6CD}\uFE0F Ready to order?',
+                style: GoogleFonts.outfit(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Product thumbnail strip
+              if (products.isNotEmpty)
+                SizedBox(
+                  height: 100,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: products.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, i) {
+                      final p = products[i];
+                      return Column(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              p.imageUrl,
+                              width: 64,
+                              height: 72,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 64,
+                                height: 72,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                child: const Icon(Icons.checkroom),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            width: 64,
+                            child: Text(
+                              p.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 14),
+              Text(
+                'Would you like to place an order for these items, or continue looking?',
+                style: GoogleFonts.outfit(fontSize: 13, height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      provider.sendMessage(
+                          '__offer_declined__', widget.sessionId);
+                    },
+                    child: const Text('Keep browsing'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final placed = await CartScreen.show(
+                        context,
+                        widget.sessionId,
+                        widget.userName,
+                      );
+                      if (placed == true && context.mounted) {
+                        _showRatingDialog(context);
+                      }
+                    },
+                    icon: const Icon(Icons.shopping_cart_rounded, size: 16),
+                    label: const Text('Order now'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

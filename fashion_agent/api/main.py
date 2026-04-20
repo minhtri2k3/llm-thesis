@@ -121,7 +121,9 @@ class CreateSessionResponse(BaseModel):
 
 class RatingRequest(BaseModel):
     session_id: str
-    rating: int  # 1-10
+    rating_overall: int        # 1–5: overall experience
+    rating_suggestions: int    # 1–5: were suggestions right?
+    rating_conversation: int   # 1–5: how natural was the conversation?
     feedback: str = ""
 
 
@@ -202,8 +204,16 @@ async def get_session_selections(session_id: str):
 @app.post("/api/rating", response_model=RatingResponse)
 async def submit_rating_endpoint(req: RatingRequest):
     """Submit a post-session rating and feedback for thesis evaluation."""
-    if not (1 <= req.rating <= 10):
-        raise HTTPException(status_code=400, detail="Rating must be between 1 and 10")
+    for field_name, val in [
+        ("rating_overall", req.rating_overall),
+        ("rating_suggestions", req.rating_suggestions),
+        ("rating_conversation", req.rating_conversation),
+    ]:
+        if not (1 <= val <= 5):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field_name} must be between 1 and 5",
+            )
     try:
         import psycopg2
         conn = psycopg2.connect(
@@ -224,10 +234,21 @@ async def submit_rating_endpoint(req: RatingRequest):
             user_name = row[0] if row else ""
             cur.execute(
                 """
-                INSERT INTO user_ratings (session_id, user_name, rating, feedback)
-                VALUES (%s, %s, %s, %s);
+                INSERT INTO user_ratings
+                    (session_id, user_name, rating,
+                     rating_overall, rating_suggestions, rating_conversation,
+                     feedback)
+                VALUES (%s, %s, %s, %s, %s, %s, %s);
                 """,
-                (req.session_id, user_name, req.rating, req.feedback),
+                (
+                    req.session_id,
+                    user_name,
+                    req.rating_overall * 2,      # backward-compat: 5→10, 4→8…
+                    req.rating_overall,
+                    req.rating_suggestions,
+                    req.rating_conversation,
+                    req.feedback,
+                ),
             )
         conn.commit()
         conn.close()
