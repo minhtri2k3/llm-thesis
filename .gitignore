@@ -61,3 +61,46 @@ fashion_agent/._models
 
 # Compressed image dataset (too large for git)
 fashion_agent/images/images_compressed/
+
+# ==========================================
+# clothie_web (Flutter/Dart) Rules
+# ==========================================
+# Miscellaneous
+clothie_web/*.class
+clothie_web/*.log
+clothie_web/*.pyc
+clothie_web/*.swp
+clothie_web/.DS_Store
+clothie_web/.atom/
+clothie_web/.build/
+clothie_web/.buildlog/
+clothie_web/.history
+clothie_web/.svn/
+clothie_web/.swiftpm/
+clothie_web/migrate_working_dir/
+
+# IntelliJ related
+clothie_web/*.iml
+clothie_web/*.ipr
+clothie_web/*.iws
+clothie_web/.idea/
+
+# Flutter/Dart/Pub related
+clothie_web/**/doc/api/
+clothie_web/**/ios/Flutter/.last_build_id
+clothie_web/.dart_tool/
+clothie_web/.flutter-plugins-dependencies
+clothie_web/.pub-cache/
+clothie_web/.pub/
+clothie_web/build/
+clothie_web/coverage/
+
+# Android Studio will place build artifacts here
+clothie_web/android/app/debug
+clothie_web/android/app/profile
+clothie_web/android/app/release
+
+# ==========================================
+# fashion_agent Rules
+# ==========================================
+fashion_agent/.amazonq/
