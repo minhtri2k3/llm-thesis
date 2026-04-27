@@ -41,7 +41,7 @@ build/
 data/
 
 # ML model weights (too large for git — download on other machine)
-models/
+fashion_agent/models/
 *.safetensors
 *.bin
 *.pt
@@ -54,8 +54,10 @@ postgres_data/
 qdrant_data/
 
 # Backups (large archive files — restore manually, never commit)
-fashion_agent/pgdata_backup.tar.gz
-fashion_agent/qdrant_backup.tar.gz
+pgdata_backup.tar.gz
+qdrant_backup.tar.gz
+fashion_agent/models_backup.tar.gz
+fashion_agent/._models
 
 # Compressed image dataset (too large for git)
 fashion_agent/images/images_compressed/
