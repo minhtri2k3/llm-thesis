@@ -37,7 +37,7 @@
 \newcommand{\xmark}{\ding{55}}%
 \usepackage{multirow}
 \usepackage{tikz}
-\usetikzlibrary{calc}
+\usetikzlibrary{calc, shapes.geometric, positioning}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 
@@ -698,10 +698,13 @@ CREATE TABLE IF NOT EXISTS fashion_items (
 
 -- User session table
 CREATE TABLE IF NOT EXISTS sessions (
-    session_id    TEXT PRIMARY KEY,
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    query_history JSONB DEFAULT '[]',
-    liked_items   JSONB DEFAULT '[]'
+    session_id          TEXT PRIMARY KEY,
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    query_history       JSONB DEFAULT '[]',
+    liked_items         JSONB DEFAULT '[]',
+    gender              TEXT DEFAULT 'unisex',
+    gender_hint_enabled BOOLEAN DEFAULT TRUE,
+    year_of_birth       INTEGER
 );
 
 -- Conversation message table
@@ -789,6 +792,50 @@ The 5-step processing flow:
     \item \textbf{ReAct Loop} --- Plan $\rightarrow$ Execute $\rightarrow$ Observe cycle (max 8 iterations)
     \item \textbf{LLM Synthesis} --- Generate a natural language response
 \end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=1.5cm and 1cm,
+    process/.style={rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    model/.style={rectangle, draw=red!80!black, fill=red!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    db/.style={cylinder, draw=orange, fill=orange!20, shape border rotate=90, aspect=0.25, text width=2.5cm, text centered, minimum height=1.5cm},
+    input/.style={rectangle, draw=blue, fill=blue!10, rounded corners, text width=3cm, text centered, minimum height=1cm},
+    arrow/.style={thick,->,>=stealth}
+]
+
+% Nodes
+\node[input] (query) {User Query};
+\node[process, below left=of query, xshift=0.5cm] (bm25) {BM25 Keyword Search\\(label + color)};
+\node[model, below right=of query, xshift=-0.5cm] (vector) {FashionSigLIP\\Vector Search (semantic)};
+
+\node[db, left=of bm25] (bm25db) {BM25 Index};
+\node[db, right=of vector] (qdrant) {Qdrant Vector DB};
+
+\node[process, below=2.5cm of query] (rrf) {RRF Fusion \&\\Soft Filter};
+
+\node[model, below=of rrf] (rerank) {BGE Reranker\\(multilingual)};
+\node[process, below=of rerank] (synth) {Gemini 2.5 Flash\\Synthesis};
+
+\node[db, left=of synth] (pg) {PostgreSQL\\(products)};
+\node[input, below=of synth] (output) {Results \& Advice};
+
+% Arrows
+\draw[arrow] (query) -- (bm25);
+\draw[arrow] (query) -- (vector);
+\draw[arrow, dashed] (bm25db) -- (bm25);
+\draw[arrow, dashed] (qdrant) -- (vector);
+\draw[arrow] (bm25) -- (rrf);
+\draw[arrow] (vector) -- (rrf);
+\draw[arrow] (rrf) -- (rerank);
+\draw[arrow] (rerank) -- (synth);
+\draw[arrow, dashed] (pg) -- (synth);
+\draw[arrow] (synth) -- (output);
+
+\end{tikzpicture}
+\caption{End-to-End Workflow Diagram of Fashion Agent v2.0}
+\label{fig:workflow_v2}
+\end{figure}
 
 \section{Step 1 --- Intent Classification (Router)}
 
@@ -1006,13 +1053,16 @@ def chat(query, session_id=None, api_key=None):
     \item Maximum of 8 iterations reached
 \end{itemize}
 
-\section{Step 5 --- LLM Synthesis and Memory Update}
+\section{Step 5 --- Gender Filtering and LLM Synthesis}
 
-\begin{lstlisting}[caption={LLM Synthesis --- agent/fashion\_agent.py}]
+Before finalizing the results, the system applies demographic-aware post-processing. A specific \texttt{\_filter\_by\_gender} function validates the retrieved products against the user's recorded gender in PostgreSQL, ensuring that (for example) female-specific clothing is not inappropriately recommended to male users.
+
+\begin{lstlisting}[caption={Gender Filtering and LLM Synthesis --- agent/fashion\_agent.py}]
 SYNTHESIS_PROMPT = """You are a helpful fashion assistant.
 Based on search results and user query, provide a natural
 response in the same language as the user's query.
 
+User Gender Context: {gender_context}
 User query: {query}
 Search results: {products_text}
 User preferences: {preferences_text}
@@ -1020,22 +1070,28 @@ Conversation history: {history_text}
 
 Instructions:
 1. Respond in the same language (Vietnamese or English)
-2. Briefly describe top recommendations and why they match
-3. Include styling suggestions for outfit_request intent
-4. Keep response concise (2-4 sentences)
-5. Reference specific products by attributes
+2. Tailor styling advice considering the {gender_context}
+3. Briefly describe top recommendations and why they match
+4. Include styling suggestions for outfit_request intent
+5. Keep response concise (2-4 sentences)
 
 Respond with JSON:
 {{"answer": "<response>",
   "styling_suggestion": "<optional tips>"}}"""
 
 def _synthesize_response(query, products, history,
-                         intent, preferences):
-    """Gemini synthesizes a natural language response."""
+                         intent, preferences, gender_context):
+    """Gemini synthesizes a natural language response with gender awareness."""
+    
+    # Filter products by gender before synthesis
+    filtered_products = _filter_by_gender(products, gender_context)
+    
     products_text = "\n".join(
         f"{i}. {p.label} | {p.color} | {p.caption[:80]}"
-        for i, p in enumerate(products, 1))
+        for i, p in enumerate(filtered_products, 1))
+        
     prompt = SYNTHESIS_PROMPT.format(
+        gender_context=gender_context,
         query=query, products_text=products_text,
         preferences_text=format_prefs(preferences),
         history_text=format_history(history[-6:]))
@@ -1043,6 +1099,12 @@ def _synthesize_response(query, products, history,
     data = json.loads(response.text)
     return data["answer"], data.get("styling_suggestion", "")
 \end{lstlisting}
+
+\textbf{Explanation:}
+\begin{itemize}
+    \item \textbf{Gender Context Injection}: By explicitly stating the \texttt{gender\_context} in the prompt, Gemini can tailor the phrasing and styling tips appropriately (e.g., suggesting a ``sharp tailored fit'' for men vs. a ``flattering silhouette'' for women).
+    \item \textbf{A/B Testing Capabilities}: The \texttt{gender\_hint\_enabled} flag allows developers to easily toggle this feature for controlled experimentation and research.
+\end{itemize}
 
 % ===========================================================================
 % CHAPTER 6: END-TO-END EXAMPLE
