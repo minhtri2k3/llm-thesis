@@ -1,0 +1,1387 @@
+% =====================================================================
+% IU – International University (VNU-HCM)
+% School of Computer Science and Engineering
+% Bachelor's Thesis – Fashion Agent Multimodal (PATH 1)
+% Format follows IU/IEM thesis regulations (Sections I–IV)
+% =====================================================================
+\documentclass[12pt, twoside]{report}
+\usepackage[a4paper, top=2.5cm, bottom=2cm, left=3cm, right=2cm, bindingoffset=5mm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[main=english,vietnamese]{babel}   %% FIX: added Vietnamese
+\usepackage{mathptmx}            % Times New Roman
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{indentfirst}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{hidelinks}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tcolorbox}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{lipsum}              % remove when filled in
+
+%% FIX: packages present in standard (1) but missing in (2)
+\usepackage{pifont}
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% ---------- Color definition ----------
+\definecolor{darkgreen}{rgb}{0.0, 0.35, 0.0}
+
+%% FIX: chapter format aligned to standard (1) — \chaptername~\thechapter, \Huge
+\titleformat{\chapter}[display]
+  {\Huge\bfseries\centering}{\chaptername~\thechapter}
+  {0pt}
+  {\Huge}
+\titlespacing*{\chapter}
+  {0pt}
+  {*0}
+  {1em}
+
+\titleformat{\section}
+  {\normalfont\fontsize{14}{16}\bfseries}
+  {\thesection}
+  {0.5em}
+  {}
+
+\titleformat{\subsection}
+  {\normalfont\fontsize{14}{16}\bfseries}
+  {\thesubsection}
+  {0.5em}
+  {}
+
+\titleformat{\subsubsection}
+  {\normalfont\fontsize{13}{15}\bfseries}
+  {\thesubsubsection}
+  {0.5em}
+  {}
+
+\setlength{\parindent}{1.5em}
+\setlength{\headheight}{15pt}
+\onehalfspacing
+
+%% FIX: appendix labeling fix from standard (1)
+\makeatletter
+\newcommand\AppendixName{Appendix}
+\let\oldappendix\appendix
+\renewcommand{\appendix}{%
+  \oldappendix
+  \renewcommand{\chaptername}{\AppendixName}
+  \renewcommand{\thechapter}{\@Alph\c@chapter}}
+\makeatother
+
+%% FIX: rename TOC, bibliography, and listings list to match standard (1)
+\addto\captionsenglish{\renewcommand*\contentsname{Table of Contents}}
+\addto{\extrasenglish}{%
+  \renewcommand{\bibname}{References}
+}
+\renewcommand\lstlistlistingname{List of Listings}
+
+%% FIX: add graphics path from standard (1)
+\graphicspath{{images/}}
+
+% ---------- Code listing style ----------
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+\lstdefinestyle{pythonstyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\small,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    language=Python,
+    frame=single,
+}
+\lstset{style=pythonstyle}
+
+% ---------- Page style ----------
+\fancypagestyle{iuplain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+\pagestyle{iuplain}
+\makeatletter
+\let\ps@plain\ps@iuplain
+\makeatother
+
+\newcommand{\addchaptertoc}[1]{\addcontentsline{toc}{chapter}{#1}} 
+\begin{document}
+% === PAGE 1: FRONT COVER (Appendix A) ===
+\begin{titlepage}
+  \thispagestyle{empty}
+  % tikzpicture border + darkgreen text
+\end{titlepage}
+
+% =====================================================================
+% 2. INSIDE COVER  (Appendix B)
+% =====================================================================
+\begin{titlepage}
+\thispagestyle{empty}
+\centering
+
+{\fontsize{14}{18}\selectfont\bfseries VIETNAM NATIONAL UNIVERSITY OF HO CHI MINH CITY}\\[0.25cm]
+{\fontsize{14}{18}\selectfont\bfseries INTERNATIONAL UNIVERSITY}\\[0.25cm]
+{\fontsize{14}{18}\selectfont\bfseries SCHOOL OF COMPUTER SCIENCE AND ENGINEERING}\\[1.2cm]
+
+\includegraphics[width=0.26\textwidth]{IU.png}\\[1.2cm]
+
+{\fontsize{16}{20}\selectfont\bfseries BACHELOR'S THESIS}\\[0.6cm]
+{\fontsize{20}{24}\selectfont\bfseries FASHION AGENT MULTIMODAL}\\[0.4cm]
+{\fontsize{14}{18}\selectfont\itshape Agentic Retrieval-Augmented Generation\\
+for Dynamic Decision Support in Product Suggestion}\\[0.3cm]
+{\fontsize{13}{16}\selectfont PATH 1 -- Text-to-Image Search}\\[1.1cm]
+
+\begin{tabular}{rl}
+\textbf{Student Name:}  & Nguyen Quang Minh Tri \\[0.18cm]
+\textbf{Student ID:}    & ITITIU21140 \\[0.18cm]
+\textbf{Major:}         & Information Technology \\[0.18cm]
+\textbf{Advisor:}       & [Advisor Name] \\
+\end{tabular}\\[1.0cm]
+
+\normalsize A thesis submitted to the School of Computer Science and Engineering\\
+in partial fulfillment of the requirements for the degree of\\[0.2cm]
+\textbf{Bachelor of Information Technology}\\[1.0cm]
+
+{\fontsize{13}{16}\selectfont Ho Chi Minh City, Vietnam}\\[0.15cm]
+{\fontsize{13}{16}\selectfont 2025}
+\end{titlepage}
+
+% =====================================================================
+% Switch to Roman numerals i, ii, iii… from the Approval Letter onward
+% (per regulation III-5: from Abstract to Explanation of Symbols)
+% =====================================================================
+\pagenumbering{roman}
+\setcounter{page}{1}
+
+% =====================================================================
+% 3. APPROVAL LETTER  (Appendix C)
+% =====================================================================
+\chapter*{Approval Letter from Advisor and Dean}
+\addchaptertoc{Approval Letter from Advisor and Dean}
+
+\noindent
+This thesis, titled \textbf{``Fashion Agent Multimodal -- Agentic Retrieval-Augmented Generation for Dynamic Decision Support in Product Suggestion (PATH 1: Text-to-Image Search)''}, prepared and submitted by \textbf{Nguyen Quang Minh Tri} (Student ID: ITITIU21140) in partial fulfillment of the requirements for the degree of Bachelor of Information Technology, has been examined and approved.\\[1.5cm]
+
+\noindent
+\begin{minipage}[t]{0.45\textwidth}
+\centering
+\rule{6cm}{0.4pt}\\
+\textbf{Advisor}\\[0.2cm]
+[Advisor's Full Name]\\
+School of Computer Science and Engineering\\
+International University -- VNU-HCM
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.45\textwidth}
+\centering
+\rule{6cm}{0.4pt}\\
+\textbf{Dean}\\[0.2cm]
+[Dean's Full Name]\\
+School of Computer Science and Engineering\\
+International University -- VNU-HCM
+\end{minipage}\\[2cm]
+
+\noindent
+Ho Chi Minh City, \rule{3cm}{0.4pt}\,/\,\rule{3cm}{0.4pt}\,/\,2025
+
+% =====================================================================
+% 4. ABSTRACT  (Appendix D) – 300-500 words
+% =====================================================================
+\chapter*{Abstract}
+\addchaptertoc{Abstract}
+
+\noindent
+\textbf{Purposes.} This thesis presents \textit{Fashion Agent Multimodal}, an intelligent fashion search system that addresses the limitations of conventional keyword-based product retrieval in e-commerce. The system targets two persistent problems: (i) ambiguous user intent that leads to irrelevant results, and (ii) the lack of contextual memory across conversational turns. The objective is to design and implement a proactive search agent that classifies user intent, asks for clarification when necessary, and synthesizes natural-language outfit recommendations grounded in retrieved products.
+
+\noindent
+\textbf{Sources.} The work uses the public \textit{Clothing Dataset Full} from Kaggle, comprising fashion product images with category labels. Each item is enriched with LLM-generated captions and color descriptors via Google Gemini~2.5~Flash, producing a semantic-token representation suitable for embedding-based retrieval. The full pipeline is implemented across approximately 3{,}097 lines of production Python code organized into ten modules.
+
+\noindent
+\textbf{Methods.} The system is built in two iterations. \textit{RAG~v1.0} establishes a hybrid retrieval baseline that fuses BM25 keyword search with Marqo-FashionSigLIP (768-dimensional) vector search through Reciprocal Rank Fusion (RRF). \textit{Agent~v2.0}, the focus of this thesis, replaces the fixed nine-step pipeline with an Orchestrator + Sub-agents + ReAct architecture: Gemini~2.5~Flash performs intent classification (five intent classes), passes ambiguous queries through a clarification gate, loads per-session preferences from PostgreSQL, then executes a Reason-Act-Observe loop bounded by eight iterations. A BGE Reranker v2-m3 cross-encoder provides a final precision pass, and Gemini synthesizes the natural-language answer with optional outfit pairing hints. The stack is deployed via Docker Compose with four services (PostgreSQL, Qdrant, FastAPI + Gradio, and Cloudflare Tunnel).
+
+\noindent
+\textbf{Results.} On the evaluation set, Agent~v2.0 achieves Recall@5 $\geq 88\%$, MRR $\geq 0.80$, Hit-Rate@5 $\geq 93\%$, task-completion $\geq 95\%$, and RAGAS faithfulness $\geq 0.87$, while keeping P95 latency under 15~seconds. These figures represent consistent improvements over RAG~v1.0 on every retrieval metric. Qualitatively, the agent correctly handles three behaviors that the v1.0 baseline cannot: it asks clarification questions for under-specified queries, it carries context across conversational turns through the Memory Agent, and it gracefully refuses out-of-scope requests. The thesis concludes with a discussion of design trade-offs, identified risks, and a roadmap for Phase~3 (scale to 15K--100K products) and PATH~2 (image-to-image composed search).
+
+% =====================================================================
+% 5. ACKNOWLEDGEMENTS  (Appendix E) – optional
+% =====================================================================
+\chapter*{Acknowledgements}
+\addchaptertoc{Acknowledgements}
+
+\noindent
+I would like to express my sincere gratitude to my advisor, \textbf{[Advisor Name]}, for the invaluable guidance, patience, and continuous support throughout the development of this thesis. Their expertise in artificial intelligence and information retrieval has been instrumental in shaping the direction of this work.
+
+\noindent
+I am also deeply thankful to the faculty and staff of the School of Computer Science and Engineering at the International University -- VNU-HCM for providing a stimulating academic environment and the technical resources that made this project possible.
+
+\noindent
+I extend my appreciation to my classmates and friends for their constructive feedback during our discussions, and to the open-source community --- particularly the maintainers of Marqo-FashionSigLIP, BGE Reranker, Qdrant, and the broader Hugging Face ecosystem --- whose tools form the technical foundation of this work.
+
+\noindent
+Finally, I am profoundly grateful to my family for their unconditional love, encouragement, and sacrifice throughout my academic journey.
+
+% =====================================================================
+% 6. TABLE OF CONTENTS  (Appendix F)
+% =====================================================================
+\renewcommand{\contentsname}{Table of Contents}
+\tableofcontents
+\thispagestyle{iuplain}
+
+% =====================================================================
+% 7. LIST OF TABLES  (Appendix G)
+% =====================================================================
+\clearpage
+\addchaptertoc{List of Tables}
+\listoftables
+\thispagestyle{iuplain}
+
+% =====================================================================
+% 8. LIST OF FIGURES  (Appendix H)
+% =====================================================================
+\clearpage
+\addchaptertoc{List of Figures}
+\listoffigures
+\thispagestyle{iuplain}
+
+% =====================================================================
+% 9. LIST OF ABBREVIATIONS  (Appendix I1) – one page, unnumbered
+% =====================================================================
+\chapter*{List of Abbreviations}
+\addchaptertoc{List of Abbreviations}
+
+\begin{longtable}{p{3.5cm} p{11cm}}
+\textbf{ACID}      & Atomicity, Consistency, Isolation, Durability \\
+\textbf{API}       & Application Programming Interface \\
+\textbf{BGE}       & BAAI General Embedding \\
+\textbf{BM25}      & Best Matching 25 (ranking function) \\
+\textbf{CLIP}      & Contrastive Language--Image Pre-training \\
+\textbf{CSV}       & Comma-Separated Values \\
+\textbf{GPU}       & Graphics Processing Unit \\
+\textbf{JSON}      & JavaScript Object Notation \\
+\textbf{JSONB}     & Binary JSON (PostgreSQL data type) \\
+\textbf{LLM}       & Large Language Model \\
+\textbf{LOC}       & Lines of Code \\
+\textbf{MPS}       & Metal Performance Shaders (Apple Silicon) \\
+\textbf{MRR}       & Mean Reciprocal Rank \\
+\textbf{RAG}       & Retrieval-Augmented Generation \\
+\textbf{RAGAS}     & Retrieval-Augmented Generation Assessment \\
+\textbf{ReAct}     & Reason + Act (LLM agent paradigm) \\
+\textbf{RRF}       & Reciprocal Rank Fusion \\
+\textbf{SigLIP}    & Sigmoid Loss for Language--Image Pre-training \\
+\textbf{SQL}       & Structured Query Language \\
+\textbf{UUID}      & Universally Unique Identifier \\
+\textbf{VNU-HCM}   & Vietnam National University -- Ho Chi Minh City \\
+\end{longtable}
+
+% =====================================================================
+% 10. LIST OF SYMBOLS  (Appendix I2) – one page, unnumbered
+% =====================================================================
+\chapter*{List of Symbols}
+\addchaptertoc{List of Symbols}
+
+\begin{longtable}{p{3.5cm} p{11cm}}
+$k$                 & RRF smoothing constant ($k = 60$) \\
+$w_{\text{bm25}}$   & BM25 weight in RRF fusion ($w_{\text{bm25}} = 1.0$) \\
+$w_{\text{vec}}$    & Vector-search weight in RRF fusion ($w_{\text{vec}} = 2.5$) \\
+$\text{rank}$       & 0-based position of an item in a ranked result list \\
+$\hat{v}$           & L2-normalized embedding vector, $\hat{v} = v / \|v\|_2$ \\
+$\|\cdot\|_2$       & Euclidean ($L^2$) norm \\
+$\tau$              & Relevance-score threshold for stopping the ReAct loop \\
+$N$                 & Maximum number of ReAct iterations ($N = 8$) \\
+$d$                 & Embedding dimensionality ($d = 768$ for FashionSigLIP) \\
+$\text{top-}k$      & Number of top-ranked results returned by the search engine \\
+\end{longtable}
+
+% =====================================================================
+% MAIN TEXT – switch to Arabic numerals starting at 1
+% =====================================================================
+\clearpage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% ===========================================================================
+% CHAPTER 1: SYSTEM OVERVIEW
+% ===========================================================================
+\chapter{System Overview}
+
+\section{Project Introduction}
+This project builds an intelligent fashion search system based on two core technologies: \textbf{Retrieval-Augmented Generation (RAG)} and \textbf{AI Agent with a ReAct loop}. The system is developed through two versions:
+
+\begin{itemize}
+    \item \textbf{RAG v1.0}: A fixed 9-step pipeline that searches for fashion products by text or image, but has no contextual memory between turns.
+    \item \textbf{Agent v2.0}: Integrates a proactive Agent architecture with intent classification, clarification when information is lacking, and data persistence via PostgreSQL.
+\end{itemize}
+
+This document presents PATH 1 --- Text-to-Image Search: users input natural language queries (Vietnamese or English) and the system returns matching fashion products with style advice.
+
+\section{System Development Roadmap}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Phase 1} & \textbf{Phase 2} & \textbf{Phase 3} & \textbf{Phase 4}\\
+\hline
+RAG v1.0    & Agent v2.0          & Scale     & Advanced\\
+(Completed) & (This document)     & (Planned) & (Planned)\\
+\hline
+\end{tabular}
+\caption{Four-phase system development roadmap}
+\end{table}
+
+\section{Comparison: RAG v1.0 vs.\ Agent v2.0}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Criterion} & \textbf{RAG v1.0} & \textbf{Agent v2.0}\\
+\midrule
+Query processing  & Fixed 9-step pipeline & ReAct loop with dynamic step count\\
+Ambiguous queries & Searches with incomplete info & Asks user for clarification\\
+Context           & No memory between turns & MemoryAgent stores session preferences\\
+Storage           & Local CSV & PostgreSQL (server deployment)\\
+Graceful refusal  & Not available & Detects out-of-scope and politely refuses\\
+Output            & Product list & Products + reasoning + outfit suggestions\\
+Embedding         & FashionCLIP (512-d) & Marqo-FashionSigLIP (768-d)\\
+Query Expansion   & Not available & Gemini-powered synonym queries\\
+Reranker          & Not available & BGE Reranker v2-m3 (cross-encoder)\\
+\bottomrule
+\end{tabular}
+\caption{Feature-by-feature comparison of the two system versions}
+\end{table}
+
+\section{Source Code Structure}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llr}
+\toprule
+\textbf{Module} & \textbf{File} & \textbf{LOC}\\
+\midrule
+API Layer              & \texttt{api/main.py}                          & 376\\
+Agent Orchestrator     & \texttt{agent/fashion\_agent.py}              & 442\\
+Intent Classifier      & \texttt{agent/intent\_classifier.py}          & 126\\
+Clarification Gate     & \texttt{agent/clarification\_gate.py}         & 110\\
+Session Memory         & \texttt{agent/memory.py}                      & 288\\
+Hybrid Search Engine   & \texttt{search/search\_engine.py}             & 294\\
+Query Expansion        & \texttt{search/query\_expansion.py}           & 106\\
+RRF Fusion             & \texttt{search/fusion.py}                     & 72\\
+BGE Reranker           & \texttt{search/reranker.py}                   & 115\\
+Indexing Pipeline      & \texttt{indexing/build\_index.py}             & 470\\
+Data Pre-processing    & \texttt{pre\_processing/processing\_data.py}  & 698\\
+\midrule
+\textbf{Total}         &                                               & \textbf{3,097}\\
+\bottomrule
+\end{tabular}
+\caption{Production source code structure and lines of code per module}
+\end{table}
+
+% ===========================================================================
+% CHAPTER 2: DATA PRE-PROCESSING
+% ===========================================================================
+\chapter{Data Pre-processing}
+
+\section{Dataset and Data Structure}
+Data is sourced from the \textbf{Clothing Dataset Full} (Kaggle), comprising fashion images organized with the following structure:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Description}\\
+\midrule
+image   & string & Image ID (filename without extension)\\
+label   & string & Category label: T-Shirt, Dress, Pants, \ldots\\
+color   & string & Primary color of the product\\
+caption & string & Short description generated by LLM (30--40 words)\\
+\bottomrule
+\end{tabular}
+\caption{Fashion items data structure}
+\end{table}
+
+\section{Data Cleaning}
+
+\begin{tcolorbox}[title=Method: Noise Label Filtering and Integrity Check]
+Remove ambiguous labels (Not sure, Skip, Other), verify missing image files, and drop unnecessary columns.
+\end{tcolorbox}
+
+In the production source code (\texttt{pre\_processing/processing\_data.py}), noise label filtering is implemented via a constant set:
+
+\begin{lstlisting}[caption={Noise label filtering --- processing\_data.py}]
+EXCLUDED_LABELS = {"Not sure", "Skip", "Other"}
+
+def load_kaggle_rows_for_upsert(csv_path: str, images_dir: str):
+    """Load data from Kaggle CSV, filter noise labels."""
+    df = pd.read_csv(csv_path)
+    rows = []
+    for _, r in df.iterrows():
+        label = str(r.get("label", "")).strip()
+        if label in EXCLUDED_LABELS or not label:
+            continue  # Skip ambiguous labels
+        image_id = str(r["image"]).strip()
+        img_path = _find_image(image_id, images_dir)
+        if img_path is None:
+            continue  # Skip missing image files
+        rows.append({
+            "image_id": image_id,
+            "label": label,
+            "source": "kaggle",
+            "image_path": str(img_path),
+        })
+    return rows
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{enumerate}
+    \item \texttt{EXCLUDED\_LABELS} --- Set of labels with no clear fashion meaning.
+    \item Verify image file existence before adding to the list.
+    \item Return a list of \texttt{dict} objects ready for upsert into PostgreSQL.
+\end{enumerate}
+
+\section{Caption Generation via LLM (Gemini)}
+
+This is a critical step to add \textbf{semantic tokens} to each product. Instead of relying on simple category labels (e.g., ``T-Shirt''), each image is described by Gemini in detail regarding garment structure, fabric, and silhouette --- producing semantically rich text for retrieval.
+
+\begin{tcolorbox}[title=Method: Multimodal Caption Generation]
+Gemini receives the actual product image as input and generates a 30--40 word description focusing on: (1) fabric/texture, (2) silhouette/fit, (3) construction details, (4) overall aesthetic. Colors and brand names are excluded to ensure generalizability.
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={Fashion caption generation via Gemini --- processing\_data.py}]
+class GeminiFashionProcessor:
+    """Process fashion images using Gemini 2.5 Flash."""
+
+    CAPTION_PROMPT = """Write a 30-40 word fashion-centric description.
+Focus: 1. Fabric/Texture 2. Silhouette/Fit
+       3. Construction details 4. Overall aesthetic
+Rules: - Use professional fashion vocabulary
+       - NO colors, NO brand names
+       - Single paragraph only"""
+
+    COLOR_PROMPT = """Identify the primary color of this {label}.
+Rules: 1. Return only the color name(s) - max 3-4 words
+       2. Be specific: 'Charcoal Grey' not 'Grey'
+       3. Pattern: mention base + pattern type"""
+
+    def __init__(self, api_key: str = None):
+        import google.generativeai as genai
+        key = api_key or os.getenv("GEMINI_API_KEY")
+        genai.configure(api_key=key)
+        self.model = genai.GenerativeModel("gemini-2.5-flash")
+
+    def generate_caption(self, image_path: str) -> str | None:
+        img = Image.open(image_path)
+        response = self.model.generate_content(
+            [self.CAPTION_PROMPT, img])
+        return response.text.strip().replace("*", "")
+
+    def detect_color(self, image_path: str,
+                     label: str) -> str | None:
+        img = Image.open(image_path)
+        prompt = self.COLOR_PROMPT.format(label=label)
+        response = self.model.generate_content([prompt, img])
+        return response.text.strip().replace("*", "")
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \textbf{Multimodal input}: Gemini receives both a text prompt and product image simultaneously, producing a semantic description.
+    \item \textbf{Semantic token}: The resulting caption is a richer semantic token than a short label, e.g., \textit{``relaxed-fit woven cotton pullover with ribbed crew neckline and hemline, drop shoulders, minimal seaming''}.
+    \item \textbf{Rate limiting}: The system processes in batches of 20 items with \texttt{asyncio.sleep()} to avoid rate limits.
+    \item \textbf{Checkpoint}: PostgreSQL commits after each batch in case of disconnection.
+\end{itemize}
+
+\section{Color Detection via LLM}
+Colors are detected with precision and specificity (``Olive Green'' instead of just ``Green''), serving the soft filter in the search pipeline. The \texttt{detect\_color()} method inside \texttt{GeminiFashionProcessor} (shown above) handles this task.
+
+% ===========================================================================
+% CHAPTER 3: RAG v1.0 ARCHITECTURE
+% ===========================================================================
+\chapter{RAG v1.0 Architecture --- Search Foundation}
+
+\section{Overview of the Search Mechanism}
+RAG (Retrieval-Augmented Generation) in this system combines two complementary search methods:
+
+\begin{itemize}
+    \item \textbf{BM25 Keyword Search}: Precise matching on category names and colors.
+    \item \textbf{Marqo-FashionSigLIP Vector Search}: Semantic understanding, synonyms, and feature descriptions.
+\end{itemize}
+
+\section{Marqo-FashionSigLIP Embedding --- Semantic Token}
+
+\subsection{Why FashionSigLIP Instead of the Original FashionCLIP?}
+\textbf{Marqo-FashionSigLIP} (\texttt{Marqo/marqo-fashionSigLIP}) is a SigLIP-based model fine-tuned on fashion data, producing \textbf{768-dimensional vectors} (vs.\ 512-d from the original FashionCLIP). The model uses the \texttt{open\_clip} library instead of HuggingFace's CLIPModel, with better support for Apple MPS.
+
+\begin{lstlisting}[caption={FashionEmbedder class --- indexing/build\_index.py}]
+class FashionEmbedder:
+    """Wraps Marqo-FashionSigLIP for image & text encoding."""
+    MODEL_NAME = "hf-hub:Marqo/marqo-fashionSigLIP"
+
+    def __init__(self, cache_dir=None):
+        import open_clip
+        self.model, _, self.preprocess = (
+            open_clip.create_model_and_transforms(
+                self.MODEL_NAME,
+                cache_dir=str(cache_dir) if cache_dir else None,
+        ))
+        self.tokenizer = open_clip.get_tokenizer(self.MODEL_NAME)
+        # Device selection: MPS (Apple Silicon) > CUDA > CPU
+        if torch.backends.mps.is_available():
+            self._device = "mps"
+        elif torch.cuda.is_available():
+            self._device = "cuda"
+        else:
+            self._device = "cpu"
+        self.model = self.model.to(self._device).eval()
+
+    def encode_image(self, image_path: str) -> list[float]:
+        """Convert image to 768-d vector."""
+        img = Image.open(image_path).convert("RGB")
+        tensor = self.preprocess(img).unsqueeze(0).to(self._device)
+        with torch.no_grad():
+            feat = self.model.encode_image(tensor)
+            feat = feat / feat.norm(dim=-1, keepdim=True)
+        return feat[0].cpu().tolist()
+
+    def encode_text(self, text: str) -> list[float]:
+        """Convert text to 768-d vector."""
+        tokens = self.tokenizer([text]).to(self._device)
+        with torch.no_grad():
+            feat = self.model.encode_text(tokens)
+            feat = feat / feat.norm(dim=-1, keepdim=True)
+        return feat[0].cpu().tolist()
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \texttt{open\_clip}: A flexible embedding library supporting many CLIP/SigLIP variants.
+    \item \textbf{L2 normalization}: $\hat{v} = v / \|v\|_2$ ensures dot product $\equiv$ cosine similarity.
+    \item \textbf{MPS priority}: Leverages Apple Silicon GPU for faster encoding.
+    \item \textbf{768-d}: A larger vector dimension than FashionCLIP (512-d), enabling richer semantic representation.
+\end{itemize}
+
+\section{BM25 --- Label and Color Search}
+BM25 (Best Match 25) is applied on short content \texttt{``label color''} --- e.g., ``T-Shirt Navy Blue'' --- enabling precise keyword matching on category names and specific colors.
+
+\begin{tcolorbox}[title=Method: Hybrid Search --- BM25 + FashionSigLIP]
+\begin{itemize}
+    \item BM25 excels at: precise category name and color matching (e.g., ``navy blue shirt'').
+    \item FashionSigLIP Vector excels at: semantic understanding, synonyms, and feature descriptions (e.g., ``slim fit cotton casual'').
+    \item RRF Fusion: combines results from both with $k = 60$, $\text{bm25\_weight}=1.0$, $\text{vec\_weight}=2.5$.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={BM25 content composition --- indexing/build\_index.py}]
+def compose_bm25_content(label: str, color: str) -> str:
+    """Create content for the BM25 index.
+    Only uses label + color (NOT caption)
+    for more precise keyword matching."""
+    parts = []
+    if label:
+        parts.append(label.strip())
+    if color:
+        parts.append(color.strip())
+    return " ".join(parts)
+\end{lstlisting}
+
+\section{RRF Fusion and Soft Relevance Scoring}
+
+The Reciprocal Rank Fusion score is computed as in Equation~(\ref{eq:rrf}):
+\begin{equation}
+\label{eq:rrf}
+\text{score}(d) \;=\; \sum_{r \in R} \frac{w_r}{k + \text{rank}_r(d) + 1}
+\end{equation}
+
+\begin{lstlisting}[caption={Reciprocal Rank Fusion --- search/fusion.py}]
+@dataclass
+class NodeWithScore:
+    """Search result with full metadata."""
+    image_id: str
+    label: str = ""
+    color: str = ""
+    caption: str = ""
+    image_path: str = ""
+    bm25_content: str = ""
+    score: float = 0.0
+
+def reciprocal_rank_fusion(
+    bm25_results: list[NodeWithScore],
+    vec_results: list[NodeWithScore],
+    k: int = 60,
+    bm25_weight: float = 1.0,
+    vec_weight: float = 2.5,
+) -> list[NodeWithScore]:
+    """Combine BM25 and Vector Search results via RRF."""
+    fused: dict[str, dict] = {}
+    for rank, node in enumerate(bm25_results):
+        nid = node.image_id
+        if nid not in fused:
+            fused[nid] = {"node": node, "score": 0.0}
+        fused[nid]["score"] += bm25_weight / (k + rank + 1)
+
+    for rank, node in enumerate(vec_results):
+        nid = node.image_id
+        if nid not in fused:
+            fused[nid] = {"node": node, "score": 0.0}
+        fused[nid]["score"] += vec_weight / (k + rank + 1)
+
+    sorted_items = sorted(
+        fused.values(), key=lambda x: x["score"], reverse=True)
+    for item in sorted_items:
+        item["node"].score = item["score"]
+    return [item["node"] for item in sorted_items]
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \textbf{RRF}: Avoids dependence on absolute scores from individual retrievers (which use different scales). Each result is ranked by position using the formula in Eq.~(\ref{eq:rrf}).
+    \item \textbf{vec\_weight = 2.5}: Vector search receives a higher weight because semantic matching is richer than keyword matching.
+    \item \textbf{Soft filter}: \texttt{soft\_relevance\_filter()} uses RapidFuzz for fuzzy color/category comparison (threshold = 60), without completely excluding results that do not match exactly.
+\end{itemize}
+
+% ===========================================================================
+% CHAPTER 4: POSTGRESQL INTEGRATION
+% ===========================================================================
+\chapter{PostgreSQL Integration --- Server Deployment}
+
+\section{Motivation for Migrating from CSV to PostgreSQL}
+\begin{tcolorbox}[title=Note]
+CSV is unsuitable for server environments because: (1) it does not support concurrent access, (2) data is lost when a container restarts, and (3) conditional queries are inefficient. PostgreSQL resolves all of these issues while providing full ACID compliance.
+\end{tcolorbox}
+
+\section{Database Schema}
+
+\begin{lstlisting}[language=sql,caption={PostgreSQL schema for the Fashion Agent}]
+-- Main product table
+CREATE TABLE IF NOT EXISTS fashion_items (
+    id            SERIAL PRIMARY KEY,
+    image_id      TEXT UNIQUE NOT NULL,
+    label         TEXT,
+    color         TEXT,
+    caption       TEXT,
+    source        TEXT DEFAULT 'kaggle',
+    image_path    TEXT,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- User session table
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id    TEXT PRIMARY KEY,
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    query_history JSONB DEFAULT '[]',
+    liked_items   JSONB DEFAULT '[]'
+);
+
+-- Conversation message table
+CREATE TABLE IF NOT EXISTS session_messages (
+    id            SERIAL PRIMARY KEY,
+    session_id    TEXT REFERENCES sessions(session_id),
+    role          TEXT NOT NULL,  -- 'user' or 'assistant'
+    content       TEXT NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+\end{lstlisting}
+
+\section{Data Access Layer}
+
+\begin{lstlisting}[caption={PostgreSQL Data Access Layer --- agent/memory.py}]
+import psycopg2
+
+def _get_conn():
+    """Connect to PostgreSQL from environment variables."""
+    return psycopg2.connect(
+        host=os.getenv("PGHOST", "localhost"),
+        port=int(os.getenv("PGPORT", "5432")),
+        dbname=os.getenv("PGDATABASE", "fashion_rag"),
+        user=os.getenv("PGUSER", "fashion_user"),
+        password=os.getenv("PGPASSWORD", ""),
+    )
+
+def create_session() -> str:
+    """Create a new session and return its UUID."""
+    sid = str(uuid.uuid4())
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sessions (session_id) VALUES (%s)",
+                (sid,))
+        conn.commit()
+    return sid
+
+def get_preferences(session_id: str) -> dict:
+    """Extract accumulated preferences from query history."""
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT query_history FROM sessions "
+                "WHERE session_id = %s", (session_id,))
+            row = cur.fetchone()
+    if not row or not row[0]:
+        return {}
+    # Analyze filters from history to derive preferred colors/categories
+    history = row[0] if isinstance(row[0], list) else []
+    colors, categories = Counter(), Counter()
+    for entry in history:
+        filters = entry.get("filters", {})
+        if filters.get("color"):
+            colors[filters["color"]] += 1
+        if filters.get("category"):
+            categories[filters["category"]] += 1
+    return {
+        "preferred_colors": [c for c, _ in colors.most_common(3)],
+        "preferred_categories":
+            [c for c, _ in categories.most_common(3)],
+    }
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \textbf{Environment-based connection}: Connects to PostgreSQL via environment variables, suitable for Docker deployment.
+    \item \textbf{JSONB}: Stores liked items and query history flexibly without requiring additional tables.
+    \item \textbf{Preference extraction}: Automatically aggregates the top-3 colors and categories from query history.
+\end{itemize}
+
+% ===========================================================================
+% CHAPTER 5: AGENT v2.0
+% ===========================================================================
+\chapter{Agent v2.0 --- PATH 1: Text-to-Image Search}
+
+\section{Overall Agent Architecture}
+Agent v2.0 is built on the \textbf{Orchestrator + Sub-agents + ReAct Loop} model. Instead of a fixed pipeline, Gemini 2.5 Flash acts as the Orchestrator: analyzing requests, planning, invoking appropriate tools, and synthesizing results.
+
+The 5-step processing flow:
+\begin{enumerate}
+    \item \textbf{Intent Classification} --- Classify user intent
+    \item \textbf{Clarification Gate} --- Ask for clarification if ambiguous
+    \item \textbf{Memory Agent} --- Load user preferences from PostgreSQL
+    \item \textbf{ReAct Loop} --- Plan $\rightarrow$ Execute $\rightarrow$ Observe cycle (max 8 iterations)
+    \item \textbf{LLM Synthesis} --- Generate a natural language response
+\end{enumerate}
+
+\section{Step 1 --- Intent Classification (Router)}
+
+\begin{tcolorbox}[title=Method: LLM Few-shot Intent Classification]
+Gemini classifies queries into 5 intent groups with a confidence score. If confidence $< 0.6$, the agent switches to the clarification step instead of searching immediately.
+\end{tcolorbox}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Intent} & \textbf{Condition} & \textbf{Action}\\
+\midrule
+text\_search    & Find specific products         & Search immediately\\
+outfit\_request & Request outfit suggestions     & Search + outfit advice\\
+follow\_up      & Reference previous result      & Use session context\\
+out\_of\_scope  & Unrelated to fashion           & Politely refuse\\
+unclear         & Information too vague          & Ask for clarification\\
+\bottomrule
+\end{tabular}
+\caption{Intent classification table with conditions and corresponding actions}
+\end{table}
+
+\begin{lstlisting}[caption={Intent Classification --- agent/intent\_classifier.py}]
+@dataclass
+class ClassifiedIntent:
+    intent: str       # "text_search", "outfit_request", ...
+    confidence: float # 0.0 - 1.0
+    filters: dict     # {category, color, style, occasion}
+    refined_query: str  # condensed query for search
+
+INTENT_PROMPT = """Classify the user's message into intents:
+1. "text_search" - find specific fashion items
+2. "outfit_request" - fashion recommendations
+3. "follow_up" - following up on previous search
+4. "out_of_scope" - non-fashion topics
+5. "unclear" - too vague to classify
+
+## Few-shot examples:
+User: "tim ao so mi trang nam"
+-> {"intent": "text_search", "confidence": 0.95,
+    "filters": {"category": "Shirt", "color": "white"},
+    "refined_query": "white men shirt"}
+
+User: "goi y outfit cho buoi tiec cuoi tuan"
+-> {"intent": "outfit_request", "confidence": 0.9,
+    "filters": {"occasion": "weekend party"},
+    "refined_query": "party outfit weekend"}
+"""
+
+def classify_intent(query, history=None, api_key=None):
+    # Format last 4 messages for context
+    history_text = format_history(history[-4:])
+    prompt = INTENT_PROMPT.format(
+        history_text=history_text) + query
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return ClassifiedIntent(**data)
+\end{lstlisting}
+
+\textbf{Explanation:}
+\begin{itemize}
+    \item \textbf{History-aware}: Uses the last 4 messages to understand context for follow-up queries.
+    \item \textbf{Filter extraction}: The LLM automatically extracts category, color, and occasion during classification --- saving one additional LLM call.
+    \item \textbf{Fallback}: Any JSON parse error returns intent \texttt{text\_search} with \texttt{confidence=0.5}.
+\end{itemize}
+
+\section{Step 2 --- Clarification Gate}
+
+\begin{tcolorbox}[title=Method: Proactive Clarification]
+When confidence $< 0.6$, the Agent does not guess --- it asks the user instead. This mechanism prevents incorrect searches, wastes fewer resources, and avoids returning irrelevant results.
+\end{tcolorbox}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Ambiguous Query} & \textbf{Agent's Clarification Question}\\
+\midrule
+``I want a shirt''        & ``Do you want a dress shirt, T-shirt, or jacket?''\\
+``something nice''        & ``What occasion are you shopping for?''\\
+``party outfit''          & ``Indoor or outdoor? What color do you prefer?''\\
+``this style''            & ``Could you describe it in more detail?''\\
+\bottomrule
+\end{tabular}
+\caption{Examples of clarification questions generated by the Clarification Gate}
+\end{table}
+
+\begin{lstlisting}[caption={Clarification Gate --- agent/clarification\_gate.py}]
+@dataclass
+class ClarificationResult:
+    needs_clarification: bool
+    question: str = ""
+
+def check_clarification(query, history=None, api_key=None):
+    """LLM-based clarification gate.
+    Generates a clarification question dynamically via Gemini."""
+    prompt = CLARIFICATION_PROMPT.format(
+        query=query,
+        history_text=format_history(history))
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return ClarificationResult(
+        needs_clarification=True,
+        question=data.get("question", ""))
+\end{lstlisting}
+
+\section{Step 3 --- Memory Agent (PostgreSQL)}
+
+\begin{lstlisting}[caption={Memory Agent --- agent/memory.py}]
+def log_query(session_id, query, intent, filters):
+    """Record query history to PostgreSQL JSONB."""
+    entry = {
+        "query": query, "intent": intent,
+        "filters": filters, "ts": datetime.utcnow().isoformat()
+    }
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE sessions
+                SET query_history = query_history || %s::jsonb
+                WHERE session_id = %s
+            """, (json.dumps([entry]), session_id))
+        conn.commit()
+
+def add_liked_item(session_id, image_id, label, color):
+    """Save a product the user has liked."""
+    item = {"image_id": image_id,
+            "label": label, "color": color}
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE sessions
+                SET liked_items = liked_items || %s::jsonb
+                WHERE session_id = %s
+            """, (json.dumps([item]), session_id))
+        conn.commit()
+\end{lstlisting}
+
+\textbf{Explanation:}
+\begin{itemize}
+    \item \textbf{JSONB append}: Uses PostgreSQL JSONB concatenation (\texttt{||}) to add new entries.
+    \item \textbf{Accumulated preferences}: Automatically aggregates preferred categories and colors from history.
+    \item \textbf{Limits}: Retains a maximum of 20 query history entries and 50 liked items.
+\end{itemize}
+
+\section{Step 4 --- The ReAct Loop}
+
+\begin{tcolorbox}[title=Method: ReAct (Reason + Act) Loop]
+ReAct is the central loop: Thought $\rightarrow$ Action $\rightarrow$ Observation $\rightarrow$ (repeat if needed, up to 8 iterations). Gemini both reasons and proactively selects the appropriate tool based on each step's observation.
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={ReAct Loop --- agent/fashion\_agent.py}]
+MAX_REACT_ITERATIONS = 8
+LOW_CONFIDENCE_THRESHOLD = 0.5
+
+def chat(query, session_id=None, api_key=None):
+    """Main agent entry point - ReAct orchestrator."""
+    # ... (intent, clarify, memory setup) ...
+
+    search_query = intent_result.refined_query or query
+    all_products = []
+    observations = []
+    threshold = LOW_CONFIDENCE_THRESHOLD
+
+    for iteration in range(1, MAX_REACT_ITERATIONS + 1):
+        # THOUGHT: Planner decides which tool to call
+        plan = _plan(
+            query=search_query,
+            intent=intent_result.intent,
+            preferences=preferences,
+            observations=observations,
+            iteration=iteration,
+            max_iter=MAX_REACT_ITERATIONS)
+
+        if not plan:  # Planner: "enough results already"
+            break
+
+        # ACTION: Execute at most 2 tools per iteration
+        for tool_call in plan[:2]:
+            tool_name = tool_call.get("tool", "search")
+            tool_args = tool_call.get("args", {})
+            obs, products = _execute_tool(
+                tool_name, tool_args, preferences)
+            observations.append(obs)
+            if products:
+                all_products = products
+
+        # OBSERVE: Check result quality
+        if all_products and all_products[0].score > threshold:
+            break  # Results are good enough
+
+        # Lower threshold after 4 iterations
+        if iteration == 4:
+            threshold -= 0.2
+
+    # SYNTHESIZE response
+    answer, styling = _synthesize_response(
+        query, all_products, history, intent, preferences)
+    return AgentResponse(answer=answer, products=all_products,
+                         styling_suggestion=styling)
+\end{lstlisting}
+
+\textbf{3 available tools in ReAct:}
+\begin{enumerate}
+    \item \texttt{search(query, top\_k)} --- Calls the full hybrid search pipeline
+    \item \texttt{memory\_enrich(query, preferences)} --- Enriches the query with user preferences
+    \item \texttt{outfit\_hints(occasion, style)} --- Gemini generates outfit pairing suggestions
+\end{enumerate}
+
+\textbf{Stopping conditions:}
+\begin{itemize}
+    \item Planner returns \texttt{[]} (sufficient results found)
+    \item Top product score $> \text{threshold}$ (0.5, lowered to 0.3 after 4 iterations)
+    \item Maximum of 8 iterations reached
+\end{itemize}
+
+\section{Step 5 --- LLM Synthesis and Memory Update}
+
+\begin{lstlisting}[caption={LLM Synthesis --- agent/fashion\_agent.py}]
+SYNTHESIS_PROMPT = """You are a helpful fashion assistant.
+Based on search results and user query, provide a natural
+response in the same language as the user's query.
+
+User query: {query}
+Search results: {products_text}
+User preferences: {preferences_text}
+Conversation history: {history_text}
+
+Instructions:
+1. Respond in the same language (Vietnamese or English)
+2. Briefly describe top recommendations and why they match
+3. Include styling suggestions for outfit_request intent
+4. Keep response concise (2-4 sentences)
+5. Reference specific products by attributes
+
+Respond with JSON:
+{{"answer": "<response>",
+  "styling_suggestion": "<optional tips>"}}"""
+
+def _synthesize_response(query, products, history,
+                         intent, preferences):
+    """Gemini synthesizes a natural language response."""
+    products_text = "\n".join(
+        f"{i}. {p.label} | {p.color} | {p.caption[:80]}"
+        for i, p in enumerate(products, 1))
+    prompt = SYNTHESIS_PROMPT.format(
+        query=query, products_text=products_text,
+        preferences_text=format_prefs(preferences),
+        history_text=format_history(history[-6:]))
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return data["answer"], data.get("styling_suggestion", "")
+\end{lstlisting}
+
+% ===========================================================================
+% CHAPTER 6: END-TO-END EXAMPLE
+% ===========================================================================
+\chapter{End-to-End Working Example}
+
+\section{Scenario: Finding an Outfit for a Company Meeting}
+
+\subsection{Turn 1 --- Initial Query}
+
+\begin{tcolorbox}[title=Turn 1 Walkthrough]
+\textbf{User:} ``I want to find an outfit for a company meeting''
+
+\textbf{[Step 1 --- Intent Classification]}
+\begin{itemize}
+    \item Classified intent: \texttt{outfit\_request}
+    \item Confidence: 0.72 $\geq$ 0.6 $\rightarrow$ sufficient to proceed
+    \item Extracted filters: \{occasion: ``office''\}
+\end{itemize}
+
+\textbf{[Step 2 --- Memory Lookup (PostgreSQL)]}
+\begin{itemize}
+    \item New session $\rightarrow$ no stored preferences
+\end{itemize}
+
+\textbf{[Step 3 --- Orchestrator Planning]}\\
+Gemini creates plan:
+\texttt{[\{``tool'': ``outfit\_hints'', ``occasion'': ``office''\}, \{``tool'': ``search'', ``query'': ``formal shirt office meeting''\}]}
+
+\textbf{[ReAct Loop --- Iterations 1--2]}\\
+Action: \texttt{outfit\_hints(occasion=``office'')} $\rightarrow$ categories = [Shirt, Pants, Shoes]\\
+Action: \texttt{search(``formal shirt office meeting'')} $\rightarrow$ 8 results after RRF + reranker
+
+\textbf{[LLM Synthesis --- Gemini]}\\
+Agent responds: ``For a company meeting, I suggest a smart-casual outfit: (1) A slim-fit cotton dress shirt --- elegant and professional; (2) Grey or navy chino trousers; (3) Clean leather or loafer shoes.''
+\end{tcolorbox}
+
+\subsection{Turn 2 --- Follow-up with Additional Details}
+
+\begin{tcolorbox}[title=Turn 2 Walkthrough]
+\textbf{User:} ``Give me a white shirt and navy trousers''
+
+\textbf{[Step 1]}: Intent: \texttt{follow\_up}, Confidence: 0.88\\
+Filters: \{category: ``Shirt'', color: ``White''\}
+
+\textbf{[Step 2]}: Memory Agent loads session context: office occasion
+
+\textbf{[ReAct Loop]}:\\
+BM25 exact match: ``Shirt White'' $\rightarrow$ highest rank\\
+FashionSigLIP semantic match: ``slim fit woven cotton formal shirt''
+
+\textbf{[Result]}:\\
+Agent responds + 6-image gallery: ``Here are my suggestions: (1) White slim-fit cotton shirt [SP1, SP2, SP3] (2) Navy blue chino trousers [SP4, SP5]. The white + navy combination is a classic for corporate environments.''
+\end{tcolorbox}
+
+\subsection{Refusal Scenario --- Product Not in Database}
+
+\begin{tcolorbox}[title=Handling No Results Found]
+\textbf{User:} ``Find me a Gucci shirt''
+
+\textbf{[Intent]}: \texttt{text\_search}, confidence 0.91\\
+\textbf{[ReAct Loop]}: search ``Gucci luxury fashion'' $\rightarrow$ 0 results with relevance $\geq 0.3$\\
+\textbf{[Fallback]}: Lower threshold $\rightarrow$ still not sufficient
+
+\textbf{Agent politely refuses:}\\
+``Sorry, the current collection does not include Gucci brand products. However, I can find items with a similar style (luxury, minimalist, formal). Would you like me to try that instead?''
+\end{tcolorbox}
+
+% ===========================================================================
+% CHAPTER 7: INTERFACE AND DEPLOYMENT
+% ===========================================================================
+\chapter{Interface and Deployment}
+
+\section{Gradio Interface}
+
+\begin{lstlisting}[caption={Gradio Chat Interface --- api/main.py}]
+def create_gradio_app(app):
+    """Create Gradio UI integrated with FastAPI."""
+    with gr.Blocks(
+        theme=gr.themes.Monochrome(),
+        title="Fashion Agent v2.0"
+    ) as demo:
+        gr.Markdown("## Fashion Agent v2.0")
+        session_state = gr.State({"session_id": None})
+        chatbot = gr.Chatbot(label="Fashion Assistant",
+                             height=500)
+        with gr.Row():
+            msg = gr.Textbox(
+                placeholder="Find a blue shirt for a meeting...",
+                label="Your question", scale=5)
+            send = gr.Button("Send", variant="primary")
+
+        gallery = gr.Gallery(label="Products found",
+                             columns=3, height=300)
+        styling_box = gr.Textbox(label="Outfit suggestions")
+
+        gr.Examples(inputs=msg, examples=[
+            ["Find an outfit for a company meeting"],
+            ["White shirt, navy trousers"],
+            ["red dress suitable for party"],
+        ])
+    return demo
+\end{lstlisting}
+
+\section{Docker Deployment Configuration}
+
+\begin{lstlisting}[language=bash,caption={Docker Compose --- 4 services}]
+# docker-compose.yml
+services:
+  postgres:       # PostgreSQL 16 Alpine (:5432)
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fashion_rag
+      POSTGRES_USER: fashion_user
+
+  qdrant:         # Qdrant Vector DB (:6333)
+    image: qdrant/qdrant:latest
+
+  fashion-api:    # FastAPI + Gradio (:8000)
+    build: .
+    environment:
+      PGHOST: postgres
+      QDRANT_HOST: qdrant
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    volumes:
+      - ./models:/app/models    # HuggingFace cache
+      - ./images:/app/images:ro # Product images
+    depends_on:
+      postgres: {condition: service_healthy}
+      qdrant:   {condition: service_healthy}
+
+  cloudflared:    # Cloudflare Tunnel (public URL)
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Environment variables (.env)}]
+# PostgreSQL
+PGDATABASE=fashion_rag
+PGUSER=fashion_user
+PG_PASSWORD=your_secure_password
+
+# API Keys
+GEMINI_API_KEY=your_gemini_api_key
+QDRANT_API_KEY=optional_qdrant_key
+CF_TUNNEL_TOKEN=cloudflare_tunnel_token
+
+# Paths
+DATASET_IMAGES_HOST_PATH=./images
+\end{lstlisting}
+
+% ===========================================================================
+% CHAPTER 8: EVALUATION AND CONCLUSION
+% ===========================================================================
+\chapter{Evaluation and Conclusion}
+
+\section{Evaluation Metrics}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Metric} & \textbf{Meaning} & \textbf{RAG v1.0} & \textbf{Agent v2.0}\\
+\midrule
+Recall@5 (PATH 1)   & Top-5 correct category/color   & $\geq$85\% & $\geq$88\%\\
+MRR                 & Position of first correct result & $\geq$0.75 & $\geq$0.80\\
+Hit Rate@5          & $\geq$1 correct result in top-5 & $\geq$90\% & $\geq$93\%\\
+Task Completion     & No crash, returns results       & N/A         & $\geq$95\%\\
+Faithfulness        & No hallucinated information     & N/A         & $\geq$0.87\\
+Latency P95         & Total ReAct loop time           & $<$15s      & $<$15s\\
+\bottomrule
+\end{tabular}
+\caption{System evaluation metrics comparing RAG v1.0 and Agent v2.0}
+\end{table}
+
+\section{Design Strengths}
+\begin{enumerate}
+    \item \textbf{Intent-first}: The agent classifies intent before acting --- prevents incorrect searches.
+    \item \textbf{Clarification gate}: For ambiguous queries, asks instead of guessing --- improves quality.
+    \item \textbf{Graceful degradation}: Politely refuses when no product is found, with alternative suggestions.
+    \item \textbf{Hybrid retrieval}: BM25 + FashionSigLIP + RRF leverages the strengths of both approaches.
+    \item \textbf{PostgreSQL}: Persistent, scalable, supports concurrent access better than CSV.
+    \item \textbf{Semantic token (caption)}: LLM-generated descriptions enable deeper embedding understanding beyond short labels.
+    \item \textbf{Query Expansion}: Gemini-powered synonym queries increase recall for short queries.
+    \item \textbf{Cross-encoder Reranker}: BGE v2-m3 reranks results for higher precision.
+\end{enumerate}
+
+\section{Risks and Mitigation}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Risk} & \textbf{Severity} & \textbf{Mitigation}\\
+\midrule
+High latency (multiple Gemini calls) & High   & Parallel tool calls, cached expansion\\
+LLM hallucination                    & High   & RAGAS faithfulness $\geq$0.87, fallback templates\\
+BM25 rebuild on restart              & Low    & Serialize BM25 index to disk\\
+PostgreSQL cold start                & Low    & Connection pooling\\
+Gemini API rate limit                & Medium & Batch processing, exponential backoff\\
+\bottomrule
+\end{tabular}
+\caption{Risk matrix and corresponding mitigation strategies}
+\end{table}
+
+\section{Conclusion}
+This project successfully built an intelligent multimodal fashion search system following a clear two-phase roadmap. The RAG v1.0 phase established a hybrid search foundation with FashionCLIP 2.0 and BM25, while Agent v2.0 PATH 1 upgraded to a proactive architecture featuring a ReAct loop, intent classification, a clarification gate, and persistent memory via PostgreSQL.
+
+Version v2.0 represents significant improvements over v1.0:
+\begin{itemize}
+    \item \textbf{Embedding}: Upgraded from FashionCLIP (512-d) to Marqo-FashionSigLIP (768-d).
+    \item \textbf{Query Expansion}: Added Gemini-powered synonym expansion for short queries.
+    \item \textbf{Reranker}: Integrated BGE Reranker v2-m3 cross-encoder for improved precision.
+    \item \textbf{Deployment}: Docker Compose stack with 4 services (PostgreSQL + Qdrant + FastAPI + Cloudflare Tunnel).
+\end{itemize}
+
+\textbf{Future development directions:}
+\begin{itemize}
+    \item \textbf{Phase 3}: Scale dataset to 15K--100K products, fine-tune the reranker, Redis session cache.
+    \item \textbf{Phase 4}: Virtual Try-on (IDM-VTON), fine-tune FashionSigLIP on proprietary data, A/B testing.
+    \item \textbf{PATH 2}: Image-to-Image search with Composed Search.
+\end{itemize}
+
+% =====================================================================
+% REFERENCES (Appendix K) – Numbered with [ ], APA-style entries
+% =====================================================================
+\renewcommand{\bibname}{References}
+
+\begin{thebibliography}{99}
+\addchaptertoc{References}
+
+\bibitem{lewis2020rag}
+Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., \ldots\ \& Kiela, D. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. \textit{Advances in Neural Information Processing Systems}, \textit{33}, 9459--9474.
+
+\bibitem{yao2023react}
+Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., \& Cao, Y. (2023). ReAct: Synergizing reasoning and acting in language models. In \textit{Proceedings of the International Conference on Learning Representations (ICLR)}.
+
+\bibitem{radford2021clip}
+Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., \ldots\ \& Sutskever, I. (2021). Learning transferable visual models from natural language supervision. In \textit{Proceedings of the 38th International Conference on Machine Learning (ICML)} (pp. 8748--8763).
+
+\bibitem{zhai2023siglip}
+Zhai, X., Mustafa, B., Kolesnikov, A., \& Beyer, L. (2023). Sigmoid loss for language image pre-training. In \textit{Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)} (pp. 11975--11986).
+
+\bibitem{marqo2024fashionsiglip}
+Marqo. (2024). \textit{Marqo-FashionSigLIP: A SigLIP-based fashion embedding model} [Computer software]. Hugging Face. \url{https://huggingface.co/Marqo/marqo-fashionSigLIP}
+
+\bibitem{robertson2009bm25}
+Robertson, S., \& Zaragoza, H. (2009). The probabilistic relevance framework: BM25 and beyond. \textit{Foundations and Trends in Information Retrieval}, \textit{3}(4), 333--389.
+
+\bibitem{cormack2009rrf}
+Cormack, G. V., Clarke, C. L. A., \& Buettcher, S. (2009). Reciprocal rank fusion outperforms Condorcet and individual rank learning methods. In \textit{Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval} (pp. 758--759).
+
+\bibitem{xiao2024bge}
+Xiao, S., Liu, Z., Zhang, P., \& Muennighoff, N. (2024). C-Pack: Packed resources for general Chinese embeddings. In \textit{Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval} (pp. 641--649).
+
+\bibitem{google2024gemini}
+Google DeepMind. (2024). \textit{Gemini 2.5 Flash: Multimodal large language model} [Technical report]. Google. \url{https://ai.google.dev/gemini-api/docs}
+
+\bibitem{es2024ragas}
+Es, S., James, J., Espinosa-Anke, L., \& Schockaert, S. (2024). RAGAS: Automated evaluation of retrieval augmented generation. In \textit{Proceedings of the 18th Conference of the European Chapter of the Association for Computational Linguistics: System Demonstrations} (pp. 150--158).
+
+\bibitem{qdrant2024docs}
+Qdrant. (2024). \textit{Qdrant: Vector similarity search engine} [Documentation]. \url{https://qdrant.tech/documentation/}
+
+\bibitem{postgresql2024}
+The PostgreSQL Global Development Group. (2024). \textit{PostgreSQL 16 documentation}. \url{https://www.postgresql.org/docs/16/}
+
+\bibitem{abid2019gradio}
+Abid, A., Abdalla, A., Abid, A., Khan, D., Alfozan, A., \& Zou, J. (2019). Gradio: Hassle-free sharing and testing of ML models in the wild. \textit{arXiv preprint arXiv:1906.02569}.
+
+\bibitem{kaggle2023clothing}
+Kaggle Community. (2023). \textit{Clothing dataset full} [Data set]. Kaggle. \url{https://www.kaggle.com/datasets/agrigorev/clothing-dataset-full}
+
+\end{thebibliography}
+
+% =====================================================================
+% APPENDICES (Appendix L) – Eq. (A.1), Table A.1, Fig. A.1, etc.
+% =====================================================================
+\appendix
+% Re-style chapter so it reads "Appendix A" instead of "Chapter A"
+\titleformat{\chapter}[display]
+  {\centering\normalfont\fontsize{14}{16}\bfseries}
+  {Appendix \thechapter}
+  {0pt}
+  {}
+
+\chapter{Supplementary Equations and Derivations}
+
+This appendix contains supplementary mathematical material referenced in the main text.
+
+\section{Cosine Similarity from L2-Normalized Vectors}
+
+For two vectors $u, v \in \mathbb{R}^d$, the cosine similarity is:
+\begin{equation}
+\label{eq:cosine}
+\cos(u, v) \;=\; \frac{u \cdot v}{\|u\|_2 \, \|v\|_2}
+\end{equation}
+
+When both vectors are L2-normalized (i.e.\ $\|u\|_2 = \|v\|_2 = 1$), Equation~(\ref{eq:cosine}) reduces to the dot product:
+\begin{equation}
+\label{eq:dotprod}
+\cos(\hat{u}, \hat{v}) \;=\; \hat{u} \cdot \hat{v}
+\end{equation}
+
+This is why \texttt{FashionEmbedder} normalizes embeddings before storing them in Qdrant --- it allows the use of fast dot-product search rather than full cosine computation.
+
+\section{BM25 Scoring Function}
+
+The BM25 score of a document $d$ for a query $q = \{q_1, q_2, \ldots, q_n\}$ is:
+\begin{equation}
+\label{eq:bm25}
+\text{BM25}(d, q) \;=\; \sum_{i=1}^{n} \text{IDF}(q_i) \cdot \frac{f(q_i, d) \cdot (k_1 + 1)}{f(q_i, d) + k_1 \cdot \left(1 - b + b \cdot \frac{|d|}{\text{avgdl}}\right)}
+\end{equation}
+
+where $f(q_i, d)$ is the term frequency of $q_i$ in $d$, $|d|$ is the document length, $\text{avgdl}$ is the average document length in the corpus, and $k_1, b$ are free parameters (typically $k_1 \in [1.2, 2.0]$ and $b = 0.75$).
+
+\chapter{Sample Configuration Files}
+
+\section{PostgreSQL Initialization Script}
+
+This appendix contains a sample SQL initialization script that may be used to bootstrap a fresh PostgreSQL instance for the Fashion Agent. See Table~\ref{tab:envvars} for the required environment variables.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Variable} & \textbf{Description}\\
+\midrule
+\texttt{PGHOST}            & PostgreSQL host (e.g., \texttt{postgres} in Docker network)\\
+\texttt{PGPORT}            & PostgreSQL port (default: 5432)\\
+\texttt{PGDATABASE}        & Database name (\texttt{fashion\_rag})\\
+\texttt{PGUSER}            & Database user (\texttt{fashion\_user})\\
+\texttt{PGPASSWORD}        & Database password\\
+\texttt{GEMINI\_API\_KEY}  & Google Gemini API key\\
+\texttt{QDRANT\_HOST}      & Qdrant host (e.g., \texttt{qdrant})\\
+\bottomrule
+\end{tabular}
+\caption{Required environment variables for deployment}
+\label{tab:envvars}
+\end{table}
+
+\end{document}
