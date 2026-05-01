@@ -11,7 +11,7 @@ RUN flutter pub get
 
 # Build Flutter web
 COPY . .
-RUN flutter build web --release --no-tree-shake-icons
+RUN flutter build web --release --no-tree-shake-icons --dart-define=ENABLE_PATH2_IMAGE_SEARCH=true
 
 # ─────────────────────────────────────────────────────────────
 # Stage 2 — Nginx serve

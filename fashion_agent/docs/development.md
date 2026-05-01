@@ -185,6 +185,24 @@ docker compose up -d fashion-api
 docker compose build fashion-api && docker compose up -d fashion-api
 ```
 
+### PATH 2 (Image-to-Image) rollout / rollback
+
+PATH 2 được tách biệt khỏi PATH 1 và được bật/tắt bằng feature flag:
+
+```bash
+# Bật PATH 2
+ENABLE_PATH2_IMAGE_SEARCH=true docker compose up -d fashion-api
+
+# Tắt PATH 2 (rollback nhanh)
+ENABLE_PATH2_IMAGE_SEARCH=false docker compose up -d fashion-api
+```
+
+Biến môi trường liên quan:
+
+- `ENABLE_PATH2_IMAGE_SEARCH` (default: `false`)
+- `PATH2_MAX_UPLOAD_BYTES` (default: `5242880` = 5MB)
+- `PATH2_MAX_TOP_K` (default: `20`)
+
 ### Cập nhật text index (không cần re-index ảnh)
 
 ```bash

@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:clothie_web/config.dart';
 import 'package:clothie_web/providers/theme_provider.dart';
 import 'package:clothie_web/providers/cart_provider.dart';
 import 'package:clothie_web/providers/chat_provider.dart';
 import 'package:clothie_web/screens/cart_screen.dart';
 import 'package:clothie_web/screens/rating_screen.dart';
-import 'package:clothie_web/screens/splash_screen.dart';
 import 'package:clothie_web/widgets/chat_bubble.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
 import 'package:clothie_web/models/product.dart';
@@ -71,6 +72,56 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
   }
 
+  /// Show user a warning if image is large (>3MB).
+  void _warnIfLargeImage(int sizeInBytes) {
+    final sizeInMB = sizeInBytes / 1024 / 1024;
+    if (sizeInMB > 3.0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('📸 Large image (${sizeInMB.toStringAsFixed(1)}MB). Upload may take longer.'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _searchByImage(ChatProvider provider) async {
+    if (provider.isLoading) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['png'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final file = result.files.first;
+    final fileName = file.name;
+    if (!fileName.toLowerCase().endsWith('.png')) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only .png files are supported.')),
+      );
+      return;
+    }
+
+    var bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to read selected image file.')),
+      );
+      return;
+    }
+
+    // Warn if image is large but allow it
+    _warnIfLargeImage(bytes.lengthInBytes);
+
+    await provider.searchByImage(bytes, fileName, widget.sessionId);
+    _scrollToBottom();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -82,8 +133,8 @@ class _ChatScreenState extends State<ChatScreen> {
           create: (ctx) => ChatProvider(
             onSelectionSaved: ctx.read<CartProvider>().onSelectionSaved,
           ),
-          update: (ctx, cart, prev) => prev!
-            ..updateCallback(cart.onSelectionSaved),
+          update: (ctx, cart, prev) =>
+              prev!..updateCallback(cart.onSelectionSaved),
         ),
       ],
       child: Builder(
@@ -98,8 +149,12 @@ class _ChatScreenState extends State<ChatScreen> {
           }
 
           // ── Offer prompt: trigger dialog after successful search ───────────
-          final lastMsg = provider.messages.isNotEmpty ? provider.messages.last : null;
-          if (lastMsg != null && lastMsg.showOfferDialog && !_offerDialogShown) {
+          final lastMsg = provider.messages.isNotEmpty
+              ? provider.messages.last
+              : null;
+          if (lastMsg != null &&
+              lastMsg.showOfferDialog &&
+              !_offerDialogShown) {
             _offerDialogShown = true;
             final offerProducts = lastMsg.products; // same list shown in chat
             WidgetsBinding.instance.addPostFrameCallback(
@@ -140,8 +195,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ? _buildEmptyState()
                           : _buildMessageList(provider),
                     ),
-                    if (provider.error != null)
-                      _buildErrorBanner(provider),
+                    if (provider.error != null) _buildErrorBanner(provider),
                     _buildInputRow(context, provider),
                   ],
                 ),
@@ -166,10 +220,15 @@ class _ChatScreenState extends State<ChatScreen> {
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.primaryContainer,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Theme.of(context).colorScheme.primary, width: 1),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 1,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.25),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withOpacity(0.25),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
@@ -177,8 +236,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             child: Row(
               children: [
-                const Text('\u{1F6CD}\uFE0F',
-                    style: TextStyle(fontSize: 20)),
+                const Text('\u{1F6CD}\uFE0F', style: TextStyle(fontSize: 20)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -188,7 +246,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         'Added to your cart 🛍️',
                         style: GoogleFonts.outfit(
-                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onPrimaryContainer,
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
                         ),
@@ -197,7 +257,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         'Check the top‑right corner to see all your picks!',
                         style: GoogleFonts.outfit(
-                          color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.7),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onPrimaryContainer.withOpacity(0.7),
                           fontSize: 11,
                           height: 1.4,
                         ),
@@ -209,8 +271,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.north_east_rounded,
-                        color: Theme.of(context).colorScheme.primary, size: 18),
+                    Icon(
+                      Icons.north_east_rounded,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 18,
+                    ),
                     Text(
                       'End',
                       style: GoogleFonts.outfit(
@@ -276,7 +341,11 @@ class _ChatScreenState extends State<ChatScreen> {
         Consumer<ThemeProvider>(
           builder: (context, themeProvider, child) {
             return IconButton(
-              icon: Icon(themeProvider.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
+              icon: Icon(
+                themeProvider.isDarkMode
+                    ? Icons.light_mode_rounded
+                    : Icons.dark_mode_rounded,
+              ),
               color: Theme.of(context).colorScheme.onSurface,
               onPressed: () {
                 themeProvider.toggleTheme();
@@ -289,7 +358,11 @@ class _ChatScreenState extends State<ChatScreen> {
           builder: (ctx, cart, _) => IconButton(
             tooltip: 'My selections',
             onPressed: () async {
-              final orderPlaced = await CartScreen.show(ctx, widget.sessionId, widget.userName);
+              final orderPlaced = await CartScreen.show(
+                ctx,
+                widget.sessionId,
+                widget.userName,
+              );
               if (orderPlaced == true && ctx.mounted) {
                 _showRatingDialog(ctx);
               }
@@ -297,20 +370,27 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: Stack(
               clipBehavior: Clip.none,
               children: [
-                Icon(Icons.shopping_bag_outlined,
-                    color: Theme.of(context).colorScheme.onSurface, size: 24),
+                Icon(
+                  Icons.shopping_bag_outlined,
+                  color: Theme.of(context).colorScheme.onSurface,
+                  size: 24,
+                ),
                 if (cart.count > 0)
                   Positioned(
                     top: -4,
                     right: -6,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 1),
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
                       decoration: BoxDecoration(
                         color: Theme.of(context).colorScheme.primary,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                            color: Theme.of(context).colorScheme.surface, width: 1.5),
+                          color: Theme.of(context).colorScheme.surface,
+                          width: 1.5,
+                        ),
                       ),
                       child: Text(
                         '${cart.count}',
@@ -334,21 +414,25 @@ class _ChatScreenState extends State<ChatScreen> {
             onPressed: () => _showRatingDialog(context),
             style: OutlinedButton.styleFrom(
               foregroundColor: Theme.of(context).colorScheme.primary,
-              side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1),
+              side: BorderSide(
+                color: Theme.of(context).colorScheme.primary,
+                width: 1,
+              ),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
-            child: Text('End Session',
-                style: GoogleFonts.outfit(fontSize: 13)),
+            child: Text('End Session', style: GoogleFonts.outfit(fontSize: 13)),
           ),
         ),
       ],
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
         child: Container(
-            height: 1, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06)),
+          height: 1,
+          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
+        ),
       ),
     );
   }
@@ -400,7 +484,9 @@ class _ChatScreenState extends State<ChatScreen> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
-          top: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06)),
+          top: BorderSide(
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
+          ),
         ),
       ),
       child: Row(
@@ -409,15 +495,23 @@ class _ChatScreenState extends State<ChatScreen> {
             child: CallbackShortcuts(
               bindings: <ShortcutActivator, VoidCallback>{
                 // Shift+Enter inserts a newline at cursor position
-                const SingleActivator(LogicalKeyboardKey.enter, shift: true): () {
+                const SingleActivator(
+                  LogicalKeyboardKey.enter,
+                  shift: true,
+                ): () {
                   final ctrl = _inputController;
                   final text = ctrl.text;
-                  final sel  = ctrl.selection;
-                  final before = text.substring(0, sel.start < 0 ? 0 : sel.start);
-                  final after  = text.substring(sel.end < 0 ? 0 : sel.end);
+                  final sel = ctrl.selection;
+                  final before = text.substring(
+                    0,
+                    sel.start < 0 ? 0 : sel.start,
+                  );
+                  final after = text.substring(sel.end < 0 ? 0 : sel.end);
                   ctrl.value = TextEditingValue(
                     text: '$before\n$after',
-                    selection: TextSelection.collapsed(offset: before.length + 1),
+                    selection: TextSelection.collapsed(
+                      offset: before.length + 1,
+                    ),
                   );
                 },
                 // Plain Enter sends (convenience on desktop)
@@ -431,31 +525,58 @@ class _ChatScreenState extends State<ChatScreen> {
                 textInputAction: TextInputAction.newline,
                 onSubmitted: null, // handled by CallbackShortcuts above
                 style: GoogleFonts.outfit(
-                    color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 14,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Ask about fashion...',
                   hintStyle: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                      fontSize: 14),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.5),
+                    fontSize: 14,
+                  ),
                   filled: true,
                   fillColor: Theme.of(context).inputDecorationTheme.fillColor,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide:
-                        BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08)),
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.08),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                        color: Theme.of(context).colorScheme.primary, width: 1.5),
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 8),
+          if (kEnablePath2ImageSearch) ...[
+            Tooltip(
+              message: 'Search by image (PNG)',
+              child: IconButton(
+                onPressed: provider.isLoading
+                    ? null
+                    : () => _searchByImage(context.read<ChatProvider>()),
+                icon: Icon(
+                  Icons.image_search_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           _SendButton(
             isLoading: provider.isLoading,
             onTap: () => _sendMessage(context.read<ChatProvider>()),
@@ -528,9 +649,9 @@ class _ChatScreenState extends State<ChatScreen> {
                               errorBuilder: (_, __, ___) => Container(
                                 width: 64,
                                 height: 72,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHighest,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
                                 child: const Icon(Icons.checkroom),
                               ),
                             ),
@@ -567,7 +688,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     onPressed: () {
                       Navigator.pop(ctx);
                       provider.sendMessage(
-                          '__offer_declined__', widget.sessionId);
+                        '__offer_declined__',
+                        widget.sessionId,
+                      );
                     },
                     child: const Text('Keep browsing'),
                   ),
@@ -603,21 +726,34 @@ class _ChatScreenState extends State<ChatScreen> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.errorContainer,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Theme.of(context).colorScheme.error.withOpacity(0.5)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.error.withOpacity(0.5),
+        ),
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error, size: 16),
+          Icon(
+            Icons.error_outline,
+            color: Theme.of(context).colorScheme.error,
+            size: 16,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               provider.error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer, fontSize: 12),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onErrorContainer,
+                fontSize: 12,
+              ),
             ),
           ),
           GestureDetector(
             onTap: provider.clearError,
-            child: Icon(Icons.close, color: Theme.of(context).colorScheme.onErrorContainer, size: 16),
+            child: Icon(
+              Icons.close,
+              color: Theme.of(context).colorScheme.onErrorContainer,
+              size: 16,
+            ),
           ),
         ],
       ),
@@ -652,8 +788,8 @@ class _SendButtonState extends State<_SendButton> {
             color: widget.isLoading
                 ? Theme.of(context).colorScheme.primary.withOpacity(0.4)
                 : _hovered
-                    ? Theme.of(context).colorScheme.primary.withOpacity(0.8)
-                    : Theme.of(context).colorScheme.primary,
+                ? Theme.of(context).colorScheme.primary.withOpacity(0.8)
+                : Theme.of(context).colorScheme.primary,
             borderRadius: BorderRadius.circular(14),
           ),
           child: widget.isLoading
@@ -662,10 +798,16 @@ class _SendButtonState extends State<_SendButton> {
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Theme.of(context).colorScheme.onPrimary),
+                      strokeWidth: 2,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                    ),
                   ),
                 )
-              : Icon(Icons.send_rounded, color: Theme.of(context).colorScheme.onPrimary, size: 20),
+              : Icon(
+                  Icons.send_rounded,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                  size: 20,
+                ),
         ),
       ),
     );

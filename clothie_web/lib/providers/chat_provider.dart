@@ -100,6 +100,42 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  /// PATH 2: Search by uploaded image on a dedicated endpoint.
+  Future<void> searchByImage(
+    Uint8List imageBytes,
+    String fileName,
+    String sessionId,
+  ) async {
+    if (_isLoading) return;
+
+    _error = null;
+    _messages.add(ChatMessage.user('🖼️ Search by image: $fileName'));
+    final aiMsg = ChatMessage.assistantPending();
+    _messages.add(aiMsg);
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final rawProducts = await _api.searchByImage(
+        sessionId: sessionId,
+        imageBytes: imageBytes,
+        filename: fileName,
+      );
+      aiMsg.products = rawProducts.map(Product.fromJson).toList();
+      aiMsg.content = aiMsg.products.isEmpty
+          ? 'No visually similar items found.'
+          : '🖼️ Found visually similar items (PATH 2):';
+      aiMsg.status = MessageStatus.done;
+    } catch (e) {
+      aiMsg.content = 'PATH 2 error: $e';
+      aiMsg.status = MessageStatus.done;
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   void _handleSseEvent(SseEvent event, ChatMessage aiMsg) {
     final data = event.data;
     switch (event.type) {

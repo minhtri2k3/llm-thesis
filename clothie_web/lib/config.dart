@@ -8,3 +8,10 @@ const String kApiBaseUrl = '';
 
 const int kSplashDurationSeconds = 2;
 const int kMaxStarRating = 10;
+
+/// PATH 2 is isolated and disabled by default.
+/// Enable with: --dart-define=ENABLE_PATH2_IMAGE_SEARCH=true
+const bool kEnablePath2ImageSearch = bool.fromEnvironment(
+  'ENABLE_PATH2_IMAGE_SEARCH',
+  defaultValue: false,
+);

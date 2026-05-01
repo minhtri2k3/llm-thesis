@@ -12,13 +12,14 @@ Endpoints:
 from __future__ import annotations
 
 import datetime
+import io
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -34,6 +35,9 @@ IMAGES_DIR = Path(os.getenv("IMAGES_DIR", "images"))
 DATASET_IMAGES_DIR = Path(os.getenv("DATASET_IMAGES_DIR", "/app/dataset_images"))
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
+PATH2_MAX_UPLOAD_BYTES = int(os.getenv("PATH2_MAX_UPLOAD_BYTES", "10485760"))  # 10 MB
+PATH2_MAX_TOP_K = int(os.getenv("PATH2_MAX_TOP_K", "20"))
+PATH2_DEFAULT_TOP_K = int(os.getenv("PATH2_DEFAULT_TOP_K", "6"))
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +152,61 @@ class DemographicsResponse(BaseModel):
     by_age_group: list[DemographicsAgeEntry] = []
 
 
+class Path2ImageSearchResponse(BaseModel):
+    mode: str = "path2"
+    session_id: str = ""
+    products: list[dict] = []
+    count: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+def _is_path2_enabled() -> bool:
+    return os.getenv("ENABLE_PATH2_IMAGE_SEARCH", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _validate_path2_png_upload(file: UploadFile, raw: bytes) -> None:
+    from PIL import Image, UnidentifiedImageError
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="image filename is required")
+    if not file.filename.lower().endswith(".png"):
+        raise HTTPException(status_code=415, detail="Only .png files are supported")
+    if file.content_type and file.content_type.lower() not in ("image/png", "application/octet-stream"):
+        raise HTTPException(status_code=415, detail="Only PNG content type is supported")
+    if not raw:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty")
+    if len(raw) > PATH2_MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image too large. Maximum size is {PATH2_MAX_UPLOAD_BYTES} bytes",
+        )
+
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            if img.format != "PNG":
+                raise HTTPException(status_code=415, detail="Only .png files are supported")
+            img.verify()
+    except HTTPException:
+        raise
+    except UnidentifiedImageError:
+        raise HTTPException(status_code=400, detail="Invalid image file")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid PNG image: {exc}")
+
+
+def _run_path2_image_search(raw: bytes, top_k: int) -> list[dict]:
+    from search.image_query_engine import search_by_image_bytes
+
+    return search_by_image_bytes(raw, top_k=top_k)
 
 
 @app.post("/api/sessions", response_model=CreateSessionResponse)
@@ -165,6 +221,35 @@ async def create_session_endpoint(req: CreateSessionRequest):
             preferred_model=req.preferred_model,
         )
         return CreateSessionResponse(session_id=session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/path2/image-search", response_model=Path2ImageSearchResponse)
+async def path2_image_search_endpoint(
+    image: UploadFile = File(...),
+    session_id: str = Form(""),
+    top_k: int = Form(PATH2_DEFAULT_TOP_K),
+):
+    """PATH 2 image-to-image search endpoint (isolated from PATH 1 chat/search flow)."""
+    if not _is_path2_enabled():
+        raise HTTPException(status_code=503, detail="PATH 2 image search is disabled")
+    if top_k < 1 or top_k > PATH2_MAX_TOP_K:
+        raise HTTPException(status_code=400, detail=f"top_k must be between 1 and {PATH2_MAX_TOP_K}")
+
+    raw = await image.read()
+    _validate_path2_png_upload(image, raw)
+
+    try:
+        products = _run_path2_image_search(raw, top_k=top_k)
+        return Path2ImageSearchResponse(
+            mode="path2",
+            session_id=session_id,
+            products=products,
+            count=len(products),
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

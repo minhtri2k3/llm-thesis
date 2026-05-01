@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:clothie_web/config.dart';
@@ -73,9 +74,10 @@ class ApiService {
     String pendingEventType = '';
     String pendingData = '';
 
-    await for (final line in response.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())) {
+    await for (final line
+        in response.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
       if (line.startsWith('event: ')) {
         pendingEventType = line.substring(7).trim();
       } else if (line.startsWith('data: ')) {
@@ -265,11 +267,7 @@ class ApiService {
 
   /// Place a simulated order (phone + address). Returns the new order ID.
   /// Also marks the session as ended in the backend.
-  Future<int> placeOrder(
-    String sessionId,
-    String phone,
-    String address,
-  ) async {
+  Future<int> placeOrder(String sessionId, String phone, String address) async {
     final resp = await _client.post(
       Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/orders'),
       headers: {'Content-Type': 'application/json'},
@@ -288,6 +286,38 @@ class ApiService {
     if (resp.statusCode != 200) {
       throw Exception('Failed to remove item: ${resp.body}');
     }
+  }
+
+  /// PATH 2: search visually similar items by query image.
+  ///
+  /// Uses a dedicated backend endpoint isolated from PATH 1 chat flow.
+  Future<List<Map<String, dynamic>>> searchByImage({
+    required String sessionId,
+    required Uint8List imageBytes,
+    required String filename,
+    int topK = 6,
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$kApiBaseUrl/api/path2/image-search'),
+    );
+    req.fields['session_id'] = sessionId;
+    req.fields['top_k'] = topK.toString();
+    req.files.add(
+      http.MultipartFile.fromBytes('image', imageBytes, filename: filename),
+    );
+
+    final streamed = await _client.send(req);
+    final resp = await http.Response.fromStream(streamed);
+    if (resp.statusCode != 200) {
+      throw Exception(
+        'PATH 2 image search failed (${resp.statusCode}): ${resp.body}',
+      );
+    }
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    return (json['products'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
   }
 
   void dispose() => _client.close();
