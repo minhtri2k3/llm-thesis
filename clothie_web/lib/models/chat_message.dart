@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:clothie_web/models/cart_item.dart';
 import 'package:clothie_web/models/product.dart';
 
@@ -29,6 +30,12 @@ class ChatMessage {
   /// Used to show the shimmer skeleton during active product searching.
   bool isSearching;
 
+  /// Image bytes for PATH 2 (image search). Rendered as thumbnail in chat.
+  Uint8List? imageBytes;
+
+  /// Image filename for display (e.g., "test01.png")
+  String? imageFileName;
+
   ChatMessage({
     required this.id,
     required this.role,
@@ -39,6 +46,8 @@ class ChatMessage {
     List<CartItem>? confirmItems,
     this.stylingTip,
     this.showOfferDialog = false,
+    this.imageBytes,
+    this.imageFileName,
   })  : thinkingSteps = thinkingSteps ?? [],
         products = products ?? [],
         confirmItems = confirmItems ?? [],

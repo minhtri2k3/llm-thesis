@@ -109,7 +109,12 @@ class ChatProvider extends ChangeNotifier {
     if (_isLoading) return;
 
     _error = null;
-    _messages.add(ChatMessage.user('🖼️ Search by image: $fileName'));
+    // Store user message with image bytes for rendering
+    final userMsg = ChatMessage.user('🖼️ Search by image: $fileName')
+      ..imageBytes = imageBytes
+      ..imageFileName = fileName;
+    _messages.add(userMsg);
+    
     final aiMsg = ChatMessage.assistantPending();
     _messages.add(aiMsg);
     _isLoading = true;

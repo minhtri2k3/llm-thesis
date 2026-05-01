@@ -101,6 +101,7 @@ class _UserBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasImage = message.imageBytes != null && message.imageBytes!.isNotEmpty;
     
     return Padding(
       padding: const EdgeInsets.only(bottom: 12, left: 60),
@@ -138,13 +139,62 @@ class _UserBubble extends StatelessWidget {
                   ),
                 ],
               ),
-              child: Text(
-                message.content,
-                style: TextStyle(
-                  color: isDark ? Theme.of(context).scaffoldBackgroundColor : Theme.of(context).colorScheme.onSurface,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Show text message
+                  Text(
+                    message.content,
+                    style: TextStyle(
+                      color: isDark ? Theme.of(context).scaffoldBackgroundColor : Theme.of(context).colorScheme.onSurface,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                  // Show image if present
+                  if (hasImage) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(
+                        message.imageBytes!,
+                        width: 200,
+                        height: 200,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.broken_image_rounded,
+                                  color: Theme.of(context).colorScheme.error,
+                                  size: 32,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Failed to load image',
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.error,
+                                    fontSize: 12,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
