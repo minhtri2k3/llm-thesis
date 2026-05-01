@@ -41,6 +41,7 @@ class ChatProvider extends ChangeNotifier {
   /// Internal flag: set when [autoConfirmNext] consumed a `selection_confirm`;
   /// triggers silent "yes" send after the `done` event arrives.
   bool _pendingAutoConfirm = false;
+  String? _queuedAutoConfirmSessionId;
 
   /// Called by [ChatScreen] after the notification has been shown.
   void clearCartNotification() {
@@ -49,7 +50,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   ChatProvider({ApiService? api, this.onSelectionSaved})
-      : _api = api ?? ApiService();
+    : _api = api ?? ApiService();
 
   /// No-op stub — kept so [ChangeNotifierProxyProvider] can call update.
   void updateCallback(VoidCallback callback) {}
@@ -78,6 +79,9 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
+      autoConfirmNext = false;
+      _pendingAutoConfirm = false;
+      _queuedAutoConfirmSessionId = null;
       aiMsg.content = 'Sorry, something went wrong. Please try again.';
       aiMsg.status = MessageStatus.done;
       _error = e.toString();
@@ -88,6 +92,11 @@ class ChatProvider extends ChangeNotifier {
       }
       _isLoading = false;
       notifyListeners();
+      final queuedSid = _queuedAutoConfirmSessionId;
+      if (queuedSid != null && queuedSid.isNotEmpty) {
+        _queuedAutoConfirmSessionId = null;
+        Future.microtask(() => sendMessage('yes', queuedSid));
+      }
     }
   }
 
@@ -98,13 +107,17 @@ class ChatProvider extends ChangeNotifier {
         aiMsg.status = MessageStatus.thinking;
 
       case 'thinking_step':
-        final step = data is Map ? (data['step'] as String? ?? '') : data.toString();
+        final step = data is Map
+            ? (data['step'] as String? ?? '')
+            : data.toString();
         // Track when the agent enters the search phase → triggers shimmer
         if (step == 'search') {
           aiMsg.isSearching = true;
         }
         if (step.isNotEmpty) {
-          final detail = data is Map ? (data['detail'] as String? ?? step) : step;
+          final detail = data is Map
+              ? (data['detail'] as String? ?? step)
+              : step;
           aiMsg.thinkingSteps.add(ThinkingStep(detail));
         }
 
@@ -138,11 +151,17 @@ class ChatProvider extends ChangeNotifier {
 
         // ── Auto-log impressions (fire-and-forget) ────────────────────────
         if (_sessionId.isNotEmpty && aiMsg.products.isNotEmpty) {
-          final impressionItems = aiMsg.products.asMap().entries.map((e) => {
-            'image_id': e.value.imageId,
-            'search_query': '',  // query not included in SSE payload
-            'position': e.key + 1,  // 1-based rank
-          }).toList();
+          final impressionItems = aiMsg.products
+              .asMap()
+              .entries
+              .map(
+                (e) => {
+                  'image_id': e.value.imageId,
+                  'search_query': '', // query not included in SSE payload
+                  'position': e.key + 1, // 1-based rank
+                },
+              )
+              .toList();
           _api.logImpressions(_sessionId, impressionItems); // non-awaited
         }
 
@@ -160,8 +179,9 @@ class ChatProvider extends ChangeNotifier {
           // Strip markdown image syntax (![alt](/path)) from text so the
           // bubble doesn't display the raw markdown string.
           final rawText = data['text'] as String? ?? '';
-          aiMsg.content = rawText.replaceAll(
-              RegExp(r'!\[.*?\]\([^)]*\)'), '').trim();
+          aiMsg.content = rawText
+              .replaceAll(RegExp(r'!\[.*?\]\([^)]*\)'), '')
+              .trim();
 
           // Parse the structured items list for the image strip.
           final rawItems = data['items'] as List? ?? [];
@@ -174,19 +194,25 @@ class ChatProvider extends ChangeNotifier {
 
       case 'selection_saved':
         // Items confirmed saved — notify CartProvider to reload from API.
-        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
+        final text = data is Map
+            ? (data['text'] as String? ?? '')
+            : data.toString();
         if (text.isNotEmpty) aiMsg.content = text;
-        onSelectionSaved?.call();  // ← triggers CartProvider.reload()
+        onSelectionSaved?.call(); // ← triggers CartProvider.reload()
         pendingCartNotification = true; // ← triggers SnackBar in ChatScreen
         aiMsg.status = MessageStatus.done;
 
       case 'selection_cancelled':
-        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
+        final text = data is Map
+            ? (data['text'] as String? ?? '')
+            : data.toString();
         if (text.isNotEmpty) aiMsg.content = text;
         aiMsg.status = MessageStatus.done;
 
       case 'selections_list':
-        final text = data is Map ? (data['text'] as String? ?? '') : data.toString();
+        final text = data is Map
+            ? (data['text'] as String? ?? '')
+            : data.toString();
         if (text.isNotEmpty) aiMsg.content = text;
         aiMsg.status = MessageStatus.done;
 
@@ -201,8 +227,9 @@ class ChatProvider extends ChangeNotifier {
         if (_pendingAutoConfirm) {
           _pendingAutoConfirm = false;
           final sid = data is Map ? (data['session_id'] as String? ?? '') : '';
-          if (sid.isNotEmpty) {
-            Future.microtask(() => sendMessage('yes', sid));
+          final validSid = sid.isNotEmpty ? sid : _sessionId;
+          if (validSid.isNotEmpty) {
+            _queuedAutoConfirmSessionId = validSid;
           }
         }
         aiMsg.status = MessageStatus.done;
@@ -216,6 +243,7 @@ class ChatProvider extends ChangeNotifier {
       case 'error':
         autoConfirmNext = false;
         _pendingAutoConfirm = false;
+        _queuedAutoConfirmSessionId = null;
         final msg = data is Map
             ? (data['message'] as String? ?? 'Unknown error')
             : data.toString();
@@ -234,6 +262,7 @@ class ChatProvider extends ChangeNotifier {
     _messages.clear();
     _isLoading = false;
     _error = null;
+    _queuedAutoConfirmSessionId = null;
     notifyListeners();
   }
 

@@ -42,14 +42,15 @@ def _get_pool():
     global _pool
     if _pool is None or _pool.closed:
         _pool = SimpleConnectionPool(
-            minconn=1,
-            maxconn=5,
+            minconn=2,
+            maxconn=10,
             host=os.getenv("PGHOST", "localhost"),
             port=int(os.getenv("PGPORT", "5432")),
             dbname=os.getenv("PGDATABASE", "fashion_rag"),
             user=os.getenv("PGUSER", "fashion_user"),
             password=os.getenv("PGPASSWORD", ""),
             connect_timeout=5,
+            options="-c lock_timeout=8000",  # 8s lock timeout — prevents indefinite hang
         )
     return _pool
 

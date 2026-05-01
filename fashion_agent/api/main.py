@@ -1086,6 +1086,6 @@ if __name__ == "__main__":
         "api.main:app",
         host=API_HOST,
         port=API_PORT,
-        reload=False,
+        reload=True,
         log_level="info",
     )

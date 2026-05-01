@@ -82,6 +82,8 @@ services:
       - ./models:/app/models
       - ./images:/app/images:ro
       - ${DATASET_IMAGES_HOST_PATH:-./images}:/app/dataset_images:ro
+      - ./agent:/app/agent
+      - ./api:/app/api
     networks:
       - internal
     ports:

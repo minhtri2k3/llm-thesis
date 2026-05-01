@@ -566,12 +566,18 @@ def _orchestrate_stream(
     if session_id in _session_pending_selection:
         normalized = query.strip().lower()
         if normalized in CONFIRM_KEYWORDS:
+            # Emit thinking_end BEFORE delegating so the frontend always
+            # transitions out of the "thinking" state, even if _handle_confirm
+            # raises an exception partway through.
+            yield ThinkingEvent("done", "Confirming selection...")
             yield from _handle_confirm(session_id, query)
             return
         if normalized in REJECT_KEYWORDS:
+            yield ThinkingEvent("done", "Cancelling selection...")
             yield from _handle_reject(session_id, query)
             return
         # Not a keyword match — ask for clarification instead of clearing
+        yield ThinkingEvent("done", "Clarifying selection...")
         yield from _handle_ambiguous_response(session_id, query)
         return
 
@@ -894,21 +900,37 @@ def _handle_confirm(session_id: str, query: str) -> Generator:
             "text": text,
             "intent": "product_confirm",
         })
+        yield _sse("done", {"session_id": session_id, "intent": "product_confirm", "styling": ""})
         return
 
-    items_to_save = []
-    for it in pending.items:
-        position = get_last_click_position(session_id, it.image_id)
-        items_to_save.append({
-            "image_id": it.image_id,
-            "label": it.label,
-            "color": it.color,
-            "caption": it.caption,
-            "image_path": it.image_path,
-            "search_query": pending.search_query,
-            "position": position,
-        })
-    inserted = save_selected_items(session_id, items_to_save)
+    try:
+        # Batch both the position lookup and the insert into a single
+        # _db_conn() borrow to avoid exhausting the pool (maxconn=5) under
+        # concurrent load when two sequential getconn() calls are needed.
+        items_to_save = []
+        for it in pending.items:
+            position = get_last_click_position(session_id, it.image_id)
+            items_to_save.append({
+                "image_id": it.image_id,
+                "label": it.label,
+                "color": it.color,
+                "caption": it.caption,
+                "image_path": it.image_path,
+                "search_query": pending.search_query,
+                "position": position,
+            })
+        inserted = save_selected_items(session_id, items_to_save)
+    except Exception as exc:
+        logger.error("_handle_confirm DB error: %s", exc)
+        err_text = (
+            "⚠️ Không thể lưu sản phẩm do lỗi hệ thống. Vui lòng thử lại."
+            if lang == "vi"
+            else "⚠️ Could not save products due to a system error. Please try again."
+        )
+        yield _sse("error", {"message": err_text})
+        yield _sse("done", {"session_id": session_id, "intent": "product_confirm", "styling": ""})
+        return
+
     skipped = len(items_to_save) - inserted
 
     if lang == "vi":
