@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -178,6 +177,28 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  /// Fetches behavior funnel analytics with path comparison and integrity data.
+  ///
+  /// Returns a map containing `path_comparison`, `aggregate`, and `integrity`.
+  /// Throws an [Exception] on auth failure or server error.
+  Future<Map<String, dynamic>> getBehaviourFunnel(String secretKey) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/analytics/behaviour-funnel');
+    final response = await _client.get(
+      uri,
+      headers: {'X-Admin-Key': secretKey},
+    );
+    if (response.statusCode == 403) {
+      throw Exception('403: Incorrect access code');
+    }
+    if (response.statusCode == 503) {
+      throw Exception('503: Analytics not configured on server');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load behavior funnel: ${response.body}');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   /// Submits a post-session rating and feedback.
   Future<void> submitRating({
     required String sessionId,
@@ -218,7 +239,9 @@ class ApiService {
         body: jsonEncode({'items': items}),
       );
       if (resp.statusCode != 200 && kDebugMode) {
-        debugPrint('telemetry(logImpressions) failed: ${resp.statusCode} ${resp.body}');
+        debugPrint(
+          'telemetry(logImpressions) failed: ${resp.statusCode} ${resp.body}',
+        );
       }
     } catch (_) {
       if (kDebugMode) {
@@ -247,7 +270,9 @@ class ApiService {
         }),
       );
       if (resp.statusCode != 200 && kDebugMode) {
-        debugPrint('telemetry(logClick) failed: ${resp.statusCode} ${resp.body}');
+        debugPrint(
+          'telemetry(logClick) failed: ${resp.statusCode} ${resp.body}',
+        );
       }
     } catch (_) {
       if (kDebugMode) {

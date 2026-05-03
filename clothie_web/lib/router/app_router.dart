@@ -3,16 +3,21 @@ import 'package:go_router/go_router.dart';
 import 'package:clothie_web/screens/splash_screen.dart';
 import 'package:clothie_web/screens/register_screen.dart';
 import 'package:clothie_web/screens/chat_screen.dart';
+import 'package:clothie_web/screens/professor_dashboard_page.dart';
 
 /// Route arguments for ChatScreen
 class ChatRouteArgs {
   final String sessionId;
   final String userName;
 
-  ChatRouteArgs({
-    required this.sessionId,
-    required this.userName,
-  });
+  ChatRouteArgs({required this.sessionId, required this.userName});
+}
+
+/// Route arguments for ProfessorDashboardPage
+class ProfessorDashboardRouteArgs {
+  final String secretKey;
+
+  ProfessorDashboardRouteArgs({required this.secretKey});
 }
 
 /// Centralized router configuration using go_router
@@ -41,10 +46,19 @@ final appRouter = GoRouter(
           // Fallback to register if no args provided
           return const RegisterScreen();
         }
-        return ChatScreen(
-          sessionId: args.sessionId,
-          userName: args.userName,
-        );
+        return ChatScreen(sessionId: args.sessionId, userName: args.userName);
+      },
+    ),
+    // Professor Dashboard Screen
+    GoRoute(
+      path: '/professor-dashboard',
+      name: 'professor-dashboard',
+      builder: (context, state) {
+        final args = state.extra as ProfessorDashboardRouteArgs?;
+        if (args == null || args.secretKey.isEmpty) {
+          return const RegisterScreen();
+        }
+        return ProfessorDashboardPage(secretKey: args.secretKey);
       },
     ),
   ],
@@ -58,10 +72,7 @@ final appRouter = GoRouter(
             style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-          Text(
-            'Page not found',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
+          Text('Page not found', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () => context.go('/'),

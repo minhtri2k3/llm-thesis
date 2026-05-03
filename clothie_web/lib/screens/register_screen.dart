@@ -42,7 +42,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     final yearInt = int.tryParse(yearStr);
     if (yearInt == null || yearInt < 1900 || yearInt > currentYear) {
-      setState(() => _error = 'Please enter a valid birth year (1900–$currentYear).');
+      setState(
+        () => _error = 'Please enter a valid birth year (1900–$currentYear).',
+      );
       return;
     }
     if (_selectedGender == null) {
@@ -56,14 +58,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      final sessionId = await _api.createSession(name, yearInt, _selectedGender!, _selectedModel);
+      final sessionId = await _api.createSession(
+        name,
+        yearInt,
+        _selectedGender!,
+        _selectedModel,
+      );
       if (mounted) {
         context.goNamed(
           'chat',
-          extra: ChatRouteArgs(
-            sessionId: sessionId,
-            userName: name,
-          ),
+          extra: ChatRouteArgs(sessionId: sessionId, userName: name),
         );
       }
     } catch (e) {
@@ -89,15 +93,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       builder: (_) => _PinDialog(api: _api),
     );
     if (secretKey != null && mounted) {
-      _showProfessorDashboard(secretKey);
+      context.goNamed(
+        'professor-dashboard',
+        extra: ProfessorDashboardRouteArgs(secretKey: secretKey),
+      );
     }
-  }
-
-  void _showProfessorDashboard(String secretKey) {
-    showDialog(
-      context: context,
-      builder: (_) => _ProfessorDashboardDialog(api: _api, secretKey: secretKey),
-    );
   }
 
   @override
@@ -112,7 +112,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           Consumer<ThemeProvider>(
             builder: (context, themeProvider, child) {
               return IconButton(
-                icon: Icon(themeProvider.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
+                icon: Icon(
+                  themeProvider.isDarkMode
+                      ? Icons.light_mode_rounded
+                      : Icons.dark_mode_rounded,
+                ),
                 color: Theme.of(context).colorScheme.onSurface,
                 onPressed: () {
                   themeProvider.toggleTheme();
@@ -145,19 +149,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       onTap: _showLeaderboard,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 12),
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surface.withOpacity(0.6),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.secondary.withOpacity(0.15),
                           ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text('🏆',
-                                style: TextStyle(fontSize: 18)),
+                            const Text('🏆', style: TextStyle(fontSize: 18)),
                             const SizedBox(width: 10),
                             Text(
                               'Leaderboard',
@@ -169,8 +178,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Icon(Icons.arrow_forward_ios_rounded,
-                                size: 12, color: Theme.of(context).colorScheme.secondary),
+                            Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 12,
+                              color: Theme.of(context).colorScheme.secondary,
+                            ),
                           ],
                         ),
                       ),
@@ -181,20 +193,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       onTap: _showProfessorPin,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 12),
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surface.withOpacity(0.6),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.secondary.withOpacity(0.15),
                             width: 1,
                           ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text('🔬',
-                                style: TextStyle(fontSize: 18)),
+                            const Text('🔬', style: TextStyle(fontSize: 18)),
                             const SizedBox(width: 10),
                             Text(
                               'Professor View',
@@ -206,8 +223,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Icon(Icons.lock_outline_rounded,
-                                size: 12, color: Theme.of(context).colorScheme.secondary),
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 12,
+                              color: Theme.of(context).colorScheme.secondary,
+                            ),
                           ],
                         ),
                       ),
@@ -254,7 +274,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 color: Theme.of(context).colorScheme.secondary.withOpacity(0.3),
               ),
             ),
-            child: const Center(child: Text('👗', style: TextStyle(fontSize: 30))),
+            child: const Center(
+              child: Text('👗', style: TextStyle(fontSize: 30)),
+            ),
           ),
           const SizedBox(height: 24),
           Text(
@@ -288,20 +310,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: InputDecoration(
               hintText: 'Enter your name',
               hintStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+              ),
               filled: true,
               fillColor: Theme.of(context).inputDecorationTheme.fillColor,
-              prefixIcon: Icon(Icons.person_outline,
-                  color: Theme.of(context).colorScheme.secondary, size: 20),
+              prefixIcon: Icon(
+                Icons.person_outline,
+                color: Theme.of(context).colorScheme.secondary,
+                size: 20,
+              ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1), width: 1),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withOpacity(0.1),
+                  width: 1,
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.secondary, width: 1.5),
+                  color: Theme.of(context).colorScheme.secondary,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -319,21 +351,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: InputDecoration(
               hintText: 'Year of birth (e.g. 2000)',
               hintStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+              ),
               filled: true,
               fillColor: Theme.of(context).inputDecorationTheme.fillColor,
               counterText: '',
-              prefixIcon: Icon(Icons.cake_outlined,
-                  color: Theme.of(context).colorScheme.secondary, size: 20),
+              prefixIcon: Icon(
+                Icons.cake_outlined,
+                color: Theme.of(context).colorScheme.secondary,
+                size: 20,
+              ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1), width: 1),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withOpacity(0.1),
+                  width: 1,
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.secondary, width: 1.5),
+                  color: Theme.of(context).colorScheme.secondary,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -371,7 +413,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   label: 'Gemini',
                   value: 'gemini-2.5-flash',
                   selected: _selectedModel == 'gemini-2.5-flash',
-                  onTap: () => setState(() => _selectedModel = 'gemini-2.5-flash'),
+                  onTap: () =>
+                      setState(() => _selectedModel = 'gemini-2.5-flash'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -389,7 +432,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   label: 'Claude',
                   value: 'claude-3-7-sonnet-latest',
                   selected: _selectedModel == 'claude-3-7-sonnet-latest',
-                  onTap: () => setState(() => _selectedModel = 'claude-3-7-sonnet-latest'),
+                  onTap: () => setState(
+                    () => _selectedModel = 'claude-3-7-sonnet-latest',
+                  ),
                 ),
               ),
             ],
@@ -415,10 +460,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor:
-                    Theme.of(context).colorScheme.primary.withOpacity(0.4),
+                disabledBackgroundColor: Theme.of(
+                  context,
+                ).colorScheme.primary.withOpacity(0.4),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 elevation: 0,
               ),
               child: _isLoading
@@ -426,7 +473,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : Text(
                       'Start Chatting  →',
@@ -469,7 +518,9 @@ class _SelectButton extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: selected ? primary.withOpacity(0.15) : surface.withOpacity(0.6),
+          color: selected
+              ? primary.withOpacity(0.15)
+              : surface.withOpacity(0.6),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? primary : onSurface.withOpacity(0.1),
@@ -529,7 +580,9 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
           color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: Theme.of(context).colorScheme.secondary.withOpacity(0.15), width: 1),
+            color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
+            width: 1,
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.2),
@@ -543,8 +596,7 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
           children: [
             // Header
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Row(
                 children: [
                   const Text('🏆', style: TextStyle(fontSize: 22)),
@@ -560,8 +612,13 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                   const Spacer(),
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
-                    child: Icon(Icons.close_rounded,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6), size: 20),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
+                      size: 20,
+                    ),
                   ),
                 ],
               ),
@@ -573,162 +630,193 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
               child: _error != null
                   ? Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text(_error!,
-                          style: const TextStyle(
-                              color: Color(0xFFEF4444), fontSize: 13)),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(
+                          color: Color(0xFFEF4444),
+                          fontSize: 13,
+                        ),
+                      ),
                     )
                   : _entries == null
-                      ? Padding(
-                          padding: const EdgeInsets.all(40),
-                          child: CircularProgressIndicator(
-                              color: Theme.of(context).colorScheme.secondary),
-                        )
-                      : _entries!.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.all(40),
-                              child: Text(
-                                'No feedback submitted yet.\nBe the first!',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.outfit(
-                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                                  fontSize: 14,
+                  ? Padding(
+                      padding: const EdgeInsets.all(40),
+                      child: CircularProgressIndicator(
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                    )
+                  : _entries!.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(40),
+                      child: Text(
+                        'No feedback submitted yet.\nBe the first!',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withOpacity(0.5),
+                          fontSize: 14,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      itemCount: _entries!.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(color: Color(0x15FFFFFF), height: 1),
+                      itemBuilder: (_, i) {
+                        final e = _entries![i];
+                        final rating = (e['rating'] as num?)?.toInt() ?? 0;
+                        final name = e['user_name'] as String? ?? 'Anonymous';
+                        final feedback = e['feedback'] as String? ?? '';
+                        final modelName = e['model_name'] as String? ?? '—';
+                        final totalTokens =
+                            (e['total_tokens'] as num?)?.toInt() ?? 0;
+
+                        String shortModel = '—';
+                        Color modelColor = Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.3);
+                        if (modelName.contains('gemini')) {
+                          shortModel = 'Gemini';
+                          modelColor = Colors.blue;
+                        } else if (modelName.contains('gpt-4o')) {
+                          shortModel = 'GPT-4o';
+                          modelColor = Colors.green;
+                        } else if (modelName.contains('claude')) {
+                          shortModel = 'Claude';
+                          modelColor = Colors.orange;
+                        }
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Rank medal or number
+                              SizedBox(
+                                width: 28,
+                                child: Text(
+                                  i == 0
+                                      ? '🥇'
+                                      : i == 1
+                                      ? '🥈'
+                                      : i == 2
+                                      ? '🥉'
+                                      : '${i + 1}.',
+                                  style: TextStyle(
+                                    fontSize: i < 3 ? 18 : 13,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.6),
+                                  ),
                                 ),
                               ),
-                            )
-                          : ListView.separated(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 16),
-                              itemCount: _entries!.length,
-                              separatorBuilder: (_, __) => const Divider(
-                                  color: Color(0x15FFFFFF), height: 1),
-                              itemBuilder: (_, i) {
-                                final e = _entries![i];
-                                final rating =
-                                    (e['rating'] as num?)?.toInt() ?? 0;
-                                final name =
-                                    e['user_name'] as String? ?? 'Anonymous';
-                                final feedback =
-                                    e['feedback'] as String? ?? '';
-                                final modelName = e['model_name'] as String? ?? '—';
-                                final totalTokens = (e['total_tokens'] as num?)?.toInt() ?? 0;
-
-                                String shortModel = '—';
-                                Color modelColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3);
-                                if (modelName.contains('gemini')) {
-                                  shortModel = 'Gemini';
-                                  modelColor = Colors.blue;
-                                } else if (modelName.contains('gpt-4o')) {
-                                  shortModel = 'GPT-4o';
-                                  modelColor = Colors.green;
-                                } else if (modelName.contains('claude')) {
-                                  shortModel = 'Claude';
-                                  modelColor = Colors.orange;
-                                }
-
-                                return Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      // Rank medal or number
-                                      SizedBox(
-                                        width: 28,
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          name,
+                                          style: GoogleFonts.outfit(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurface,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: modelColor.withValues(
+                                              alpha: 0.15,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: modelColor.withValues(
+                                                alpha: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            shortModel,
+                                            style: GoogleFonts.outfit(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: modelColor,
+                                            ),
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        // Star rating
+                                        _StarRating(rating: rating),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '$rating/10',
+                                          style: GoogleFonts.outfit(
+                                            fontSize: 12,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.secondary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (totalTokens > 0)
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: 2,
+                                          bottom: 2,
+                                        ),
                                         child: Text(
-                                          i == 0
-                                              ? '🥇'
-                                              : i == 1
-                                                  ? '🥈'
-                                                  : i == 2
-                                                      ? '🥉'
-                                                      : '${i + 1}.',
-                                          style: TextStyle(
-                                            fontSize: i < 3 ? 18 : 13,
-                                            color:
-                                                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                          '$totalTokens tokens',
+                                          style: GoogleFonts.outfit(
+                                            fontSize: 11,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withValues(alpha: 0.4),
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Text(
-                                                  name,
-                                                  style: GoogleFonts.outfit(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: Theme.of(context).colorScheme.onSurface,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: modelColor.withValues(alpha: 0.15),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    border: Border.all(color: modelColor.withValues(alpha: 0.5)),
-                                                  ),
-                                                  child: Text(
-                                                    shortModel,
-                                                    style: GoogleFonts.outfit(
-                                                      fontSize: 10,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: modelColor,
-                                                    ),
-                                                  ),
-                                                ),
-                                                const Spacer(),
-                                                // Star rating
-                                                _StarRating(rating: rating),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  '$rating/10',
-                                                  style: GoogleFonts.outfit(
-                                                    fontSize: 12,
-                                                    color: Theme.of(context).colorScheme.secondary,
-                                                    fontWeight:
-                                                        FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            if (totalTokens > 0)
-                                              Padding(
-                                                padding: const EdgeInsets.only(top: 2, bottom: 2),
-                                                child: Text(
-                                                  '$totalTokens tokens',
-                                                  style: GoogleFonts.outfit(
-                                                    fontSize: 11,
-                                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
-                                                  ),
-                                                ),
-                                              ),
-                                            if (feedback.isNotEmpty) ...[
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                '"$feedback"',
-                                                style: GoogleFonts.outfit(
-                                                  fontSize: 13,
-                                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                                                  fontStyle: FontStyle.italic,
-                                                  height: 1.5,
-                                                ),
-                                              ),
-                                            ],
-                                          ],
+                                    if (feedback.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '"$feedback"',
+                                        style: GoogleFonts.outfit(
+                                          fontSize: 13,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withOpacity(0.5),
+                                          fontStyle: FontStyle.italic,
+                                          height: 1.5,
                                         ),
                                       ),
                                     ],
-                                  ),
-                                );
-                              },
-                            ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
             ),
 
             // Close button
@@ -742,11 +830,16 @@ class _LeaderboardDialogState extends State<_LeaderboardDialog> {
                     foregroundColor: Theme.of(context).colorScheme.primary,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  child: Text('Close',
-                      style: GoogleFonts.outfit(
-                          fontSize: 14, fontWeight: FontWeight.w500)),
+                  child: Text(
+                    'Close',
+                    style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -841,7 +934,9 @@ class _PinDialogState extends State<_PinDialog> {
           color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: Theme.of(context).colorScheme.secondary.withOpacity(0.15), width: 1),
+            color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
+            width: 1,
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.2),
@@ -892,26 +987,40 @@ class _PinDialogState extends State<_PinDialog> {
               decoration: InputDecoration(
                 hintText: '••••••••',
                 hintStyle: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
-                    letterSpacing: 6),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withOpacity(0.3),
+                  letterSpacing: 6,
+                ),
                 filled: true,
                 fillColor: Theme.of(context).inputDecorationTheme.fillColor,
                 counterText: '',
-                prefixIcon: Icon(Icons.lock_outline_rounded,
-                    color: Theme.of(context).colorScheme.secondary, size: 20),
+                prefixIcon: Icon(
+                  Icons.lock_outline_rounded,
+                  color: Theme.of(context).colorScheme.secondary,
+                  size: 20,
+                ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1), width: 1),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.1),
+                    width: 1,
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide:
-                      BorderSide(color: Theme.of(context).colorScheme.secondary, width: 1.5),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.secondary,
+                    width: 1.5,
+                  ),
                 ),
                 errorText: _error,
-                errorStyle:
-                    const TextStyle(color: Color(0xFFEF4444), fontSize: 12),
+                errorStyle: const TextStyle(
+                  color: Color(0xFFEF4444),
+                  fontSize: 12,
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -921,14 +1030,21 @@ class _PinDialogState extends State<_PinDialog> {
                   child: TextButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      foregroundColor: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    child: Text('Cancel',
-                        style: GoogleFonts.outfit(
-                            fontSize: 14, fontWeight: FontWeight.w500)),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.outfit(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -938,11 +1054,13 @@ class _PinDialogState extends State<_PinDialog> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
-                      disabledBackgroundColor:
-                          Theme.of(context).colorScheme.primary.withOpacity(0.4),
+                      disabledBackgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primary.withOpacity(0.4),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       elevation: 0,
                     ),
                     child: _loading
@@ -950,417 +1068,24 @@ class _PinDialogState extends State<_PinDialog> {
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
-                        : Text('Unlock 🔬',
+                        : Text(
+                            'Unlock 🔬',
                             style: GoogleFonts.outfit(
-                                fontSize: 14, fontWeight: FontWeight.w600)),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Professor Dashboard Dialog ────────────────────────────────────────
-
-class _ProfessorDashboardDialog extends StatefulWidget {
-  final ApiService api;
-  final String secretKey;
-  const _ProfessorDashboardDialog(
-      {required this.api, required this.secretKey});
-
-  @override
-  State<_ProfessorDashboardDialog> createState() =>
-      _ProfessorDashboardDialogState();
-}
-
-class _ProfessorDashboardDialogState
-    extends State<_ProfessorDashboardDialog> {
-  List<Map<String, dynamic>>? _sessions;
-  Map<String, dynamic>? _demographics;
-  String? _error;
-  int _grandTotal = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final data = await widget.api.getTokenAnalytics(widget.secretKey);
-      final demo = await widget.api.getDemographics(widget.secretKey);
-      if (mounted) {
-        setState(() {
-          _sessions = data;
-          _demographics = demo;
-          _grandTotal = data.fold(
-              0, (sum, s) => sum + ((s['total_tokens'] as num?)?.toInt() ?? 0));
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    }
-  }
-
-  String _fmt(int n) {
-    // Format integer with comma thousands separator
-    final s = n.toString();
-    final buf = StringBuffer();
-    for (var i = 0; i < s.length; i++) {
-      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
-      buf.write(s[i]);
-    }
-    return buf.toString();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: Theme.of(context).colorScheme.secondary.withOpacity(0.15), width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.5),
-              blurRadius: 40,
-              spreadRadius: 0,
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Row(
-                children: [
-                  const Text('🔬', style: TextStyle(fontSize: 22)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Professor Dashboard',
-                          style: GoogleFonts.outfit(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
-                        if (_sessions != null)
-                          Text(
-                            '${_sessions!.length} session${_sessions!.length == 1 ? '' : 's'} · ${_fmt(_grandTotal)} total tokens',
-                            style: GoogleFonts.outfit(
-                              fontSize: 12,
-                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
-                    child: Icon(Icons.close_rounded,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5), size: 20),
-                  ),
-                ],
-              ),
-            ),
-            // Column headers
-            if (_sessions != null && _sessions!.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                color: Colors.white.withOpacity(0.04),
-                child: Row(
-                  children: [
-                    _colHeader('Session', flex: 3),
-                    _colHeader('User', flex: 3),
-                    _colHeader('Model', flex: 3),
-                    _colHeader('Tokens', flex: 2, align: TextAlign.right),
-                  ],
-                ),
-              ),
-            const Divider(color: Color(0x22FFFFFF), height: 1),
-
-            // Body
-            Flexible(
-              child: _error != null
-                  ? Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(_error!,
-                          style: const TextStyle(
-                              color: Color(0xFFEF4444), fontSize: 13)),
-                    )
-                  : _sessions == null
-                      ? Padding(
-                          padding: const EdgeInsets.all(40),
-                          child: CircularProgressIndicator(
-                              color: Theme.of(context).colorScheme.primary),
-                        )
-                      : _sessions!.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.all(40),
-                              child: Text(
-                                'No sessions recorded yet.',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.outfit(
-                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                                  fontSize: 14,
-                                ),
-                              ),
-                            )
-                          : ListView.separated(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 24, vertical: 8),
-                              itemCount: _sessions!.length,
-                              separatorBuilder: (_, __) => const Divider(
-                                  color: Color(0x10FFFFFF), height: 1),
-                              itemBuilder: (_, i) {
-                                final s = _sessions![i];
-                                final sessionId =
-                                    (s['session_id'] as String? ?? '');
-                                final shortId = sessionId.length > 12
-                                    ? '${sessionId.substring(0, 12)}…'
-                                    : sessionId;
-                                final userName =
-                                    s['user_name'] as String? ?? 'Anonymous';
-                                final modelName =
-                                    s['model_name'] as String? ?? '-';
-                                final tokens =
-                                    (s['total_tokens'] as num?)?.toInt() ?? 0;
-                                return Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 10),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        flex: 3,
-                                        child: Text(
-                                          shortId,
-                                          style: GoogleFonts.outfit(
-                                            fontSize: 12,
-                                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                                          ),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        flex: 3,
-                                        child: Text(
-                                          userName,
-                                          style: GoogleFonts.outfit(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                            color: Theme.of(context).colorScheme.onSurface,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      Expanded(
-                                        flex: 3,
-                                        child: Text(
-                                          modelName.replaceAll(
-                                              'gemini-', 'Gemini '),
-                                          style: GoogleFonts.outfit(
-                                            fontSize: 12,
-                                            color: Theme.of(context).colorScheme.primary,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      Expanded(
-                                        flex: 2,
-                                        child: Text(
-                                          _fmt(tokens),
-                                          textAlign: TextAlign.right,
-                                          style: GoogleFonts.outfit(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: Theme.of(context).colorScheme.onSurface,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-            ),
-
-            if (_demographics != null) ...[
-              const Divider(color: Color(0x33FFFFFF), height: 1),
-              Container(
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.only(left: 24, top: 16, right: 24),
-                child: Text(
-                  '📊 Demographics',
-                  style: GoogleFonts.outfit(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
-              ),
-              _buildDemographicsSection(),
-            ],
-
-            // Close button
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Theme.of(context).colorScheme.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text('Close',
-                      style: GoogleFonts.outfit(
-                          fontSize: 14, fontWeight: FontWeight.w500)),
-                ),
-              ),
+              ],
             ),
           ],
         ),
       ),
     );
   }
-
-  Widget _colHeader(String label,
-      {int flex = 1, TextAlign align = TextAlign.left}) {
-    return Expanded(
-      flex: flex,
-      child: Text(
-        label.toUpperCase(),
-        textAlign: align,
-        style: GoogleFonts.outfit(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-          letterSpacing: 0.8,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDemographicsSection() {
-    final byGender = (_demographics!['by_gender'] as List?) ?? [];
-    final byAgeGroup = (_demographics!['by_age_group'] as List?) ?? [];
-
-    if (byGender.isEmpty && byAgeGroup.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        child: Text(
-          'No demographic data yet.',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.outfit(
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-            fontSize: 13,
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'GENDER',
-                  style: GoogleFonts.outfit(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (byGender.isEmpty)
-                  Text('N/A', style: GoogleFonts.outfit(fontSize: 13, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))),
-                ...byGender.map((g) => _buildDemoItemRow(
-                  g['gender'] == 'male' ? 'Male' : (g['gender'] == 'female' ? 'Female' : 'Unknown'),
-                  (g['avg_rating'] as num?)?.toDouble() ?? 0.0,
-                  (g['count'] as num?)?.toInt() ?? 0,
-                )),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'AGE GROUP',
-                  style: GoogleFonts.outfit(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (byAgeGroup.isEmpty)
-                  Text('N/A', style: GoogleFonts.outfit(fontSize: 13, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5))),
-                ...byAgeGroup.map((a) => _buildDemoItemRow(
-                  a['age_group'] as String? ?? 'Empty',
-                  (a['avg_rating'] as num?)?.toDouble() ?? 0.0,
-                  (a['count'] as num?)?.toInt() ?? 0,
-                )),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDemoItemRow(String label, double rating, int count) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: GoogleFonts.outfit(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-          ),
-          Text(
-            '${rating.toStringAsFixed(1)} ⭐️ ($count)',
-            style: GoogleFonts.outfit(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
-

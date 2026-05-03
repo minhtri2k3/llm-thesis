@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:clothie_web/config.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
-import 'package:clothie_web/screens/register_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -27,9 +26,10 @@ class _SplashScreenState extends State<SplashScreen>
     )..forward();
 
     _fadeIn = CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOut);
-    _slideUp = Tween(begin: 40.0, end: 0.0).animate(
-      CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic),
-    );
+    _slideUp = Tween(
+      begin: 40.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic));
 
     // Navigate to Register after splash duration
     Future.delayed(Duration(seconds: kSplashDurationSeconds + 1), () {
@@ -48,15 +48,13 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       body: Stack(
         children: [
           // Animated background
-          const Positioned.fill(
-            child: FlyingIconBackground(iconCount: 16),
-          ),
+          const Positioned.fill(child: FlyingIconBackground(iconCount: 16)),
           // Gradient overlay
           Positioned.fill(
             child: Container(
@@ -161,7 +159,7 @@ class _LoadingDotsState extends State<_LoadingDots>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) => Row(
