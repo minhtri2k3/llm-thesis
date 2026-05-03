@@ -305,6 +305,32 @@ class PendingSelection:
     items: list[ProductResult]
     search_query: str
     numbers: list[int]
+    path_mode: str = "path1"
+
+
+def cache_external_results(
+    session_id: str,
+    path_mode: str,
+    products: list[dict],
+) -> None:
+    """Cache externally produced products (e.g. PATH 2 endpoint) for selection flow."""
+    normalized_mode = "path2" if path_mode == "path2" else "path1"
+    cached_products = [
+        ProductResult(
+            image_id=p.get("image_id", ""),
+            image_path=p.get("image_path", ""),
+            label=p.get("label", ""),
+            color=p.get("color", ""),
+            caption=p.get("caption", ""),
+            score=float(p.get("score", 0.0) or 0.0),
+        )
+        for p in products
+    ]
+    _session_last_results[session_id] = {
+        "path_mode": normalized_mode,
+        "products": cached_products,
+        "updated_at": time.time(),
+    }
 
 
 # Keyword sets for confirm/reject detection (0 LLM calls)
@@ -746,7 +772,11 @@ def _orchestrate_stream(
             )
             for p in products
         ]
-        _session_last_results[session_id] = cached_products
+        _session_last_results[session_id] = {
+            "path_mode": "path1",
+            "products": cached_products,
+            "updated_at": time.time(),
+        }
 
     elapsed = time.time() - start_time
     yield ThinkingEvent("done", f"Hoàn tất — {elapsed:.1f}s")
@@ -776,7 +806,13 @@ def _handle_product_select(
 ) -> Generator:
     """Validate selections against cached results and create pending confirmation."""
     lang = detect_language(query)
-    cached_results = _session_last_results.get(session_id)
+    cached_entry_raw = _session_last_results.get(session_id)
+    if isinstance(cached_entry_raw, dict):
+        cached_results = cached_entry_raw.get("products", [])
+        path_mode = cached_entry_raw.get("path_mode", "path1")
+    else:
+        cached_results = cached_entry_raw or []
+        path_mode = "path1"
     if not cached_results:
         if lang == "vi":
             text = "⚠️ Không có kết quả tìm kiếm gần đây. Vui lòng tìm kiếm sản phẩm trước!"
@@ -828,7 +864,10 @@ def _handle_product_select(
 
     # Create pending selection
     pending = PendingSelection(
-        items=valid_items, search_query=search_query, numbers=selected_numbers,
+        items=valid_items,
+        search_query=search_query,
+        numbers=selected_numbers,
+        path_mode=path_mode,
     )
     _session_pending_selection[session_id] = pending
 
@@ -909,7 +948,7 @@ def _handle_confirm(session_id: str, query: str) -> Generator:
         # concurrent load when two sequential getconn() calls are needed.
         items_to_save = []
         for it in pending.items:
-            position = get_last_click_position(session_id, it.image_id)
+            position = get_last_click_position(session_id, it.image_id, pending.path_mode)
             items_to_save.append({
                 "image_id": it.image_id,
                 "label": it.label,
@@ -918,6 +957,7 @@ def _handle_confirm(session_id: str, query: str) -> Generator:
                 "image_path": it.image_path,
                 "search_query": pending.search_query,
                 "position": position,
+                "path_mode": pending.path_mode,
             })
         inserted = save_selected_items(session_id, items_to_save)
     except Exception as exc:
@@ -975,7 +1015,11 @@ def _handle_reject(session_id: str, query: str) -> Generator:
     lang = detect_language(query)
     _session_pending_selection.pop(session_id, None)
 
-    cached_results = _session_last_results.get(session_id)
+    cached_entry_raw = _session_last_results.get(session_id)
+    if isinstance(cached_entry_raw, dict):
+        cached_results = cached_entry_raw.get("products", [])
+    else:
+        cached_results = cached_entry_raw or []
 
     if not cached_results:
         if lang == "vi":
@@ -1291,6 +1335,8 @@ def chat_stream(
             "color": p.color,
             "caption": p.caption,
             "score": round(p.score, 4),
+            "path_mode": "path1",
+            "search_query": result.search_query,
         }
         for p in result.products
     ]

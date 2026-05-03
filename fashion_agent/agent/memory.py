@@ -102,8 +102,9 @@ def init_memory_tables() -> None:
         caption TEXT NOT NULL DEFAULT '',
         image_path VARCHAR NOT NULL DEFAULT '',
         search_query TEXT NOT NULL DEFAULT '',
+        path_mode TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1', 'path2')),
         selected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (session_id, image_id)
+        UNIQUE (session_id, image_id, path_mode)
     );
 
     CREATE INDEX IF NOT EXISTS idx_selected_items_session
@@ -182,6 +183,7 @@ def init_memory_tables() -> None:
         session_id   TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
         image_id     VARCHAR NOT NULL,
         search_query TEXT NOT NULL DEFAULT '',
+        path_mode    TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1', 'path2')),
         position     INT NOT NULL DEFAULT 0,
         shown_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -196,6 +198,7 @@ def init_memory_tables() -> None:
         image_id     VARCHAR NOT NULL,
         position     INT NOT NULL DEFAULT 0,
         search_query TEXT NOT NULL DEFAULT '',
+        path_mode    TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1', 'path2')),
         clicked_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
@@ -209,8 +212,9 @@ def init_memory_tables() -> None:
         image_id      VARCHAR NOT NULL,
         intent_type   TEXT NOT NULL CHECK (intent_type IN ('will_buy', 'not_for_me')),
         reason        TEXT NOT NULL DEFAULT '',
+        path_mode     TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1', 'path2')),
         logged_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (session_id, image_id, intent_type)
+        UNIQUE (session_id, image_id, intent_type, path_mode)
     );
 
     CREATE INDEX IF NOT EXISTS idx_intents_session
@@ -222,6 +226,7 @@ def init_memory_tables() -> None:
         session_id  TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
         phone       TEXT NOT NULL DEFAULT '',
         address     TEXT NOT NULL DEFAULT '',
+        path_mode   TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1', 'path2')),
         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
@@ -252,6 +257,59 @@ def init_memory_tables() -> None:
         ADD COLUMN IF NOT EXISTS orchestrator_input_tokens INT NOT NULL DEFAULT 0;
     ALTER TABLE llm_token_usage
         ADD COLUMN IF NOT EXISTS orchestrator_output_tokens INT NOT NULL DEFAULT 0;
+
+    -- Ensure path_mode exists on existing databases
+    ALTER TABLE product_impressions
+        ADD COLUMN IF NOT EXISTS path_mode TEXT NOT NULL DEFAULT 'path1';
+    ALTER TABLE product_clicks
+        ADD COLUMN IF NOT EXISTS path_mode TEXT NOT NULL DEFAULT 'path1';
+    ALTER TABLE product_intents
+        ADD COLUMN IF NOT EXISTS path_mode TEXT NOT NULL DEFAULT 'path1';
+    ALTER TABLE user_orders
+        ADD COLUMN IF NOT EXISTS path_mode TEXT NOT NULL DEFAULT 'path1';
+    ALTER TABLE selected_items
+        ADD COLUMN IF NOT EXISTS path_mode TEXT NOT NULL DEFAULT 'path1';
+
+    -- Widen uniqueness to include path_mode
+    DO $$
+    BEGIN
+        BEGIN
+            ALTER TABLE selected_items DROP CONSTRAINT selected_items_session_id_image_id_key;
+        EXCEPTION WHEN undefined_object THEN
+            NULL;
+        END;
+    END $$;
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'selected_items_session_id_image_id_path_mode_key'
+        ) THEN
+            ALTER TABLE selected_items
+                ADD CONSTRAINT selected_items_session_id_image_id_path_mode_key
+                UNIQUE (session_id, image_id, path_mode);
+        END IF;
+    END $$;
+
+    DO $$
+    BEGIN
+        BEGIN
+            ALTER TABLE product_intents DROP CONSTRAINT product_intents_session_id_image_id_intent_type_key;
+        EXCEPTION WHEN undefined_object THEN
+            NULL;
+        END;
+    END $$;
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'product_intents_session_id_image_id_intent_type_path_mode_key'
+        ) THEN
+            ALTER TABLE product_intents
+                ADD CONSTRAINT product_intents_session_id_image_id_intent_type_path_mode_key
+                UNIQUE (session_id, image_id, intent_type, path_mode);
+        END IF;
+    END $$;
     """
 
     view_ddl = """
@@ -316,11 +374,75 @@ def init_memory_tables() -> None:
     GROUP BY ltu.orchestration_mode, ltu.orchestrator_model, ltu.synthesizer_model;
     """
 
+    path_funnel_view_ddl = """
+    CREATE OR REPLACE VIEW session_path_funnel_summary AS
+    WITH path_modes AS (
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode FROM product_impressions
+        UNION
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode FROM product_clicks
+        UNION
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode FROM selected_items
+        UNION
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode FROM product_intents
+        UNION
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode FROM user_orders
+    ),
+    i AS (
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode, COUNT(*) AS impressions
+        FROM product_impressions
+        GROUP BY session_id, COALESCE(path_mode, 'path1')
+    ),
+    c AS (
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode, COUNT(*) AS clicks
+        FROM product_clicks
+        GROUP BY session_id, COALESCE(path_mode, 'path1')
+    ),
+    s AS (
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode, COUNT(*) AS cart_adds
+        FROM selected_items
+        GROUP BY session_id, COALESCE(path_mode, 'path1')
+    ),
+    w AS (
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode, COUNT(*) AS will_buy
+        FROM product_intents
+        WHERE intent_type = 'will_buy'
+        GROUP BY session_id, COALESCE(path_mode, 'path1')
+    ),
+    n AS (
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode, COUNT(*) AS not_for_me
+        FROM product_intents
+        WHERE intent_type = 'not_for_me'
+        GROUP BY session_id, COALESCE(path_mode, 'path1')
+    ),
+    o AS (
+        SELECT session_id, COALESCE(path_mode, 'path1') AS path_mode, COUNT(*) AS orders
+        FROM user_orders
+        GROUP BY session_id, COALESCE(path_mode, 'path1')
+    )
+    SELECT
+        pm.session_id,
+        pm.path_mode,
+        COALESCE(i.impressions, 0) AS impressions,
+        COALESCE(c.clicks, 0) AS clicks,
+        COALESCE(s.cart_adds, 0) AS cart_adds,
+        COALESCE(w.will_buy, 0) AS will_buy,
+        COALESCE(n.not_for_me, 0) AS not_for_me,
+        COALESCE(o.orders, 0) AS orders
+    FROM path_modes pm
+    LEFT JOIN i ON i.session_id = pm.session_id AND i.path_mode = pm.path_mode
+    LEFT JOIN c ON c.session_id = pm.session_id AND c.path_mode = pm.path_mode
+    LEFT JOIN s ON s.session_id = pm.session_id AND s.path_mode = pm.path_mode
+    LEFT JOIN w ON w.session_id = pm.session_id AND w.path_mode = pm.path_mode
+    LEFT JOIN n ON n.session_id = pm.session_id AND n.path_mode = pm.path_mode
+    LEFT JOIN o ON o.session_id = pm.session_id AND o.path_mode = pm.path_mode;
+    """
+
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(ddl)
             cur.execute(view_ddl)
             cur.execute(mode_cost_view_ddl)
+            cur.execute(path_funnel_view_ddl)
         conn.commit()
 
 
@@ -588,9 +710,9 @@ def save_selected_items(session_id: str, items: list[dict]) -> int:
                 cur.execute(
                     """
                     INSERT INTO selected_items
-                        (session_id, image_id, label, color, caption, image_path, search_query, position)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (session_id, image_id) DO NOTHING;
+                        (session_id, image_id, label, color, caption, image_path, search_query, position, path_mode)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (session_id, image_id, path_mode) DO NOTHING;
                     """,
                     (
                         session_id,
@@ -601,6 +723,7 @@ def save_selected_items(session_id: str, items: list[dict]) -> int:
                         item.get("image_path", ""),
                         item.get("search_query", ""),
                         item.get("position", 0),
+                        item.get("path_mode", "path1"),
                     ),
                 )
                 inserted += cur.rowcount  # 1 if inserted, 0 if conflict
@@ -615,7 +738,7 @@ def get_selected_items(session_id: str) -> list[dict]:
             cur.execute(
                 """
                 SELECT image_id, label, color, caption, image_path,
-                       search_query, selected_at
+                       search_query, path_mode, selected_at
                 FROM selected_items
                 WHERE session_id = %s
                 ORDER BY selected_at ASC;
@@ -632,6 +755,7 @@ def get_selected_items(session_id: str) -> list[dict]:
             "caption": r["caption"],
             "image_path": r["image_path"],
             "search_query": r["search_query"],
+            "path_mode": r["path_mode"],
             "selected_at": str(r["selected_at"]),
         }
         for r in rows
@@ -770,14 +894,15 @@ def log_impression_batch(session_id: str, items: list[dict]) -> int:
                 cur.execute(
                     """
                     INSERT INTO product_impressions
-                        (session_id, image_id, search_query, position)
-                    VALUES (%s, %s, %s, %s);
+                        (session_id, image_id, search_query, position, path_mode)
+                    VALUES (%s, %s, %s, %s, %s);
                     """,
                     (
                         session_id,
                         item.get("image_id", ""),
                         item.get("search_query", ""),
                         item.get("position", 0),
+                        item.get("path_mode", "path1"),
                     ),
                 )
                 inserted += 1
@@ -790,6 +915,7 @@ def log_click(
     image_id: str,
     position: int,
     search_query: str = "",
+    path_mode: str = "path1",
 ) -> None:
     """Log a product card tap (click event)."""
     with _db_conn() as conn:
@@ -797,26 +923,26 @@ def log_click(
             cur.execute(
                 """
                 INSERT INTO product_clicks
-                    (session_id, image_id, position, search_query)
-                VALUES (%s, %s, %s, %s);
+                    (session_id, image_id, position, search_query, path_mode)
+                VALUES (%s, %s, %s, %s, %s);
                 """,
-                (session_id, image_id, position, search_query),
+                (session_id, image_id, position, search_query, path_mode),
             )
         conn.commit()
 
 
-def get_last_click_position(session_id: str, image_id: str) -> int:
+def get_last_click_position(session_id: str, image_id: str, path_mode: str = "path1") -> int:
     """Return the position from the latest click for this image in the session."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT position FROM product_clicks
-                WHERE session_id = %s AND image_id = %s
+                WHERE session_id = %s AND image_id = %s AND path_mode = %s
                 ORDER BY clicked_at DESC
                 LIMIT 1;
                 """,
-                (session_id, image_id)
+                (session_id, image_id, path_mode)
             )
             row = cur.fetchone()
             return row[0] if row else 0
@@ -828,6 +954,7 @@ def log_intent(
     image_id: str,
     intent_type: str,
     reason: str = "",
+    path_mode: str = "path1",
 ) -> None:
     """Log a purchase intent signal ('will_buy' | 'not_for_me'). Idempotent."""
     with _db_conn() as conn:
@@ -835,29 +962,42 @@ def log_intent(
             cur.execute(
                 """
                 INSERT INTO product_intents
-                    (session_id, image_id, intent_type, reason)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (session_id, image_id, intent_type) DO NOTHING;
+                    (session_id, image_id, intent_type, reason, path_mode)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (session_id, image_id, intent_type, path_mode) DO NOTHING;
                 """,
-                (session_id, image_id, intent_type, reason),
+                (session_id, image_id, intent_type, reason, path_mode),
             )
         conn.commit()
 
 
-def save_order(session_id: str, phone: str, address: str) -> int:
+def save_order(session_id: str, phone: str, address: str, path_mode: str | None = None) -> int:
     """Save a simulated order and mark the session as ended by order.
 
     Returns the auto-generated order id.
     """
     with _db_conn() as conn:
         with conn.cursor() as cur:
+            if not path_mode:
+                cur.execute(
+                    """
+                    SELECT path_mode
+                    FROM selected_items
+                    WHERE session_id = %s
+                    ORDER BY selected_at DESC
+                    LIMIT 1;
+                    """,
+                    (session_id,),
+                )
+                row = cur.fetchone()
+                path_mode = row[0] if row else "path1"
             cur.execute(
                 """
-                INSERT INTO user_orders (session_id, phone, address)
-                VALUES (%s, %s, %s)
+                INSERT INTO user_orders (session_id, phone, address, path_mode)
+                VALUES (%s, %s, %s, %s)
                 RETURNING id;
                 """,
-                (session_id, phone, address),
+                (session_id, phone, address, path_mode),
             )
             order_id = cur.fetchone()[0]
             cur.execute(
@@ -932,6 +1072,14 @@ def get_session_funnel(session_id: str) -> dict:
 
     will_buy = intents.get("will_buy", 0)
     not_for_me = intents.get("not_for_me", 0)
+    integrity = _evaluate_funnel_integrity(
+        impressions=impressions,
+        clicks=clicks,
+        cart_adds=cart_adds,
+        will_buy=will_buy,
+        not_for_me=not_for_me,
+        converted=converted,
+    )
 
     return {
         "session_id": session_id,
@@ -947,5 +1095,77 @@ def get_session_funnel(session_id: str) -> dict:
         "cart_rate": round(cart_adds / clicks, 3) if clicks else 0.0,
         "intent_rate": round(will_buy / cart_adds, 3) if cart_adds else 0.0,
         "precision_at_k": round(will_buy / impressions, 3) if impressions else 0.0,
+        "integrity": integrity,
     }
 
+
+def _evaluate_funnel_integrity(
+    *,
+    impressions: int,
+    clicks: int,
+    cart_adds: int,
+    will_buy: int,
+    not_for_me: int,
+    converted: bool,
+) -> dict:
+    """Evaluate machine-readable integrity checks for one funnel segment."""
+    issues: list[str] = []
+    if clicks > 0 and impressions == 0:
+        issues.append("clicks_without_impressions")
+    if cart_adds > 0 and impressions == 0:
+        issues.append("cart_without_impressions")
+    if (will_buy + not_for_me) > 0 and cart_adds == 0:
+        issues.append("intent_without_cart")
+    if converted and cart_adds == 0:
+        issues.append("order_without_cart")
+    return {"valid": len(issues) == 0, "issues": issues}
+
+
+def get_session_funnel_by_path(session_id: str) -> list[dict]:
+    """Return path-segmented funnel metrics for one session."""
+    with _db_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT path_mode, impressions, clicks, cart_adds, will_buy, not_for_me, orders
+                FROM session_path_funnel_summary
+                WHERE session_id = %s
+                ORDER BY path_mode;
+                """,
+                (session_id,),
+            )
+            rows = cur.fetchall()
+
+    result: list[dict] = []
+    for r in rows:
+        impressions = int(r["impressions"] or 0)
+        clicks = int(r["clicks"] or 0)
+        cart_adds = int(r["cart_adds"] or 0)
+        will_buy = int(r["will_buy"] or 0)
+        not_for_me = int(r["not_for_me"] or 0)
+        converted = int(r["orders"] or 0) > 0
+        integrity = _evaluate_funnel_integrity(
+            impressions=impressions,
+            clicks=clicks,
+            cart_adds=cart_adds,
+            will_buy=will_buy,
+            not_for_me=not_for_me,
+            converted=converted,
+        )
+        result.append(
+            {
+                "path_mode": r["path_mode"] or "path1",
+                "impressions": impressions,
+                "clicks": clicks,
+                "cart_adds": cart_adds,
+                "will_buy": will_buy,
+                "not_for_me": not_for_me,
+                "converted": converted,
+                "ctr": round(clicks / impressions, 3) if impressions else 0.0,
+                "cart_rate": round(cart_adds / clicks, 3) if clicks else 0.0,
+                "intent_rate": round(will_buy / cart_adds, 3) if cart_adds else 0.0,
+                "precision_at_k": round(will_buy / impressions, 3) if impressions else 0.0,
+                "integrity": integrity,
+            }
+        )
+    return result

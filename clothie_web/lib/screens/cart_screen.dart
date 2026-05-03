@@ -166,7 +166,11 @@ class CartScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        onPressed: () => _showOrderDialog(context, sessionId),
+                        onPressed: () => _showOrderDialog(
+                          context,
+                          sessionId,
+                          cart.items,
+                        ),
                       ),
                     ),
                   );
@@ -179,9 +183,14 @@ class CartScreen extends StatelessWidget {
     );
   }
 
-  void _showOrderDialog(BuildContext context, String sessionId) {
+  void _showOrderDialog(
+    BuildContext context,
+    String sessionId,
+    List<CartItem> items,
+  ) {
     final phoneCtrl = TextEditingController();
     final addressCtrl = TextEditingController();
+    final orderPathMode = items.isNotEmpty ? items.last.pathMode : null;
 
     showDialog<void>(
       context: context,
@@ -227,7 +236,12 @@ class CartScreen extends StatelessWidget {
               final address = addressCtrl.text.trim();
               if (phone.isEmpty || address.isEmpty) return;
               try {
-                await ApiService().placeOrder(sessionId, phone, address);
+                await ApiService().placeOrder(
+                  sessionId,
+                  phone,
+                  address,
+                  pathMode: orderPathMode,
+                );
                 if (ctx.mounted) Navigator.pop(ctx); // close order dialog
                 if (context.mounted) {
                   // Close the bottom sheet and signal that an order was placed
@@ -266,7 +280,12 @@ class _CartCardState extends State<_CartCard> {
     if (_sending || _intentLogged != null) return;
     setState(() => _sending = true);
     try {
-      await ApiService().logIntent(widget.sessionId, widget.item.imageId, type);
+      await ApiService().logIntent(
+        widget.sessionId,
+        widget.item.imageId,
+        type,
+        pathMode: widget.item.pathMode,
+      );
       setState(() => _intentLogged = type);
     } catch (_) {
       // Best-effort — silently fail

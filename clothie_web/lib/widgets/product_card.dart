@@ -216,6 +216,8 @@ class _ProductCardState extends State<_ProductCard> {
             widget.sessionId,
             widget.product.imageId,
             widget.productIndex + 1, // 1-based position
+            pathMode: widget.product.pathMode,
+            searchQuery: widget.product.searchQuery,
           );
           _showFullscreenImage(
             context,

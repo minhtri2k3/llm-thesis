@@ -7,6 +7,7 @@ class CartItem {
   final String label;
   final String color;
   final String caption;
+  final String pathMode;
 
   const CartItem({
     required this.imageId,
@@ -14,6 +15,7 @@ class CartItem {
     required this.label,
     this.color = '',
     this.caption = '',
+    this.pathMode = 'path1',
   });
 
   /// Build from the backend's GET /api/sessions/{id}/selections response.
@@ -29,6 +31,7 @@ class CartItem {
       label: json['label'] as String? ?? '',
       color: json['color'] as String? ?? '',
       caption: json['caption'] as String? ?? '',
+      pathMode: json['path_mode'] as String? ?? 'path1',
     );
   }
 

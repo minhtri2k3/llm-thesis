@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:clothie_web/config.dart';
 import 'package:clothie_web/models/cart_item.dart';
@@ -211,13 +212,18 @@ class ApiService {
     List<Map<String, dynamic>> items,
   ) async {
     try {
-      await _client.post(
+      final resp = await _client.post(
         Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/impressions'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'items': items}),
       );
+      if (resp.statusCode != 200 && kDebugMode) {
+        debugPrint('telemetry(logImpressions) failed: ${resp.statusCode} ${resp.body}');
+      }
     } catch (_) {
-      // swallow — analytics must not break UX
+      if (kDebugMode) {
+        debugPrint('telemetry(logImpressions) network failure');
+      }
     }
   }
 
@@ -227,19 +233,26 @@ class ApiService {
     String imageId,
     int position, {
     String searchQuery = '',
+    String pathMode = 'path1',
   }) async {
     try {
-      await _client.post(
+      final resp = await _client.post(
         Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/clicks'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'image_id': imageId,
           'position': position,
           'search_query': searchQuery,
+          'path_mode': pathMode,
         }),
       );
+      if (resp.statusCode != 200 && kDebugMode) {
+        debugPrint('telemetry(logClick) failed: ${resp.statusCode} ${resp.body}');
+      }
     } catch (_) {
-      // fire-and-forget
+      if (kDebugMode) {
+        debugPrint('telemetry(logClick) network failure');
+      }
     }
   }
 
@@ -250,6 +263,7 @@ class ApiService {
     String imageId,
     String intentType, {
     String reason = '',
+    String pathMode = 'path1',
   }) async {
     final resp = await _client.post(
       Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/intents'),
@@ -258,6 +272,7 @@ class ApiService {
         'image_id': imageId,
         'intent_type': intentType,
         'reason': reason,
+        'path_mode': pathMode,
       }),
     );
     if (resp.statusCode != 200) {
@@ -267,11 +282,20 @@ class ApiService {
 
   /// Place a simulated order (phone + address). Returns the new order ID.
   /// Also marks the session as ended in the backend.
-  Future<int> placeOrder(String sessionId, String phone, String address) async {
+  Future<int> placeOrder(
+    String sessionId,
+    String phone,
+    String address, {
+    String? pathMode,
+  }) async {
+    final body = <String, dynamic>{'phone': phone, 'address': address};
+    if (pathMode != null && pathMode.isNotEmpty) {
+      body['path_mode'] = pathMode;
+    }
     final resp = await _client.post(
       Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/orders'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'phone': phone, 'address': address}),
+      body: jsonEncode(body),
     );
     if (resp.statusCode != 200) {
       throw Exception('Order failed: ${resp.body}');

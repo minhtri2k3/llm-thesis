@@ -7,6 +7,8 @@ class Product {
   final String color;
   final String caption;
   final double score;
+  final String pathMode;
+  final String searchQuery;
 
   const Product({
     required this.imageId,
@@ -15,6 +17,8 @@ class Product {
     this.color = '',
     this.caption = '',
     this.score = 0.0,
+    this.pathMode = 'path1',
+    this.searchQuery = '',
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -32,6 +36,8 @@ class Product {
       color: json['color'] as String? ?? '',
       caption: json['caption'] as String? ?? '',
       score: (json['score'] as num?)?.toDouble() ?? 0.0,
+      pathMode: json['path_mode'] as String? ?? 'path1',
+      searchQuery: json['search_query'] as String? ?? '',
     );
   }
 }

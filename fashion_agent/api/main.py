@@ -24,7 +24,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from agent.fashion_agent import chat as agent_chat, chat_stream as agent_chat_stream, AgentResponse
+from agent.fashion_agent import (
+    chat as agent_chat,
+    chat_stream as agent_chat_stream,
+    AgentResponse,
+    cache_external_results,
+)
 from agent.memory import init_memory_tables
 
 # ---------------------------------------------------------------------------
@@ -173,6 +178,13 @@ def _is_path2_enabled() -> bool:
     )
 
 
+def _normalize_path_mode(raw: str | None, default: str = "path1") -> str:
+    value = (raw or default).strip().lower()
+    if value not in ("path1", "path2"):
+        return default
+    return value
+
+
 def _validate_path2_png_upload(file: UploadFile, raw: bytes) -> None:
     from PIL import Image, UnidentifiedImageError
 
@@ -232,6 +244,8 @@ async def path2_image_search_endpoint(
     top_k: int = Form(PATH2_DEFAULT_TOP_K),
 ):
     """PATH 2 image-to-image search endpoint (isolated from PATH 1 chat/search flow)."""
+    from agent.memory import log_impression_batch
+
     if not _is_path2_enabled():
         raise HTTPException(status_code=503, detail="PATH 2 image search is disabled")
     if top_k < 1 or top_k > PATH2_MAX_TOP_K:
@@ -242,11 +256,43 @@ async def path2_image_search_endpoint(
 
     try:
         products = _run_path2_image_search(raw, top_k=top_k)
+        search_query = "__path2_image__"
+
+        # Persist PATH 2 impressions at source to avoid frontend telemetry gaps.
+        if session_id and products:
+            try:
+                log_impression_batch(
+                    session_id,
+                    [
+                        {
+                            "image_id": p.get("image_id", ""),
+                            "search_query": search_query,
+                            "position": idx + 1,
+                            "path_mode": "path2",
+                        }
+                        for idx, p in enumerate(products)
+                    ],
+                )
+            except Exception as telemetry_exc:
+                print(f"Warning: could not log PATH2 impressions: {telemetry_exc}")
+
+        # Cache PATH 2 results for numeric selection flow isolation.
+        if session_id:
+            cache_external_results(session_id, "path2", products)
+
+        response_products = [
+            {
+                **p,
+                "path_mode": "path2",
+                "search_query": search_query,
+            }
+            for p in products
+        ]
         return Path2ImageSearchResponse(
             mode="path2",
             session_id=session_id,
-            products=products,
-            count=len(products),
+            products=response_products,
+            count=len(response_products),
         )
     except HTTPException:
         raise
@@ -526,6 +572,7 @@ class ImpressionItem(BaseModel):
     image_id: str
     search_query: str = ""
     position: int = 0
+    path_mode: str = "path1"
 
 
 class LogImpressionsRequest(BaseModel):
@@ -536,17 +583,20 @@ class ClickRequest(BaseModel):
     image_id: str
     position: int = 0
     search_query: str = ""
+    path_mode: str = "path1"
 
 
 class IntentRequest(BaseModel):
     image_id: str
     intent_type: str   # "will_buy" | "not_for_me"
     reason: str = ""
+    path_mode: str = "path1"
 
 
 class OrderRequest(BaseModel):
     phone: str
     address: str
+    path_mode: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -566,6 +616,7 @@ async def log_impressions_endpoint(session_id: str, req: LogImpressionsRequest):
                     "image_id": i.image_id,
                     "search_query": i.search_query,
                     "position": i.position,
+                    "path_mode": _normalize_path_mode(i.path_mode),
                 }
                 for i in req.items
             ],
@@ -585,6 +636,7 @@ async def log_click_endpoint(session_id: str, req: ClickRequest):
             req.image_id,
             req.position,
             req.search_query,
+            _normalize_path_mode(req.path_mode),
         )
         return {"ok": True}
     except Exception as exc:
@@ -601,7 +653,13 @@ async def log_intent_endpoint(session_id: str, req: IntentRequest):
         )
     from agent.memory import log_intent
     try:
-        log_intent(session_id, req.image_id, req.intent_type, req.reason)
+        log_intent(
+            session_id,
+            req.image_id,
+            req.intent_type,
+            req.reason,
+            _normalize_path_mode(req.path_mode),
+        )
         return {"ok": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -620,7 +678,12 @@ async def place_order_endpoint(session_id: str, req: OrderRequest):
         raise HTTPException(status_code=400, detail="address is required")
     from agent.memory import save_order
     try:
-        order_id = save_order(session_id, req.phone.strip(), req.address.strip())
+        order_id = save_order(
+            session_id,
+            req.phone.strip(),
+            req.address.strip(),
+            _normalize_path_mode(req.path_mode, default="path1") if req.path_mode else None,
+        )
         return {"ok": True, "order_id": order_id}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -638,7 +701,7 @@ async def get_behaviour_funnel_endpoint(request: Request):
         aggregate:         overall totals (total_sessions, cr, avg_precision_at_k)
     """
     from collections import defaultdict
-    from agent.memory import get_session_funnel
+    from agent.memory import get_session_funnel, get_session_funnel_by_path
 
     admin_key = os.getenv("ADMIN_SECRET_KEY", "")
     if not admin_key:
@@ -678,9 +741,11 @@ async def get_behaviour_funnel_endpoint(request: Request):
         sessions = []
         for row in session_rows:
             funnel = get_session_funnel(row["session_id"])
+            path_breakdown = get_session_funnel_by_path(row["session_id"])
             funnel["user_name"] = row["user_name"]
             funnel["gender"] = row["gender"]
             funnel["age"] = int(row["age"]) if row["age"] else None
+            funnel["path_breakdown"] = path_breakdown
             sessions.append(funnel)
 
         # Model comparison aggregate
@@ -711,12 +776,71 @@ async def get_behaviour_funnel_endpoint(request: Request):
             })
         model_comparison.sort(key=lambda x: -x["conversion_rate"])
 
+        # Path-level aggregate
+        path_groups: dict = defaultdict(lambda: {
+            "sessions": 0,
+            "impressions": 0,
+            "clicks": 0,
+            "cart_adds": 0,
+            "will_buy": 0,
+            "not_for_me": 0,
+            "orders": 0,
+            "invalid_segments": 0,
+        })
+        for s in sessions:
+            for seg in s.get("path_breakdown", []):
+                mode = seg.get("path_mode", "path1")
+                path_groups[mode]["sessions"] += 1
+                path_groups[mode]["impressions"] += seg.get("impressions", 0)
+                path_groups[mode]["clicks"] += seg.get("clicks", 0)
+                path_groups[mode]["cart_adds"] += seg.get("cart_adds", 0)
+                path_groups[mode]["will_buy"] += seg.get("will_buy", 0)
+                path_groups[mode]["not_for_me"] += seg.get("not_for_me", 0)
+                path_groups[mode]["orders"] += 1 if seg.get("converted") else 0
+                if not seg.get("integrity", {}).get("valid", True):
+                    path_groups[mode]["invalid_segments"] += 1
+
+        path_comparison = []
+        for mode, g in path_groups.items():
+            path_comparison.append(
+                {
+                    "path_mode": mode,
+                    "sessions": g["sessions"],
+                    "impressions": g["impressions"],
+                    "clicks": g["clicks"],
+                    "cart_adds": g["cart_adds"],
+                    "will_buy": g["will_buy"],
+                    "not_for_me": g["not_for_me"],
+                    "orders": g["orders"],
+                    "ctr": round(g["clicks"] / g["impressions"], 3) if g["impressions"] else 0.0,
+                    "cart_rate": round(g["cart_adds"] / g["clicks"], 3) if g["clicks"] else 0.0,
+                    "intent_rate": round(g["will_buy"] / g["cart_adds"], 3) if g["cart_adds"] else 0.0,
+                    "precision_at_k": round(g["will_buy"] / g["impressions"], 3) if g["impressions"] else 0.0,
+                    "invalid_segments": g["invalid_segments"],
+                }
+            )
+        path_comparison.sort(key=lambda x: x["path_mode"])
+
+        issue_counts: dict = defaultdict(int)
+        invalid_sessions = 0
+        for s in sessions:
+            if not s.get("integrity", {}).get("valid", True):
+                invalid_sessions += 1
+                for issue in s.get("integrity", {}).get("issues", []):
+                    issue_counts[issue] += 1
+            for seg in s.get("path_breakdown", []):
+                integ = seg.get("integrity", {})
+                if not integ.get("valid", True):
+                    for issue in integ.get("issues", []):
+                        issue_counts[f"{seg.get('path_mode', 'path1')}:{issue}"] += 1
+
         total = len(sessions)
         converted = sum(1 for s in sessions if s["converted"])
 
         return {
             "sessions": sessions,
             "model_comparison": model_comparison,
+            "path_comparison": path_comparison,
             "aggregate": {
                 "total_sessions": total,
                 "converted_sessions": converted,
@@ -724,6 +848,11 @@ async def get_behaviour_funnel_endpoint(request: Request):
                 "avg_precision_at_k": round(
                     sum(s["precision_at_k"] for s in sessions) / total, 3
                 ) if total else 0.0,
+            },
+            "integrity": {
+                "valid": invalid_sessions == 0,
+                "invalid_sessions": invalid_sessions,
+                "issue_counts": dict(issue_counts),
             },
         }
     except Exception as exc:

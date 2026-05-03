@@ -66,6 +66,7 @@ class ChatProvider extends ChangeNotifier {
   Future<void> sendMessage(String userText, String sessionId) async {
     if (_isLoading) return;
 
+    _sessionId = sessionId;
     _error = null;
     _messages.add(ChatMessage.user(userText));
     final aiMsg = ChatMessage.assistantPending();
@@ -108,6 +109,7 @@ class ChatProvider extends ChangeNotifier {
   ) async {
     if (_isLoading) return;
 
+    _sessionId = sessionId;
     _error = null;
     // Store user message with image bytes for rendering
     final userMsg = ChatMessage.user('🖼️ Search by image: $fileName')
@@ -198,8 +200,9 @@ class ChatProvider extends ChangeNotifier {
               .map(
                 (e) => {
                   'image_id': e.value.imageId,
-                  'search_query': '', // query not included in SSE payload
+                  'search_query': e.value.searchQuery,
                   'position': e.key + 1, // 1-based rank
+                  'path_mode': e.value.pathMode,
                 },
               )
               .toList();
