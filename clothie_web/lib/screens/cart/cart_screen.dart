@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:clothie_web/models/cart_item.dart';
-import 'package:clothie_web/providers/cart_provider.dart';
+import 'package:clothie_web/screens/cart/cart_provider.dart';
 import 'package:clothie_web/services/api_service.dart';
 
 /// Modal bottom sheet showing all confirmed items in the session cart.

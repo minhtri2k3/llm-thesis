@@ -1,4 +1,4 @@
-import 'package:clothie_web/config.dart';
+import 'package:clothie_web/extension/config.dart';
 
 /// A product the user has confirmed and saved to their session cart.
 class CartItem {

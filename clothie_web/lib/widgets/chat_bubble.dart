@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:clothie_web/models/cart_item.dart';
 import 'package:clothie_web/models/chat_message.dart';
-import 'package:clothie_web/providers/chat_provider.dart';
+import 'package:clothie_web/screens/chat/chat_provider.dart';
 import 'package:clothie_web/widgets/product_card.dart';
 import 'package:clothie_web/widgets/shimmer_product_grid.dart';
 import 'package:clothie_web/widgets/thinking_indicator.dart';

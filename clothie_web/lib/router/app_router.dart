@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:clothie_web/screens/splash_screen.dart';
 import 'package:clothie_web/screens/register_screen.dart';
-import 'package:clothie_web/screens/chat_screen.dart';
+import 'package:clothie_web/screens/chat/chat_screen.dart';
 import 'package:clothie_web/screens/professor_dashboard_page.dart';
 
 /// Route arguments for ChatScreen

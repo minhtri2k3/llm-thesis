@@ -1,4 +1,4 @@
-import 'package:clothie_web/config.dart';
+import 'package:clothie_web/extension/config.dart';
 
 class Product {
   final String imageId;

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:clothie_web/providers/theme_provider.dart';
+import 'package:clothie_web/extension/theme_provider.dart';
 import 'package:clothie_web/theme/app_theme.dart';
 import 'package:clothie_web/router/app_router.dart';
 

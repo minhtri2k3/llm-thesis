@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:clothie_web/providers/theme_provider.dart';
+import 'package:clothie_web/extension/theme_provider.dart';
 import 'package:clothie_web/services/api_service.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
 import 'package:clothie_web/router/app_router.dart';

@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:clothie_web/config.dart';
+import 'package:clothie_web/extension/config.dart';
 import 'package:clothie_web/models/cart_item.dart';
 
 /// Represents a single SSE event from the backend.

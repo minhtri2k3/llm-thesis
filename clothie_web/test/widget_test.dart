@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:clothie_web/main.dart';
-import 'package:clothie_web/providers/theme_provider.dart';
-import 'package:clothie_web/config.dart';
+import 'package:clothie_web/extension/theme_provider.dart';
+import 'package:clothie_web/extension/config.dart';
 import 'package:provider/provider.dart';
 
 void main() {

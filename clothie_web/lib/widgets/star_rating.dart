@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:clothie_web/config.dart';
+import 'package:clothie_web/extension/config.dart';
 
 /// Interactive 1-10 star rating row.
 ///

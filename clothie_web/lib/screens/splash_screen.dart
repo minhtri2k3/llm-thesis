@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
-import 'package:clothie_web/config.dart';
+import 'package:clothie_web/extension/config.dart';
 import 'package:clothie_web/widgets/flying_icon_bg.dart';
 
 class SplashScreen extends StatefulWidget {
