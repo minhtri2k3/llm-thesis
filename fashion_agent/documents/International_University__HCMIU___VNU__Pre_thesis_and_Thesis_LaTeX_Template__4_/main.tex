@@ -1,0 +1,246 @@
+%% PREAMBLE
+\documentclass[12pt, twoside]{report}
+
+%% TODO: Add your useful packages here
+\usepackage[utf8]{inputenc}
+\usepackage[main=english,vietnamese]{babel}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+%% TODO: Use \cmark for tick and \xmark for x
+\usepackage{pifont}
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+
+\usepackage[a4paper, top=2.5cm, bottom=2cm, left=3cm, right=2cm, bindingoffset=5mm]{geometry}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{xcolor}
+
+%% Customize JavaScript listings, Python do not need this
+\lstdefinestyle{mystyle}{
+	basicstyle=\ttfamily\footnotesize,
+	breakatwhitespace=false,
+	breaklines=true,
+	captionpos=b,
+	frame=single,
+	keepspaces=true,
+	numbers=left,
+	numbersep=5pt, 
+	numberstyle=\tiny\color{black},
+	showstringspaces=false,
+}
+
+\lstset{style=mystyle}
+\lstdefinelanguage{JavaScript}{
+	morekeywords=[1]{break, continue, delete, else, for, function, if, in,
+	new, return, this, typeof, var, void, while, with},
+	morekeywords=[2]{false, null, true, boolean, number, undefined,
+	Array, Boolean, Date, Math, Number, String, Object},
+	morekeywords=[3]{eval, parseInt, parseFloat, escape, unescape},
+	sensitive,
+	morekeywords=[4]{await, async, case, catch, class, const, default, do,
+		enum, export, extends, finally, from, implements, import, instanceof,
+	let, static, super, switch, throw, try},
+	morecomment=[s]{/*}{*/},
+	morecomment=[l]//,
+	morecomment=[s]{/**}{*/},
+	morestring=[b]',
+	morestring=[b]",
+	keywordstyle={[1]\color{teal}\bfseries},
+	keywordstyle={[2]\color{red}\bfseries},
+	keywordstyle={[3]\color{violet}\bfseries},
+	keywordstyle={[4]\color{blue}\bfseries},
+	commentstyle=\color{gray}\ttfamily,
+	stringstyle=\color{orange}\ttfamily,
+}
+
+%% Customize chapter titles
+\titleformat{\chapter}[display]
+  {\Huge\bfseries\centering}{\chaptername~\thechapter}
+  {0pt}                        
+  {\Huge}                     
+\titlespacing*{\chapter}
+  {0pt}                   
+  {*0}                          
+  {1em}
+                     
+%% Fix appendix labeling
+\makeatletter
+\newcommand\AppendixName{Appendix}
+\let\oldappendix\appendix
+\renewcommand{\appendix}{%
+  \oldappendix
+  \renewcommand{\chaptername}{\AppendixName}  \renewcommand{\thechapter}{\@Alph\c@chapter}}
+\makeatother
+\addto\captionsenglish{\renewcommand*\contentsname{Table of Contents}}
+\addto{\extrasenglish}{%
+  \renewcommand{\bibname}{References}
+}
+\renewcommand\lstlistlistingname{List of Listings}
+
+%% TODO: Put all the figure files inside the images folder
+\graphicspath{{images/}}
+
+\begin{document}
+\pagenumbering{roman}
+
+\newgeometry{top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm}
+
+%% TODO: Add information to the Title page
+\begin{titlepage}
+
+	\begin{tikzpicture}[remember picture,overlay,inner sep=0,outer sep=0]
+     \draw[blue!70!black,line width=4pt] ([xshift=-1.5cm,yshift=-2cm]current page.north east) coordinate (A)--([xshift=1.5cm,yshift=-2cm]current page.north west) coordinate(B)--([xshift=1.5cm,yshift=2cm]current page.south west) coordinate (C)--([xshift=-1.5cm,yshift=2cm]current page.south east) coordinate(D)--cycle;
+
+     \draw ([yshift=0.5cm,xshift=-0.5cm]A)-- ([yshift=0.5cm,xshift=0.5cm]B)--
+     ([yshift=-0.5cm,xshift=0.5cm]B) --([yshift=-0.5cm,xshift=-0.5cm]B)--([yshift=0.5cm,xshift=-0.5cm]C)--([yshift=0.5cm,xshift=0.5cm]C)--([yshift=-0.5cm,xshift=0.5cm]C)-- ([yshift=-0.5cm,xshift=-0.5cm]D)--([yshift=0.5cm,xshift=-0.5cm]D)--([yshift=0.5cm,xshift=0.5cm]D)--([yshift=-0.5cm,xshift=0.5cm]A)--([yshift=-0.5cm,xshift=-0.5cm]A)--([yshift=0.5cm,xshift=-0.5cm]A);
+
+
+     \draw ([yshift=-0.3cm,xshift=0.3cm]A)-- ([yshift=-0.3cm,xshift=-0.3cm]B)--
+     ([yshift=0.3cm,xshift=-0.3cm]B) --([yshift=0.3cm,xshift=0.3cm]B)--([yshift=-0.3cm,xshift=0.3cm]C)--([yshift=-0.3cm,xshift=-0.3cm]C)--([yshift=0.3cm,xshift=-0.3cm]C)-- ([yshift=0.3cm,xshift=0.3cm]D)--([yshift=-0.3cm,xshift=0.3cm]D)--([yshift=-0.3cm,xshift=-0.3cm]D)--([yshift=0.3cm,xshift=-0.3cm]A)--([yshift=0.3cm,xshift=0.3cm]A)--([yshift=-0.3cm,xshift=0.3cm]A);
+
+   \end{tikzpicture}
+
+   
+	\centering
+	\textbf{VIETNAM NATIONAL UNIVERSITY OF HO CHI MINH CITY}\par \textbf{THE
+		INTERNATIONAL UNIVERSITY}\par \textbf{SCHOOL OF ...}\par
+														
+	\vspace{1.5cm}
+	\includegraphics[width=0.3\textwidth]{IU.png}
+														
+	\vspace{1.5cm}
+	\textbf{\large TITLE OF YOUR (PRE)THESIS}
+														
+	\vspace{1.5cm}
+	By \par \textbf{Your name}
+														
+	\vspace{4.5cm}
+	\textit{A thesis submitted to the School of ... \\ in partial
+		fulfillment of the requirements for the degree of \\ Bachelor of ...}
+														
+	\vspace{4.5cm}
+	\text{Ho Chi Minh City, Vietnam} \par Month Year
+														
+	\newpage
+													
+	%% TODO: Add committee names to the Signature page
+	\centering
+														
+	\textbf{\large TITLE OF YOUR (PRE)THESIS}\par
+	\vspace{4cm}
+														
+	\hspace{7cm}
+	\makebox[7cm][l]{\text{APPROVED BY:}}
+	\par
+	\vspace{2cm}
+														
+	\hspace{7cm}
+	\makebox[7cm][l]{\underline{\hspace{7cm}}}
+	\par \hspace{7cm}
+	\makebox[7cm][l]{\textit{Committee name here}}
+	\par
+	\vspace{2cm}
+														
+	\hspace{7cm}
+	\makebox[7cm][l]{\underline{\hspace{7cm}}}
+	\par \hspace{7cm}
+	\makebox[7cm][l]{\textit{Committee name here}}
+	\par
+	\vspace{2cm}
+														
+	\hspace{7cm}
+	\makebox[7cm][l]{\underline{\hspace{7cm}}}
+	\par \hspace{7cm}
+	\makebox[7cm][l]{\textit{Committee name here}}
+	\par
+	\vspace{2cm}
+														
+	\hspace{7cm}
+	\makebox[7cm][l]{\underline{\hspace{7cm}}}
+	\par \hspace{7cm}
+	\makebox[7cm][l]{\textit{Committee name here}}
+	\par
+	\vspace{2cm}
+			
+	\hspace{7cm}
+	\makebox[7cm][l]{\underline{\hspace{7cm}}}
+	\par \hspace{7cm}
+	\makebox[7cm][l]{\textit{Committee name here}}
+	\par
+	\vspace{0.75cm}
+														
+	\hspace{7cm}
+	\makebox[7cm][r]{\text{THESIS COMMITTEE}}
+	\par
+	\thispagestyle{empty}
+\end{titlepage}
+\restoregeometry
+	
+%% TODO: Acknowledgments page
+\chapter*{Acknowledgments}
+I want to thank...
+\thispagestyle{empty}
+
+%% Add Table of Contents, List of Figures, List of Tables pages
+\tableofcontents
+\listoftables
+\addcontentsline{toc}{chapter}{List of Tables}
+\listoffigures
+\addcontentsline{toc}{chapter}{List of Figures}
+\listofalgorithms
+\addcontentsline{toc}{chapter}{List of Algorithms}
+\lstlistoflistings
+\addcontentsline{toc}{chapter}{List of Listings}
+
+%% TODO: Abstract page (iv, printed)
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+The abstract goes here...
+
+%% TODO: Add \chapter{Chapter name} followed by \input{chapters/filename} if you need more chapter or modify them
+\chapter{INTRODUCTION}
+\pagenumbering{arabic}
+\setcounter{page}{1}
+\input{chapters/introduction}
+
+\chapter{RELATED WORK}
+\input{chapters/work}
+
+\chapter{METHODOLOGY}
+\input{chapters/methodology}
+
+\chapter{PROTOTYPING}
+\input{chapters/prototyping}
+
+\chapter{IMPLEMENTATION}
+\input{chapters/implementation}
+	
+\chapter{RESULT}
+\input{chapters/result}
+	
+\chapter{DISCUSSION}
+\input{chapters/discussion}
+	
+\chapter{CONCLUSION}
+\input{chapters/conclusion}
+
+\bibliographystyle{ieeetr}
+\bibliography{bibliography.bib}
+
+\appendix
+\chapter{LISTINGS}
+\input{chapters/appendix}
+\end{document}

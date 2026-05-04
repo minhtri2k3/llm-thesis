@@ -1,0 +1,28 @@
+\begin{lstlisting}[language=JavaScript, caption={$\texttt{Sample}$ procedure.}, label={lst:1}]
+function calculateSumAndProduct(input) {
+  const pattern = /^X(\d{2})Y(\d{2})$/;
+  const match = input.match(pattern);
+
+  if (!match) {
+    throw new Error("Invalid format! Expected format: X[XX]Y[YY]");
+  }
+
+  const firstNumber = parseInt(match[1], 10);
+  const secondNumber = parseInt(match[2], 10);
+
+  const sum = firstNumber + secondNumber;
+  const product = firstNumber * secondNumber;
+
+  console.log(`Input: ${input}`);
+  console.log(`Sum: ${firstNumber} + ${secondNumber} = ${sum}`);
+}
+
+// Example usage
+try {
+  calculateSumAndProduct("X12Y34"); // Valid case
+  calculateSumAndProduct("X05Y07"); // Valid case
+  calculateSumAndProduct("A12B34"); // Invalid case
+} catch (error) {
+  console.error(error.message);
+}
+\end{lstlisting}
