@@ -120,8 +120,11 @@ class CreateSessionRequest(BaseModel):
                 )
         if self.gender is not None and self.gender not in ("male", "female"):
             raise ValueError('gender must be "male" or "female"')
-        if self.preferred_model not in ("gemini-2.5-flash", "gpt-4o", "claude-3-7-sonnet-latest"):
-            raise ValueError('preferred_model must be one of: gemini-2.5-flash, gpt-4o, claude-3-7-sonnet-latest')
+        if self.preferred_model != "gemini-2.5-flash":
+            raise ValueError(
+                'preferred_model must be "gemini-2.5-flash". '
+                "Deprecated values: gpt-4o, claude-3-7-sonnet-latest."
+            )
 
 
 class CreateSessionResponse(BaseModel):

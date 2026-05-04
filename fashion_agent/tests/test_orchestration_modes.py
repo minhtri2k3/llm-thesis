@@ -1,10 +1,8 @@
 """Test Task 8.3 — verify orchestration mode routing.
 
 Tests that:
-- Mode A (Gemini): `_get_orchestration_mode` returns "direct"
-- Mode B (GPT): returns "agentic" with Gemini as orchestrator
-- Mode C (Claude): returns "agentic" with GPT-4o as orchestrator
-- `create_session()` randomly assigns gender_hint_enabled
+- All models (Gemini, GPT, Claude): `_get_orchestration_mode` returns "direct" mode
+- Gemini-only implementation ensures consistent direct-mode synthesis
 """
 import pytest
 import sys
@@ -17,44 +15,50 @@ from agent.fashion_agent import _get_orchestration_mode
 
 
 class TestOrchestrationModeRouting:
-    """Test _get_orchestration_mode() maps model IDs to correct modes."""
+    """Test _get_orchestration_mode() maps all models to direct mode."""
 
     def test_gemini_model_is_direct_mode(self):
         mode, orchestrator, synthesizer = _get_orchestration_mode("gemini-2.5-flash")
         assert mode == "direct"
-        assert orchestrator == "fixed"
+        assert orchestrator == "gemini-2.5-flash"
         assert synthesizer == "gemini-2.5-flash"
 
     def test_gemini_pro_model_is_direct_mode(self):
         mode, orchestrator, synthesizer = _get_orchestration_mode("gemini-1.5-pro")
         assert mode == "direct"
+        assert orchestrator == "gemini-2.5-flash"
+        assert synthesizer == "gemini-1.5-pro"
 
-    def test_gpt_model_is_agentic_with_gemini_orchestrator(self):
+    def test_gpt_model_routes_to_direct_mode(self):
         mode, orchestrator, synthesizer = _get_orchestration_mode("gpt-4o")
-        assert mode == "agentic"
-        assert orchestrator.startswith("gemini")
+        assert mode == "direct"
+        assert orchestrator == "gemini-2.5-flash"
         assert synthesizer == "gpt-4o"
 
-    def test_gpt_4o_mini_also_routes_to_agentic(self):
+    def test_gpt_4o_mini_also_routes_to_direct_mode(self):
         mode, orchestrator, synthesizer = _get_orchestration_mode("gpt-4o-mini")
-        assert mode == "agentic"
-        assert orchestrator.startswith("gemini")
+        assert mode == "direct"
+        assert orchestrator == "gemini-2.5-flash"
+        assert synthesizer == "gpt-4o-mini"
 
-    def test_claude_model_is_agentic_with_gpt_orchestrator(self):
+    def test_claude_model_routes_to_direct_mode(self):
         mode, orchestrator, synthesizer = _get_orchestration_mode("claude-3-5-sonnet-20241022")
-        assert mode == "agentic"
-        assert orchestrator.startswith("gpt")
+        assert mode == "direct"
+        assert orchestrator == "gemini-2.5-flash"
         assert synthesizer == "claude-3-5-sonnet-20241022"
 
-    def test_claude_haiku_routes_to_agentic(self):
+    def test_claude_haiku_routes_to_direct_mode(self):
         mode, orchestrator, synthesizer = _get_orchestration_mode("claude-3-haiku-20240307")
-        assert mode == "agentic"
-        assert orchestrator.startswith("gpt")
+        assert mode == "direct"
+        assert orchestrator == "gemini-2.5-flash"
+        assert synthesizer == "claude-3-haiku-20240307"
 
     def test_unknown_model_defaults_to_direct(self):
         """Unknown model prefixes should fall through to direct mode."""
         mode, orchestrator, synthesizer = _get_orchestration_mode("some-unknown-model-v1")
         assert mode == "direct"
+        assert orchestrator == "gemini-2.5-flash"
+        assert synthesizer == "some-unknown-model-v1"
 
 
 class TestGenderHintRandomAssignment:

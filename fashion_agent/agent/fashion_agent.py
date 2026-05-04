@@ -27,7 +27,6 @@ from agent.utils import (
 from agent.prompts import (
     SYNTHESIS_PROMPT,
     STREAM_SYNTHESIS_PROMPT,
-    STREAM_SYNTHESIS_PROMPT_AGENTIC,
     detect_language,
     _LANG_NAMES,
     build_unsupported_category_message,
@@ -1168,19 +1167,12 @@ def _handle_offer_declined(session_id: str) -> Generator:
 def _get_orchestration_mode(model_id: str) -> tuple[str, str, str]:
     """Map a session model ID to (mode, orchestrator_model, synthesizer_model).
 
-    Mode A (Gemini): direct routing + Gemini synthesis.
-    Mode B (GPT-4o): Gemini orchestrates (agentic) + GPT-4o synthesizes.
-    Mode C (Claude): GPT-4o orchestrates (agentic) + Claude synthesizes.
+    Gemini-only: direct routing + Gemini synthesis.
 
     Returns:
         Tuple of (mode, orchestrator_model, synthesizer_model).
     """
-    if model_id.startswith("gpt-"):
-        return "agentic", "gemini-2.0-flash", model_id
-    elif model_id.startswith("claude-"):
-        return "agentic", "gpt-4o", model_id
-    else:
-        return "direct", "fixed", model_id
+    return "direct", "gemini-2.5-flash", model_id
 
 
 # ---------------------------------------------------------------------------
@@ -1326,7 +1318,7 @@ def chat_stream(
         })
         return
 
-    # Emit product cards (only for direct / after agentic orchestration)
+    # Emit product cards (direct mode only)
     product_dicts = [
         {
             "image_id": p.image_id,
@@ -1354,7 +1346,7 @@ def chat_stream(
     orchestrator_out_tokens = 0
 
     if orch_mode == "direct":
-        # Mode A: regular stream synthesis (existing path)
+        # Direct mode: regular stream synthesis
         client = get_client(preferred_model)
         for chunk in _synthesize_response_stream(
             query=query,
@@ -1375,117 +1367,7 @@ def chat_stream(
             else:
                 full_text_parts.append(str(chunk))
                 yield _sse("token", {"text": str(chunk)})
-    else:
-        # ── Mode B/C pre-flight category validation ────────────────────
-        slot_category = result.filters.get("category", "")
-        if not slot_category:
-            # Also check intent_result slots if available
-            slot_category = getattr(result, "slot_category", "") or ""
-        if slot_category and slot_category not in SUPPORTED_CATEGORIES:
-            lang = detect_language(query)
-            suggestions = _find_category_suggestions(slot_category)
-            refusal = build_unsupported_category_message(slot_category, suggestions, lang)
-            yield _sse("clarification", {"text": refusal, "intent": "unsupported_category"})
-            yield _sse("done", {
-                "session_id": result.session_id,
-                "intent": "unsupported_category",
-                "styling": "",
-                "total_input_tokens": intent_tokens.input_tokens,
-                "total_output_tokens": intent_tokens.output_tokens,
-            })
-            return
 
-        # Mode B (Gemini orchestrates) or Mode C (GPT orchestrates)
-        from agent.agentic_orchestrator import (
-            orchestrate_with_gemini,
-            orchestrate_with_gpt,
-        )
-        from agent.utils import format_history_text
-        from agent.prompts import _LANG_NAMES
-
-        history_text = format_history_text(result.history, limit=4)
-        gender, gender_hint = None, False
-        try:
-            from agent.memory import get_session_gender
-            gender, gender_hint = get_session_gender(result.session_id)
-        except Exception:
-            pass
-
-        yield _sse("thinking_step", {"step": "agentic_start", "detail": f"{orchestrator_model} orchestrating..."})
-
-        if orchestrator_model.startswith("gemini"):
-            orch_result = orchestrate_with_gemini(
-                query=query,
-                history_text=history_text,
-                gender=gender,
-                gender_hint=gender_hint,
-            )
-        else:
-            orch_result = orchestrate_with_gpt(
-                query=query,
-                history_text=history_text,
-                gender=gender,
-                gender_hint=gender_hint,
-            )
-
-        tool_calls_for_log = [tc.to_dict() for tc in orch_result.tool_calls]
-        orchestrator_in_tokens = orch_result.orchestrator_input_tokens
-        orchestrator_out_tokens = orch_result.orchestrator_output_tokens
-
-        yield _sse("thinking_step", {"step": "agentic_done", "detail": f"{len(orch_result.tool_calls)} tool calls"})
-
-        # Build synthesis context using agentic tool results
-        lang = detect_language(query)
-        lang_name = _LANG_NAMES.get(lang, "English")
-        num_products = len(orch_result.products)
-        if lang == "vi":
-            cta = "👉 Hãy cho tôi biết bạn thích cái nào — tôi sẽ thêm vào giỏ hàng ngay!"
-        elif lang == "es":
-            cta = "👉 Dime cuál te gusta, ¡lo añadiré al carrito!"
-        else:
-            cta = "👉 Tell me which one you like — I'll add it to your cart!"
-
-        gender_ctx = ""
-        if gender_hint and gender:
-            wardrobe = "menswear" if gender == "male" else "womenswear"
-            gender_ctx = f"\nUser profile: gender = {gender}. Prioritize {wardrobe} appropriate items.\n"
-
-        prefs = result.preferences or {}
-        prefs_parts = []
-        if prefs.get("preferred_colors"):
-            prefs_parts.append(f"Preferred colors: {', '.join(prefs['preferred_colors'])}")
-        if prefs.get("preferred_categories"):
-            prefs_parts.append(f"Preferred categories: {', '.join(prefs['preferred_categories'])}")
-        preferences_text = "; ".join(prefs_parts) or "No preferences yet."
-
-        prompt = STREAM_SYNTHESIS_PROMPT_AGENTIC.format(
-            language=lang_name,
-            gender_context=gender_ctx,
-            query=query,
-            tool_results=orch_result.tool_results_text,
-            preferences_text=preferences_text,
-            history_text=format_history_text(result.history, limit=4),
-            cta_example=cta,
-        )
-
-        synth_client = get_client(synthesizer_model)
-        try:
-            gen = synth_client.stream(prompt)
-            while True:
-                try:
-                    chunk = next(gen)
-                    if isinstance(chunk, str):
-                        full_text_parts.append(chunk)
-                        yield _sse("token", {"text": chunk})
-                except StopIteration as e:
-                    if isinstance(e.value, TokenUsage):
-                        synthesis_tokens = e.value
-                    break
-        except Exception as _synth_err:
-            logger.error("Agentic synthesis failed: %s", _synth_err)
-            fallback = "I found some products for you. Please review the results above."
-            full_text_parts.append(fallback)
-            yield _sse("token", {"text": fallback})
 
     full_text = "".join(full_text_parts)
     styling = _extract_styling_from_text(full_text)

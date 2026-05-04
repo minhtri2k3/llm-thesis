@@ -21,7 +21,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
   String? _error;
   String? _selectedGender; // 'male' or 'female'
-  String _selectedModel = 'gemini-2.5-flash';
 
   @override
   void dispose() {
@@ -62,7 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         name,
         yearInt,
         _selectedGender!,
-        _selectedModel,
+        'gemini-2.5-flash',
       );
       if (mounted) {
         context.goNamed(
@@ -405,39 +404,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Model toggle
-          Row(
-            children: [
-              Expanded(
-                child: _SelectButton(
-                  label: 'Gemini',
-                  value: 'gemini-2.5-flash',
-                  selected: _selectedModel == 'gemini-2.5-flash',
-                  onTap: () =>
-                      setState(() => _selectedModel = 'gemini-2.5-flash'),
-                ),
+          // Active model (fixed)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).inputDecorationTheme.fillColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
+                width: 1,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SelectButton(
-                  label: 'GPT-4o',
-                  value: 'gpt-4o',
-                  selected: _selectedModel == 'gpt-4o',
-                  onTap: () => setState(() => _selectedModel = 'gpt-4o'),
-                ),
+            ),
+            child: Text(
+              'Model: Gemini 2.5 Flash',
+              style: GoogleFonts.outfit(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.85),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SelectButton(
-                  label: 'Claude',
-                  value: 'claude-3-7-sonnet-latest',
-                  selected: _selectedModel == 'claude-3-7-sonnet-latest',
-                  onTap: () => setState(
-                    () => _selectedModel = 'claude-3-7-sonnet-latest',
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
 
           // Error message

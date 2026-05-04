@@ -1,4 +1,4 @@
-"""Centralized LLM client factory — multi-provider support."""
+"""Centralized LLM client factory — Gemini-only support."""
 
 from __future__ import annotations
 
@@ -62,73 +62,6 @@ class GeminiClient:
             usage.output_tokens = getattr(res.usage_metadata, "candidates_token_count", 0)
         return usage
 
-class OpenAIClient:
-    def __init__(self, model_name: str):
-        self.model_name = model_name
-        import openai
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY environment variable is required but not set.")
-        self._client = openai.Client(api_key=api_key)
-
-    def generate(self, prompt: str) -> str:
-        res = self._client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return res.choices[0].message.content or ""
-
-    def stream(self, prompt: str) -> Generator[str, None, TokenUsage]:
-        res = self._client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-            stream_options={"include_usage": True}
-        )
-        usage = TokenUsage()
-        for chunk in res:
-            if chunk.choices and len(chunk.choices) > 0 and getattr(chunk.choices[0], "delta", None):
-                text = chunk.choices[0].delta.content
-                if text:
-                    yield text
-            if getattr(chunk, "usage", None) and chunk.usage is not None:
-                usage.input_tokens = getattr(chunk.usage, "prompt_tokens", 0)
-                usage.output_tokens = getattr(chunk.usage, "completion_tokens", 0)
-        return usage
-
-class AnthropicClient:
-    def __init__(self, model_name: str):
-        self.model_name = model_name
-        import anthropic
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY environment variable is required but not set.")
-        self._client = anthropic.Anthropic(api_key=api_key)
-
-    def generate(self, prompt: str) -> str:
-        res = self._client.messages.create(
-            model=self.model_name,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        # Claude responds with a list of ContentBlocks
-        return res.content[0].text if getattr(res, "content", None) else ""
-
-    def stream(self, prompt: str) -> Generator[str, None, TokenUsage]:
-        usage = TokenUsage()
-        with self._client.messages.stream(
-            model=self.model_name,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}]
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
-            # Get the final message object to extract token usages
-            final_message = stream.get_final_message()
-            if getattr(final_message, "usage", None):
-                usage.input_tokens = getattr(final_message.usage, "input_tokens", 0)
-                usage.output_tokens = getattr(final_message.usage, "output_tokens", 0)
-        return usage
 
 # ---------------------------------------------------------------------------
 # Factory
@@ -137,18 +70,12 @@ class AnthropicClient:
 _clients: dict[str, LLMClient] = {}
 
 def get_client(model_id: Optional[str] = None) -> LLMClient:
-    """Return a cached LLMClient instance based on model_id prefix."""
+    """Return a cached GeminiClient instance. Only Gemini is supported."""
     name = model_id or "gemini-2.5-flash"
     
     if name not in _clients:
-        if name.startswith("gpt-"):
-            client_class = OpenAIClient
-        elif name.startswith("claude-"):
-            client_class = AnthropicClient
-        else:
-            client_class = GeminiClient
-        _clients[name] = client_class(name)
-        
+        _clients[name] = GeminiClient(name)
+    
     return _clients[name]
 
 # Helper for backwards-compatibility or scripts that expect `get_model`
