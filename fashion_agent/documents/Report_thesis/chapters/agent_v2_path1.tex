@@ -1,0 +1,328 @@
+\section{Overall Agent Architecture}
+Agent v2.0 is built on the \textbf{Orchestrator + Sub-agents + ReAct Loop} model. Instead of a fixed pipeline, Gemini 2.5 Flash acts as the Orchestrator: analyzing requests, planning, invoking appropriate tools, and synthesizing results.
+
+The 5-step processing flow:
+\begin{enumerate}
+    \item \textbf{Intent Classification} --- Classify user intent
+    \item \textbf{Clarification Gate} --- Ask for clarification if ambiguous
+    \item \textbf{Memory Agent} --- Load user preferences from PostgreSQL
+    \item \textbf{ReAct Loop} --- Plan $\rightarrow$ Execute $\rightarrow$ Observe cycle (max 8 iterations)
+    \item \textbf{LLM Synthesis} --- Generate a natural language response
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=1.5cm and 1cm,
+    process/.style={rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    model/.style={rectangle, draw=red!80!black, fill=red!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    db/.style={cylinder, draw=orange, fill=orange!20, shape border rotate=90, aspect=0.25, text width=2.5cm, text centered, minimum height=1.5cm},
+    input/.style={rectangle, draw=blue, fill=blue!10, rounded corners, text width=3cm, text centered, minimum height=1cm},
+    arrow/.style={thick,->,>=stealth}
+]
+
+% Nodes
+\node[input] (query) {User Query};
+\node[process, below left=of query, xshift=0.5cm] (bm25) {BM25 Keyword Search\\(label + color)};
+\node[model, below right=of query, xshift=-0.5cm] (vector) {FashionSigLIP\\Vector Search (semantic)};
+
+\node[db, left=of bm25] (bm25db) {BM25 Index};
+\node[db, right=of vector] (qdrant) {Qdrant Vector DB};
+
+\node[process, below=2.5cm of query] (rrf) {RRF Fusion \&\\Soft Filter};
+
+\node[model, below=of rrf] (rerank) {BGE Reranker\\(multilingual)};
+\node[process, below=of rerank] (synth) {Gemini 2.5 Flash\\Synthesis};
+
+\node[db, left=of synth] (pg) {PostgreSQL\\(products)};
+\node[input, below=of synth] (output) {Results \& Advice};
+
+% Arrows
+\draw[arrow] (query) -- (bm25);
+\draw[arrow] (query) -- (vector);
+\draw[arrow, dashed] (bm25db) -- (bm25);
+\draw[arrow, dashed] (qdrant) -- (vector);
+\draw[arrow] (bm25) -- (rrf);
+\draw[arrow] (vector) -- (rrf);
+\draw[arrow] (rrf) -- (rerank);
+\draw[arrow] (rerank) -- (synth);
+\draw[arrow, dashed] (pg) -- (synth);
+\draw[arrow] (synth) -- (output);
+
+\end{tikzpicture}
+\caption{End-to-End Workflow Diagram of Fashion Agent v2.0}
+\label{fig:workflow_v2}
+\end{figure}
+
+\section{Step 1 --- Intent Classification (Router)}
+
+\begin{tcolorbox}[title=Method: LLM Few-shot Intent Classification]
+Gemini classifies queries into 5 intent groups with a confidence score. If confidence $< 0.6$, the agent switches to the clarification step instead of searching immediately.
+\end{tcolorbox}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Intent} & \textbf{Condition} & \textbf{Action}\\
+\midrule
+text\_search    & Find specific products         & Search immediately\\
+outfit\_request & Request outfit suggestions     & Search + outfit advice\\
+follow\_up      & Reference previous result      & Use session context\\
+out\_of\_scope  & Unrelated to fashion           & Politely refuse\\
+unclear         & Information too vague          & Ask for clarification\\
+\bottomrule
+\end{tabular}
+\caption{Intent classification table with conditions and corresponding actions}
+\end{table}
+
+\begin{lstlisting}[caption={Intent Classification --- agent/intent\_classifier.py}]
+@dataclass
+class ClassifiedIntent:
+    intent: str       # "text_search", "outfit_request", ...
+    confidence: float # 0.0 - 1.0
+    filters: dict     # {category, color, style, occasion}
+    refined_query: str  # condensed query for search
+
+INTENT_PROMPT = """Classify the user's message into intents:
+1. "text_search" - find specific fashion items
+2. "outfit_request" - fashion recommendations
+3. "follow_up" - following up on previous search
+4. "out_of_scope" - non-fashion topics
+5. "unclear" - too vague to classify
+
+## Few-shot examples:
+User: "tim ao so mi trang nam"
+-> {"intent": "text_search", "confidence": 0.95,
+    "filters": {"category": "Shirt", "color": "white"},
+    "refined_query": "white men shirt"}
+
+User: "goi y outfit cho buoi tiec cuoi tuan"
+-> {"intent": "outfit_request", "confidence": 0.9,
+    "filters": {"occasion": "weekend party"},
+    "refined_query": "party outfit weekend"}
+"""
+
+def classify_intent(query, history=None, api_key=None):
+    # Format last 4 messages for context
+    history_text = format_history(history[-4:])
+    prompt = INTENT_PROMPT.format(
+        history_text=history_text) + query
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return ClassifiedIntent(**data)
+\end{lstlisting}
+
+\textbf{Explanation:}
+\begin{itemize}
+    \item \textbf{History-aware}: Uses the last 4 messages to understand context for follow-up queries.
+    \item \textbf{Filter extraction}: The LLM automatically extracts category, color, and occasion during classification --- saving one additional LLM call.
+    \item \textbf{Fallback}: Any JSON parse error returns intent \texttt{text\_search} with \texttt{confidence=0.5}.
+\end{itemize}
+
+\section{Step 2 --- Clarification Gate}
+
+\begin{tcolorbox}[title=Method: Proactive Clarification]
+When confidence $< 0.6$, the Agent does not guess --- it asks the user instead. This mechanism prevents incorrect searches, wastes fewer resources, and avoids returning irrelevant results.
+\end{tcolorbox}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Ambiguous Query} & \textbf{Agent's Clarification Question}\\
+\midrule
+``I want a shirt''        & ``Do you want a dress shirt, T-shirt, or jacket?''\\
+``something nice''        & ``What occasion are you shopping for?''\\
+``party outfit''          & ``Indoor or outdoor? What color do you prefer?''\\
+``this style''            & ``Could you describe it in more detail?''\\
+\bottomrule
+\end{tabular}
+\caption{Examples of clarification questions generated by the Clarification Gate}
+\end{table}
+
+\begin{lstlisting}[caption={Clarification Gate --- agent/clarification\_gate.py}]
+@dataclass
+class ClarificationResult:
+    needs_clarification: bool
+    question: str = ""
+
+def check_clarification(query, history=None, api_key=None):
+    """LLM-based clarification gate.
+    Generates a clarification question dynamically via Gemini."""
+    prompt = CLARIFICATION_PROMPT.format(
+        query=query,
+        history_text=format_history(history))
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return ClarificationResult(
+        needs_clarification=True,
+        question=data.get("question", ""))
+\end{lstlisting}
+
+\section{Step 3 --- Memory Agent (PostgreSQL)}
+
+\begin{lstlisting}[caption={Memory Agent --- agent/memory.py}]
+def log_query(session_id, query, intent, filters):
+    """Record query history to PostgreSQL JSONB."""
+    entry = {
+        "query": query, "intent": intent,
+        "filters": filters, "ts": datetime.utcnow().isoformat()
+    }
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE sessions
+                SET query_history = query_history || %s::jsonb
+                WHERE session_id = %s
+            """, (json.dumps([entry]), session_id))
+        conn.commit()
+
+def add_liked_item(session_id, image_id, label, color):
+    """Save a product the user has liked."""
+    item = {"image_id": image_id,
+            "label": label, "color": color}
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE sessions
+                SET liked_items = liked_items || %s::jsonb
+                WHERE session_id = %s
+            """, (json.dumps([item]), session_id))
+        conn.commit()
+\end{lstlisting}
+
+\textbf{Explanation:}
+\begin{itemize}
+    \item \textbf{JSONB append}: Uses PostgreSQL JSONB concatenation (\texttt{||}) to add new entries.
+    \item \textbf{Accumulated preferences}: Automatically aggregates preferred categories and colors from history.
+    \item \textbf{Limits}: Retains a maximum of 20 query history entries and 50 liked items.
+\end{itemize}
+
+\section{Step 4 --- The ReAct Loop}
+
+\begin{tcolorbox}[title=Method: ReAct (Reason + Act) Loop]
+ReAct is the central loop: Thought $\rightarrow$ Action $\rightarrow$ Observation $\rightarrow$ (repeat if needed, up to 8 iterations). Gemini both reasons and proactively selects the appropriate tool based on each step's observation.
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={ReAct Loop --- agent/fashion\_agent.py}]
+MAX_REACT_ITERATIONS = 8
+LOW_CONFIDENCE_THRESHOLD = 0.5
+
+def chat(query, session_id=None, api_key=None):
+    """Main agent entry point - ReAct orchestrator."""
+    # ... (intent, clarify, memory setup) ...
+
+    search_query = intent_result.refined_query or query
+    all_products = []
+    observations = []
+    threshold = LOW_CONFIDENCE_THRESHOLD
+
+    for iteration in range(1, MAX_REACT_ITERATIONS + 1):
+        # THOUGHT: Planner decides which tool to call
+        plan = _plan(
+            query=search_query,
+            intent=intent_result.intent,
+            preferences=preferences,
+            observations=observations,
+            iteration=iteration,
+            max_iter=MAX_REACT_ITERATIONS)
+
+        if not plan:  # Planner: "enough results already"
+            break
+
+        # ACTION: Execute at most 2 tools per iteration
+        for tool_call in plan[:2]:
+            tool_name = tool_call.get("tool", "search")
+            tool_args = tool_call.get("args", {})
+            obs, products = _execute_tool(
+                tool_name, tool_args, preferences)
+            observations.append(obs)
+            if products:
+                all_products = products
+
+        # OBSERVE: Check result quality
+        if all_products and all_products[0].score > threshold:
+            break  # Results are good enough
+
+        # Lower threshold after 4 iterations
+        if iteration == 4:
+            threshold -= 0.2
+
+    # SYNTHESIZE response
+    answer, styling = _synthesize_response(
+        query, all_products, history, intent, preferences)
+    return AgentResponse(answer=answer, products=all_products,
+                         styling_suggestion=styling)
+\end{lstlisting}
+
+\textbf{3 available tools in ReAct:}
+\begin{enumerate}
+    \item \texttt{search(query, top\_k)} --- Calls the full hybrid search pipeline
+    \item \texttt{memory\_enrich(query, preferences)} --- Enriches the query with user preferences
+    \item \texttt{outfit\_hints(occasion, style)} --- Gemini generates outfit pairing suggestions
+\end{enumerate}
+
+\textbf{Stopping conditions:}
+\begin{itemize}
+    \item Planner returns \texttt{[]} (sufficient results found)
+    \item Top product score $> \text{threshold}$ (0.5, lowered to 0.3 after 4 iterations)
+    \item Maximum of 8 iterations reached
+\end{itemize}
+
+\section{Step 5 --- Gender Filtering and LLM Synthesis}
+
+Before finalizing the results, the system applies demographic-aware post-processing. A specific \texttt{\_filter\_by\_gender} function validates the retrieved products against the user's recorded gender in PostgreSQL, ensuring that (for example) female-specific clothing is not inappropriately recommended to male users.
+
+\begin{lstlisting}[caption={Gender Filtering and LLM Synthesis --- agent/fashion\_agent.py}]
+SYNTHESIS_PROMPT = """You are a helpful fashion assistant.
+Based on search results and user query, provide a natural
+response in the same language as the user's query.
+
+User Gender Context: {gender_context}
+User query: {query}
+Search results: {products_text}
+User preferences: {preferences_text}
+Conversation history: {history_text}
+
+Instructions:
+1. Respond in the same language (Vietnamese or English)
+2. Tailor styling advice considering the {gender_context}
+3. Briefly describe top recommendations and why they match
+4. Include styling suggestions for outfit_request intent
+5. Keep response concise (2-4 sentences)
+
+Respond with JSON:
+{{"answer": "<response>",
+  "styling_suggestion": "<optional tips>"}}"""
+
+def _synthesize_response(query, products, history,
+                         intent, preferences, gender_context):
+    """Gemini synthesizes a natural language response with gender awareness."""
+    
+    # Filter products by gender before synthesis
+    filtered_products = _filter_by_gender(products, gender_context)
+    
+    products_text = "\n".join(
+        f"{i}. {p.label} | {p.color} | {p.caption[:80]}"
+        for i, p in enumerate(filtered_products, 1))
+        
+    prompt = SYNTHESIS_PROMPT.format(
+        gender_context=gender_context,
+        query=query, products_text=products_text,
+        preferences_text=format_prefs(preferences),
+        history_text=format_history(history[-6:]))
+    response = model.generate_content(prompt)
+    data = json.loads(response.text)
+    return data["answer"], data.get("styling_suggestion", "")
+\end{lstlisting}
+
+\textbf{Explanation:}
+\begin{itemize}
+    \item \textbf{Gender Context Injection}: By explicitly stating the \texttt{gender\_context} in the prompt, Gemini can tailor the phrasing and styling tips appropriately (e.g., suggesting a ``sharp tailored fit'' for men vs. a ``flattering silhouette'' for women).
+    \item \textbf{A/B Testing Capabilities}: The \texttt{gender\_hint\_enabled} flag allows developers to easily toggle this feature for controlled experimentation and research.
+\end{itemize}
+
+% ===========================================================================
+% CHAPTER 6: AGENT v2.0 --- PATH 2: IMAGE-TO-IMAGE SEARCH
+% ===========================================================================

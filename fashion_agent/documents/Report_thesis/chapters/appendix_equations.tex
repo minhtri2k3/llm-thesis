@@ -1,0 +1,27 @@
+This appendix contains supplementary mathematical material referenced in the main text.
+
+\section{Cosine Similarity from L2-Normalized Vectors}
+
+For two vectors $u, v \in \mathbb{R}^d$, the cosine similarity is:
+\begin{equation}
+\label{eq:cosine}
+\cos(u, v) \;=\; \frac{u \cdot v}{\|u\|_2 \, \|v\|_2}
+\end{equation}
+
+When both vectors are L2-normalized (i.e.\ $\|u\|_2 = \|v\|_2 = 1$), Equation~(\ref{eq:cosine}) reduces to the dot product:
+\begin{equation}
+\label{eq:dotprod}
+\cos(\hat{u}, \hat{v}) \;=\; \hat{u} \cdot \hat{v}
+\end{equation}
+
+This is why \texttt{FashionEmbedder} normalizes embeddings before storing them in Qdrant --- it allows the use of fast dot-product search rather than full cosine computation.
+
+\section{BM25 Scoring Function}
+
+The BM25 score of a document $d$ for a query $q = \{q_1, q_2, \ldots, q_n\}$ is:
+\begin{equation}
+\label{eq:bm25}
+\text{BM25}(d, q) \;=\; \sum_{i=1}^{n} \text{IDF}(q_i) \cdot \frac{f(q_i, d) \cdot (k_1 + 1)}{f(q_i, d) + k_1 \cdot \left(1 - b + b \cdot \frac{|d|}{\text{avgdl}}\right)}
+\end{equation}
+
+where $f(q_i, d)$ is the term frequency of $q_i$ in $d$, $|d|$ is the document length, $\text{avgdl}$ is the average document length in the corpus, and $k_1, b$ are free parameters (typically $k_1 \in [1.2, 2.0]$ and $b = 0.75$).

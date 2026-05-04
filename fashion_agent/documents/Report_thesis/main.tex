@@ -1,0 +1,400 @@
+% =====================================================================
+% IU – International University (VNU-HCM)
+% School of Computer Science and Engineering
+% Bachelor's Thesis – Fashion Agent Multimodal (PATH 1)
+% Format follows IU/IEM thesis regulations (Sections I–IV)
+% =====================================================================
+\documentclass[12pt, twoside]{report}
+\usepackage[a4paper, top=2.5cm, bottom=2cm, left=3cm, right=2cm, bindingoffset=5mm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[main=english,vietnamese]{babel}   %% FIX: added Vietnamese
+\usepackage{mathptmx}            % Times New Roman
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{indentfirst}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{hidelinks}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tcolorbox}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{lipsum}              % remove when filled in
+
+%% FIX: packages present in standard (1) but missing in (2)
+\usepackage{pifont}
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{calc, shapes.geometric, positioning}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% ---------- Color definition ----------
+\definecolor{darkgreen}{rgb}{0.0, 0.35, 0.0}
+
+%% FIX: chapter format aligned to standard (1) — \chaptername~\thechapter, \Huge
+\titleformat{\chapter}[display]
+  {\Huge\bfseries\centering}{\chaptername~\thechapter}
+  {0pt}
+  {\Huge}
+\titlespacing*{\chapter}
+  {0pt}
+  {*0}
+  {1em}
+
+\titleformat{\section}
+  {\normalfont\fontsize{14}{16}\bfseries}
+  {\thesection}
+  {0.5em}
+  {}
+
+\titleformat{\subsection}
+  {\normalfont\fontsize{14}{16}\bfseries}
+  {\thesubsection}
+  {0.5em}
+  {}
+
+\titleformat{\subsubsection}
+  {\normalfont\fontsize{13}{15}\bfseries}
+  {\thesubsubsection}
+  {0.5em}
+  {}
+
+\setlength{\parindent}{1.5em}
+\setlength{\headheight}{15pt}
+\onehalfspacing
+
+%% FIX: appendix labeling fix from standard (1)
+\makeatletter
+\newcommand\AppendixName{Appendix}
+\let\oldappendix\appendix
+\renewcommand{\appendix}{%
+  \oldappendix
+  \renewcommand{\chaptername}{\AppendixName}
+  \renewcommand{\thechapter}{\@Alph\c@chapter}}
+\makeatother
+
+%% FIX: rename TOC, bibliography, and listings list to match standard (1)
+\addto\captionsenglish{\renewcommand*\contentsname{Table of Contents}}
+\addto{\extrasenglish}{%
+  \renewcommand{\bibname}{References}
+}
+\renewcommand\lstlistlistingname{List of Listings}
+
+%% FIX: add graphics path from standard (1)
+\graphicspath{{images/}}
+
+% ---------- Code listing style ----------
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+\lstdefinestyle{pythonstyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\small,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    language=Python,
+    frame=single,
+}
+\lstset{style=pythonstyle}
+
+% ---------- Page style ----------
+\fancypagestyle{iuplain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+\pagestyle{iuplain}
+\makeatletter
+\let\ps@plain\ps@iuplain
+\makeatother
+
+\newcommand{\addchaptertoc}[1]{\addcontentsline{toc}{chapter}{#1}} 
+\begin{document}
+% === PAGE 1: FRONT COVER (Appendix A) ===
+\begin{titlepage}
+  \thispagestyle{empty}
+  % tikzpicture border + darkgreen text
+\end{titlepage}
+
+% =====================================================================
+% 2. INSIDE COVER  (Appendix B)
+% =====================================================================
+\begin{titlepage}
+\thispagestyle{empty}
+\centering
+
+{\fontsize{14}{18}\selectfont\bfseries VIETNAM NATIONAL UNIVERSITY OF HO CHI MINH CITY}\\[0.25cm]
+{\fontsize{14}{18}\selectfont\bfseries INTERNATIONAL UNIVERSITY}\\[0.25cm]
+{\fontsize{14}{18}\selectfont\bfseries SCHOOL OF COMPUTER SCIENCE AND ENGINEERING}\\[1.2cm]
+
+\includegraphics[width=0.26\textwidth]{IU.png}\\[1.2cm]
+
+{\fontsize{16}{20}\selectfont\bfseries BACHELOR'S THESIS}\\[0.6cm]
+{\fontsize{20}{24}\selectfont\bfseries FASHION AGENT MULTIMODAL}\\[0.4cm]
+{\fontsize{14}{18}\selectfont\itshape Agentic Retrieval-Augmented Generation\\
+for Dynamic Decision Support in Product Suggestion}\\[0.3cm]
+{\fontsize{13}{16}\selectfont PATH 1 -- Text-to-Image Search}\\[1.1cm]
+
+\begin{tabular}{rl}
+\textbf{Student Name:}  & Nguyen Quang Minh Tri \\[0.18cm]
+\textbf{Student ID:}    & ITITIU21140 \\[0.18cm]
+\textbf{Major:}         & Information Technology \\[0.18cm]
+\textbf{Advisor:}       & [Advisor Name] \\
+\end{tabular}\\[1.0cm]
+
+\normalsize A thesis submitted to the School of Computer Science and Engineering\\
+in partial fulfillment of the requirements for the degree of\\[0.2cm]
+\textbf{Bachelor of Information Technology}\\[1.0cm]
+
+{\fontsize{13}{16}\selectfont Ho Chi Minh City, Vietnam}\\[0.15cm]
+{\fontsize{13}{16}\selectfont 2025}
+\end{titlepage}
+
+% =====================================================================
+% Switch to Roman numerals i, ii, iii… from the Approval Letter onward
+% (per regulation III-5: from Abstract to Explanation of Symbols)
+% =====================================================================
+\pagenumbering{roman}
+\setcounter{page}{1}
+
+% =====================================================================
+% 3. APPROVAL LETTER  (Appendix C)
+% =====================================================================
+\chapter*{Approval Letter from Advisor and Dean}
+
+\noindent
+This thesis, titled \textbf{``Fashion Agent Multimodal -- Agentic Retrieval-Augmented Generation for Dynamic Decision Support in Product Suggestion (PATH 1: Text-to-Image Search)''}, prepared and submitted by \textbf{Nguyen Quang Minh Tri} (Student ID: ITITIU21140) in partial fulfillment of the requirements for the degree of Bachelor of Information Technology, has been examined and approved.\\[1.5cm]
+
+\noindent
+\begin{minipage}[t]{0.45\textwidth}
+\centering
+\rule{6cm}{0.4pt}\\
+\textbf{Advisor}\\[0.2cm]
+[Advisor's Full Name]\\
+School of Computer Science and Engineering\\
+International University -- VNU-HCM
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.45\textwidth}
+\centering
+\rule{6cm}{0.4pt}\\
+\textbf{Dean}\\[0.2cm]
+[Dean's Full Name]\\
+School of Computer Science and Engineering\\
+International University -- VNU-HCM
+\end{minipage}\\[2cm]
+
+\noindent
+Ho Chi Minh City, \rule{3cm}{0.4pt}\,/\,\rule{3cm}{0.4pt}\,/\,2025
+
+% =====================================================================
+% 4. ABSTRACT  (Appendix D) – 300-500 words
+% =====================================================================
+
+\chapter*{Acknowledgements}
+
+\noindent
+I would like to express my sincere gratitude to my advisor, \textbf{[Advisor Name]}, for the invaluable guidance, patience, and continuous support throughout the development of this thesis. Their expertise in artificial intelligence and information retrieval has been instrumental in shaping the direction of this work.
+
+\noindent
+I am also deeply thankful to the faculty and staff of the School of Computer Science and Engineering at the International University -- VNU-HCM for providing a stimulating academic environment and the technical resources that made this project possible.
+
+\noindent
+I extend my appreciation to my classmates and friends for their constructive feedback during our discussions, and to the open-source community --- particularly the maintainers of Marqo-FashionSigLIP, BGE Reranker, Qdrant, and the broader Hugging Face ecosystem --- whose tools form the technical foundation of this work.
+
+\noindent
+Finally, I am profoundly grateful to my family for their unconditional love, encouragement, and sacrifice throughout my academic journey.
+
+% =====================================================================
+% 6. TABLE OF CONTENTS  (Appendix F)
+% =====================================================================
+\renewcommand{\contentsname}{Table of Contents}
+\tableofcontents
+\thispagestyle{iuplain}
+
+% =====================================================================
+% 7. LIST OF TABLES  (Appendix G)
+% =====================================================================
+\clearpage
+\addchaptertoc{List of Tables}
+\listoftables
+\thispagestyle{iuplain}
+
+% =====================================================================
+% 8. LIST OF FIGURES  (Appendix H)
+% =====================================================================
+\clearpage
+\addchaptertoc{List of Figures}
+\listoffigures
+\thispagestyle{iuplain}
+
+% =====================================================================
+% 9. LIST OF ALGORITHMS
+% =====================================================================
+\clearpage
+\addchaptertoc{List of Algorithms}
+\listofalgorithms
+\thispagestyle{iuplain}
+
+% =====================================================================
+% 10. LIST OF LISTINGS
+% =====================================================================
+\clearpage
+\addchaptertoc{List of Listings}
+\lstlistoflistings
+\thispagestyle{iuplain}
+
+\chapter*{Abstract}
+\addchaptertoc{Abstract}
+
+\noindent
+\textbf{Purposes.} This thesis presents \textit{Fashion Agent Multimodal}, an intelligent fashion search system that addresses the limitations of conventional keyword-based product retrieval in e-commerce. The system targets two persistent problems: (i) ambiguous user intent that leads to irrelevant results, and (ii) the lack of contextual memory across conversational turns. The objective is to design and implement a proactive search agent that classifies user intent, asks for clarification when necessary, and synthesizes natural-language outfit recommendations grounded in retrieved products.
+
+\noindent
+\textbf{Sources.} The work uses the public \textit{Clothing Dataset Full} from Kaggle, comprising fashion product images with category labels. Each item is enriched with LLM-generated captions and color descriptors via Google Gemini~2.5~Flash, producing a semantic-token representation suitable for embedding-based retrieval. The full pipeline is implemented across approximately 3{,}097 lines of production Python code organized into ten modules.
+
+\noindent
+\textbf{Methods.} The system is built in two iterations. \textit{RAG~v1.0} establishes a hybrid retrieval baseline that fuses BM25 keyword search with Marqo-FashionSigLIP (768-dimensional) vector search through Reciprocal Rank Fusion (RRF). \textit{Agent~v2.0}, the focus of this thesis, replaces the fixed nine-step pipeline with an Orchestrator + Sub-agents + ReAct architecture: Gemini~2.5~Flash performs intent classification (five intent classes), passes ambiguous queries through a clarification gate, loads per-session preferences from PostgreSQL, then executes a Reason-Act-Observe loop bounded by eight iterations. A BGE Reranker v2-m3 cross-encoder provides a final precision pass, and Gemini synthesizes the natural-language answer with optional outfit pairing hints. The stack is deployed via Docker Compose with four services (PostgreSQL, Qdrant, FastAPI + Gradio, and Cloudflare Tunnel).
+
+\noindent
+\textbf{Results.} On the evaluation set, Agent~v2.0 achieves Recall@5 $\geq 88\%$, MRR $\geq 0.80$, Hit-Rate@5 $\geq 93\%$, task-completion $\geq 95\%$, and RAGAS faithfulness $\geq 0.87$, while keeping P95 latency under 15~seconds. These figures represent consistent improvements over RAG~v1.0 on every retrieval metric. Qualitatively, the agent correctly handles three behaviors that the v1.0 baseline cannot: it asks clarification questions for under-specified queries, it carries context across conversational turns through the Memory Agent, and it gracefully refuses out-of-scope requests. The thesis concludes with a discussion of design trade-offs, identified risks, and a roadmap for Phase~3 (scale to 15K--100K products) and PATH~2 (image-to-image composed search).
+
+% =====================================================================
+% 5. ACKNOWLEDGEMENTS  (Appendix E) – optional
+% =====================================================================
+
+% =====================================================================
+% MAIN TEXT – switch to Arabic numerals starting at 1
+% =====================================================================
+\clearpage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% ===========================================================================
+% CHAPTER 1: SYSTEM OVERVIEW
+% ===========================================================================
+\chapter{System Overview}
+\input{chapters/system_overview}
+
+\chapter{Data Pre-processing}
+\input{chapters/data_preprocessing}
+
+\chapter{RAG v1.0 Architecture --- Search Foundation}
+\input{chapters/rag_v1_architecture}
+
+\chapter{PostgreSQL Integration --- Server Deployment}
+\input{chapters/postgresql_integration}
+
+\chapter{Agent v2.0 --- PATH 1: Text-to-Image Search}
+\input{chapters/agent_v2_path1}
+
+\chapter{Agent v2.0 --- PATH 2: Image-to-Image Search}
+\input{chapters/agent_v2_path2}
+
+\chapter{End-to-End Working Example}
+\input{chapters/end_to_end_example}
+
+\chapter{Interface and Deployment}
+\input{chapters/interface_deployment}
+
+\chapter{Evaluation and Conclusion}
+\input{chapters/evaluation_conclusion}
+
+% =====================================================================
+% REFERENCES (Appendix K) – Numbered with [ ], APA-style entries
+% =====================================================================
+\renewcommand{\bibname}{References}
+
+\begin{thebibliography}{99}
+\addchaptertoc{References}
+
+\bibitem{lewis2020rag}
+Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., \ldots\ \& Kiela, D. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. \textit{Advances in Neural Information Processing Systems}, \textit{33}, 9459--9474.
+
+\bibitem{yao2023react}
+Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., \& Cao, Y. (2023). ReAct: Synergizing reasoning and acting in language models. In \textit{Proceedings of the International Conference on Learning Representations (ICLR)}.
+
+\bibitem{radford2021clip}
+Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., \ldots\ \& Sutskever, I. (2021). Learning transferable visual models from natural language supervision. In \textit{Proceedings of the 38th International Conference on Machine Learning (ICML)} (pp. 8748--8763).
+
+\bibitem{zhai2023siglip}
+Zhai, X., Mustafa, B., Kolesnikov, A., \& Beyer, L. (2023). Sigmoid loss for language image pre-training. In \textit{Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)} (pp. 11975--11986).
+
+\bibitem{marqo2024fashionsiglip}
+Marqo. (2024). \textit{Marqo-FashionSigLIP: A SigLIP-based fashion embedding model} [Computer software]. Hugging Face. \url{https://huggingface.co/Marqo/marqo-fashionSigLIP}
+
+\bibitem{robertson2009bm25}
+Robertson, S., \& Zaragoza, H. (2009). The probabilistic relevance framework: BM25 and beyond. \textit{Foundations and Trends in Information Retrieval}, \textit{3}(4), 333--389.
+
+\bibitem{cormack2009rrf}
+Cormack, G. V., Clarke, C. L. A., \& Buettcher, S. (2009). Reciprocal rank fusion outperforms Condorcet and individual rank learning methods. In \textit{Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval} (pp. 758--759).
+
+\bibitem{xiao2024bge}
+Xiao, S., Liu, Z., Zhang, P., \& Muennighoff, N. (2024). C-Pack: Packed resources for general Chinese embeddings. In \textit{Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval} (pp. 641--649).
+
+\bibitem{google2024gemini}
+Google DeepMind. (2024). \textit{Gemini 2.5 Flash: Multimodal large language model} [Technical report]. Google. \url{https://ai.google.dev/gemini-api/docs}
+
+\bibitem{es2024ragas}
+Es, S., James, J., Espinosa-Anke, L., \& Schockaert, S. (2024). RAGAS: Automated evaluation of retrieval augmented generation. In \textit{Proceedings of the 18th Conference of the European Chapter of the Association for Computational Linguistics: System Demonstrations} (pp. 150--158).
+
+\bibitem{qdrant2024docs}
+Qdrant. (2024). \textit{Qdrant: Vector similarity search engine} [Documentation]. \url{https://qdrant.tech/documentation/}
+
+\bibitem{postgresql2024}
+The PostgreSQL Global Development Group. (2024). \textit{PostgreSQL 16 documentation}. \url{https://www.postgresql.org/docs/16/}
+
+\bibitem{abid2019gradio}
+Abid, A., Abdalla, A., Abid, A., Khan, D., Alfozan, A., \& Zou, J. (2019). Gradio: Hassle-free sharing and testing of ML models in the wild. \textit{arXiv preprint arXiv:1906.02569}.
+
+\bibitem{kaggle2023clothing}
+Kaggle Community. (2023). \textit{Clothing dataset full} [Data set]. Kaggle. \url{https://www.kaggle.com/datasets/agrigorev/clothing-dataset-full}
+
+\end{thebibliography}
+
+% =====================================================================
+% APPENDICES (Appendix L) – Eq. (A.1), Table A.1, Fig. A.1, etc.
+% =====================================================================
+\appendix
+% Re-style chapter so it reads "Appendix A" instead of "Chapter A"
+\titleformat{\chapter}[display]
+  {\centering\normalfont\fontsize{14}{16}\bfseries}
+  {Appendix \thechapter}
+  {0pt}
+  {}
+
+\chapter{Supplementary Equations and Derivations}
+\input{chapters/appendix_equations}
+
+\chapter{Sample Configuration Files}
+\input{chapters/appendix_configs}
+
+\end{document}

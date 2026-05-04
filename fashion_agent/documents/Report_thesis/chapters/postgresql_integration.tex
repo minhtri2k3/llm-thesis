@@ -1,0 +1,103 @@
+\section{Motivation for Migrating from CSV to PostgreSQL}
+\begin{tcolorbox}[title=Note]
+CSV is unsuitable for server environments because: (1) it does not support concurrent access, (2) data is lost when a container restarts, and (3) conditional queries are inefficient. PostgreSQL resolves all of these issues while providing full ACID compliance.
+\end{tcolorbox}
+
+\section{Database Schema}
+
+\begin{lstlisting}[language=sql,caption={PostgreSQL schema for the Fashion Agent}]
+-- Main product table
+CREATE TABLE IF NOT EXISTS fashion_items (
+    id            SERIAL PRIMARY KEY,
+    image_id      TEXT UNIQUE NOT NULL,
+    label         TEXT,
+    color         TEXT,
+    caption       TEXT,
+    source        TEXT DEFAULT 'kaggle',
+    image_path    TEXT,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- User session table
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id          TEXT PRIMARY KEY,
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    query_history       JSONB DEFAULT '[]',
+    liked_items         JSONB DEFAULT '[]',
+    gender              TEXT DEFAULT 'unisex',
+    gender_hint_enabled BOOLEAN DEFAULT TRUE,
+    year_of_birth       INTEGER
+);
+
+-- Conversation message table
+CREATE TABLE IF NOT EXISTS session_messages (
+    id            SERIAL PRIMARY KEY,
+    session_id    TEXT REFERENCES sessions(session_id),
+    role          TEXT NOT NULL,  -- 'user' or 'assistant'
+    content       TEXT NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+\end{lstlisting}
+
+\section{Data Access Layer}
+
+\begin{lstlisting}[caption={PostgreSQL Data Access Layer --- agent/memory.py}]
+import psycopg2
+
+def _get_conn():
+    """Connect to PostgreSQL from environment variables."""
+    return psycopg2.connect(
+        host=os.getenv("PGHOST", "localhost"),
+        port=int(os.getenv("PGPORT", "5432")),
+        dbname=os.getenv("PGDATABASE", "fashion_rag"),
+        user=os.getenv("PGUSER", "fashion_user"),
+        password=os.getenv("PGPASSWORD", ""),
+    )
+
+def create_session() -> str:
+    """Create a new session and return its UUID."""
+    sid = str(uuid.uuid4())
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sessions (session_id) VALUES (%s)",
+                (sid,))
+        conn.commit()
+    return sid
+
+def get_preferences(session_id: str) -> dict:
+    """Extract accumulated preferences from query history."""
+    with _get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT query_history FROM sessions "
+                "WHERE session_id = %s", (session_id,))
+            row = cur.fetchone()
+    if not row or not row[0]:
+        return {}
+    # Analyze filters from history to derive preferred colors/categories
+    history = row[0] if isinstance(row[0], list) else []
+    colors, categories = Counter(), Counter()
+    for entry in history:
+        filters = entry.get("filters", {})
+        if filters.get("color"):
+            colors[filters["color"]] += 1
+        if filters.get("category"):
+            categories[filters["category"]] += 1
+    return {
+        "preferred_colors": [c for c, _ in colors.most_common(3)],
+        "preferred_categories":
+            [c for c, _ in categories.most_common(3)],
+    }
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \textbf{Environment-based connection}: Connects to PostgreSQL via environment variables, suitable for Docker deployment.
+    \item \textbf{JSONB}: Stores liked items and query history flexibly without requiring additional tables.
+    \item \textbf{Preference extraction}: Automatically aggregates the top-3 colors and categories from query history.
+\end{itemize}
+
+% ===========================================================================
+% CHAPTER 5: AGENT v2.0
+% ===========================================================================

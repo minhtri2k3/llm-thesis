@@ -1,0 +1,143 @@
+\section{Overview of the Search Mechanism}
+RAG (Retrieval-Augmented Generation) in this system combines two complementary search methods:
+
+\begin{itemize}
+    \item \textbf{BM25 Keyword Search}: Precise matching on category names and colors.
+    \item \textbf{Marqo-FashionSigLIP Vector Search}: Semantic understanding, synonyms, and feature descriptions.
+\end{itemize}
+
+\section{Marqo-FashionSigLIP Embedding --- Semantic Token}
+
+\subsection{Why FashionSigLIP Instead of the Original FashionCLIP?}
+\textbf{Marqo-FashionSigLIP} (\texttt{Marqo/marqo-fashionSigLIP}) is a SigLIP-based model fine-tuned on fashion data, producing \textbf{768-dimensional vectors} (vs.\ 512-d from the original FashionCLIP). The model uses the \texttt{open\_clip} library instead of HuggingFace's CLIPModel, with better support for Apple MPS.
+
+\begin{lstlisting}[caption={FashionEmbedder class --- indexing/build\_index.py}]
+class FashionEmbedder:
+    """Wraps Marqo-FashionSigLIP for image & text encoding."""
+    MODEL_NAME = "hf-hub:Marqo/marqo-fashionSigLIP"
+
+    def __init__(self, cache_dir=None):
+        import open_clip
+        self.model, _, self.preprocess = (
+            open_clip.create_model_and_transforms(
+                self.MODEL_NAME,
+                cache_dir=str(cache_dir) if cache_dir else None,
+        ))
+        self.tokenizer = open_clip.get_tokenizer(self.MODEL_NAME)
+        # Device selection: MPS (Apple Silicon) > CUDA > CPU
+        if torch.backends.mps.is_available():
+            self._device = "mps"
+        elif torch.cuda.is_available():
+            self._device = "cuda"
+        else:
+            self._device = "cpu"
+        self.model = self.model.to(self._device).eval()
+
+    def encode_image(self, image_path: str) -> list[float]:
+        """Convert image to 768-d vector."""
+        img = Image.open(image_path).convert("RGB")
+        tensor = self.preprocess(img).unsqueeze(0).to(self._device)
+        with torch.no_grad():
+            feat = self.model.encode_image(tensor)
+            feat = feat / feat.norm(dim=-1, keepdim=True)
+        return feat[0].cpu().tolist()
+
+    def encode_text(self, text: str) -> list[float]:
+        """Convert text to 768-d vector."""
+        tokens = self.tokenizer([text]).to(self._device)
+        with torch.no_grad():
+            feat = self.model.encode_text(tokens)
+            feat = feat / feat.norm(dim=-1, keepdim=True)
+        return feat[0].cpu().tolist()
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \texttt{open\_clip}: A flexible embedding library supporting many CLIP/SigLIP variants.
+    \item \textbf{L2 normalization}: $\hat{v} = v / \|v\|_2$ ensures dot product $\equiv$ cosine similarity.
+    \item \textbf{MPS priority}: Leverages Apple Silicon GPU for faster encoding.
+    \item \textbf{768-d}: A larger vector dimension than FashionCLIP (512-d), enabling richer semantic representation.
+\end{itemize}
+
+\section{BM25 --- Label and Color Search}
+BM25 (Best Match 25) is applied on short content \texttt{``label color''} --- e.g., ``T-Shirt Navy Blue'' --- enabling precise keyword matching on category names and specific colors.
+
+\begin{tcolorbox}[title=Method: Hybrid Search --- BM25 + FashionSigLIP]
+\begin{itemize}
+    \item BM25 excels at: precise category name and color matching (e.g., ``navy blue shirt'').
+    \item FashionSigLIP Vector excels at: semantic understanding, synonyms, and feature descriptions (e.g., ``slim fit cotton casual'').
+    \item RRF Fusion: combines results from both with $k = 60$, $\text{bm25\_weight}=1.0$, $\text{vec\_weight}=2.5$.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{lstlisting}[caption={BM25 content composition --- indexing/build\_index.py}]
+def compose_bm25_content(label: str, color: str) -> str:
+    """Create content for the BM25 index.
+    Only uses label + color (NOT caption)
+    for more precise keyword matching."""
+    parts = []
+    if label:
+        parts.append(label.strip())
+    if color:
+        parts.append(color.strip())
+    return " ".join(parts)
+\end{lstlisting}
+
+\section{RRF Fusion and Soft Relevance Scoring}
+
+The Reciprocal Rank Fusion score is computed as in Equation~(\ref{eq:rrf}):
+\begin{equation}
+\label{eq:rrf}
+\text{score}(d) \;=\; \sum_{r \in R} \frac{w_r}{k + \text{rank}_r(d) + 1}
+\end{equation}
+
+\begin{lstlisting}[caption={Reciprocal Rank Fusion --- search/fusion.py}]
+@dataclass
+class NodeWithScore:
+    """Search result with full metadata."""
+    image_id: str
+    label: str = ""
+    color: str = ""
+    caption: str = ""
+    image_path: str = ""
+    bm25_content: str = ""
+    score: float = 0.0
+
+def reciprocal_rank_fusion(
+    bm25_results: list[NodeWithScore],
+    vec_results: list[NodeWithScore],
+    k: int = 60,
+    bm25_weight: float = 1.0,
+    vec_weight: float = 2.5,
+) -> list[NodeWithScore]:
+    """Combine BM25 and Vector Search results via RRF."""
+    fused: dict[str, dict] = {}
+    for rank, node in enumerate(bm25_results):
+        nid = node.image_id
+        if nid not in fused:
+            fused[nid] = {"node": node, "score": 0.0}
+        fused[nid]["score"] += bm25_weight / (k + rank + 1)
+
+    for rank, node in enumerate(vec_results):
+        nid = node.image_id
+        if nid not in fused:
+            fused[nid] = {"node": node, "score": 0.0}
+        fused[nid]["score"] += vec_weight / (k + rank + 1)
+
+    sorted_items = sorted(
+        fused.values(), key=lambda x: x["score"], reverse=True)
+    for item in sorted_items:
+        item["node"].score = item["score"]
+    return [item["node"] for item in sorted_items]
+\end{lstlisting}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \textbf{RRF}: Avoids dependence on absolute scores from individual retrievers (which use different scales). Each result is ranked by position using the formula in Eq.~(\ref{eq:rrf}).
+    \item \textbf{vec\_weight = 2.5}: Vector search receives a higher weight because semantic matching is richer than keyword matching.
+    \item \textbf{Soft filter}: \texttt{soft\_relevance\_filter()} uses RapidFuzz for fuzzy color/category comparison (threshold = 60), without completely excluding results that do not match exactly.
+\end{itemize}
+
+% ===========================================================================
+% CHAPTER 4: POSTGRESQL INTEGRATION
+% ===========================================================================
