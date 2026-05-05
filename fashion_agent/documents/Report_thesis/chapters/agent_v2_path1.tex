@@ -12,6 +12,7 @@ The 5-step processing flow:
 
 \begin{figure}[H]
 \centering
+\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
     node distance=1.5cm and 1cm,
     process/.style={rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
@@ -50,6 +51,7 @@ The 5-step processing flow:
 \draw[arrow] (synth) -- (output);
 
 \end{tikzpicture}
+}% end resizebox
 \caption{End-to-End Workflow Diagram of Fashion Agent v2.0}
 \label{fig:workflow_v2}
 \end{figure}
@@ -57,18 +59,20 @@ The 5-step processing flow:
 \section{Step 1 --- Intent Classification (Router)}
 
 \begin{tcolorbox}[title=Method: LLM Few-shot Intent Classification]
-Gemini classifies queries into 5 intent groups with a confidence score. If confidence $< 0.6$, the agent switches to the clarification step instead of searching immediately.
+Gemini classifies queries into \textbf{7 intent groups} with a confidence score. If confidence $< 0.6$, the agent switches to the clarification step instead of searching immediately.
 \end{tcolorbox}
 
 \begin{table}[H]
 \centering
-\begin{tabular}{lll}
+\begin{tabular}{p{2.9cm}p{4.8cm}p{4.8cm}}
 \toprule
 \textbf{Intent} & \textbf{Condition} & \textbf{Action}\\
 \midrule
 text\_search    & Find specific products         & Search immediately\\
 outfit\_request & Request outfit suggestions     & Search + outfit advice\\
 follow\_up      & Reference previous result      & Use session context\\
+product\_select & Choose numbered items from recent results & Save selected product IDs\\
+view\_selections & Ask to review saved picks      & Show selected items list\\
 out\_of\_scope  & Unrelated to fashion           & Politely refuse\\
 unclear         & Information too vague          & Ask for clarification\\
 \bottomrule
@@ -78,46 +82,53 @@ unclear         & Information too vague          & Ask for clarification\\
 
 \begin{lstlisting}[caption={Intent Classification --- agent/intent\_classifier.py}]
 @dataclass
+class ExtractedSlots:
+    category: Optional[str] = None
+    color: Optional[str] = None
+    fabric: Optional[str] = None
+    fit: Optional[str] = None
+    construction: Optional[str] = None
+    aesthetic: Optional[str] = None
+    selected_numbers: list[int] = field(default_factory=list)
+
+@dataclass
 class ClassifiedIntent:
-    intent: str       # "text_search", "outfit_request", ...
-    confidence: float # 0.0 - 1.0
-    filters: dict     # {category, color, style, occasion}
-    refined_query: str  # condensed query for search
+    intent: str  # text_search|outfit_request|follow_up|product_select|view_selections|out_of_scope|unclear
+    confidence: float
+    filters: dict
+    refined_query: str
+    extracted_slots: ExtractedSlots = field(default_factory=ExtractedSlots)
+    input_tokens: int = 0
+    output_tokens: int = 0
 
-INTENT_PROMPT = """Classify the user's message into intents:
-1. "text_search" - find specific fashion items
-2. "outfit_request" - fashion recommendations
-3. "follow_up" - following up on previous search
-4. "out_of_scope" - non-fashion topics
-5. "unclear" - too vague to classify
+def classify_intent(query: str, history: list | None = None) -> ClassifiedIntent:
+    model = get_model()
+    history_text = format_history_text(history, limit=4)
+    full_prompt = INTENT_PROMPT.format(history_text=history_text) + query
+    response = model.generate_content(full_prompt)
 
-## Few-shot examples:
-User: "tim ao so mi trang nam"
--> {"intent": "text_search", "confidence": 0.95,
-    "filters": {"category": "Shirt", "color": "white"},
-    "refined_query": "white men shirt"}
+    usage = getattr(response, "usage_metadata", None)
+    in_tok = getattr(usage, "prompt_token_count", 0) or 0
+    out_tok = getattr(usage, "candidates_token_count", 0) or 0
 
-User: "goi y outfit cho buoi tiec cuoi tuan"
--> {"intent": "outfit_request", "confidence": 0.9,
-    "filters": {"occasion": "weekend party"},
-    "refined_query": "party outfit weekend"}
-"""
-
-def classify_intent(query, history=None, api_key=None):
-    # Format last 4 messages for context
-    history_text = format_history(history[-4:])
-    prompt = INTENT_PROMPT.format(
-        history_text=history_text) + query
-    response = model.generate_content(prompt)
-    data = json.loads(response.text)
-    return ClassifiedIntent(**data)
+    data = parse_llm_json(response.text)
+    return ClassifiedIntent(
+        intent=data.get("intent", "text_search"),
+        confidence=float(data.get("confidence", 0.5)),
+        filters=data.get("filters", {}),
+        refined_query=data.get("refined_query", query),
+        extracted_slots=_parse_slots(data),  # slot_* + selected_numbers
+        input_tokens=in_tok,
+        output_tokens=out_tok,
+    )
 \end{lstlisting}
 
 \textbf{Explanation:}
 \begin{itemize}
     \item \textbf{History-aware}: Uses the last 4 messages to understand context for follow-up queries.
-    \item \textbf{Filter extraction}: The LLM automatically extracts category, color, and occasion during classification --- saving one additional LLM call.
-    \item \textbf{Fallback}: Any JSON parse error returns intent \texttt{text\_search} with \texttt{confidence=0.5}.
+    \item \textbf{Joint extraction}: One call returns intent, coarse filters, six detailed slots, and selected product numbers.
+    \item \textbf{Token telemetry}: Prompt and output token counts are attached for logging and cost analysis.
+    \item \textbf{Fallback}: On JSON parse error, the classifier defaults to \texttt{text\_search} with confidence 0.5.
 \end{itemize}
 
 \section{Step 2 --- Clarification Gate}
@@ -147,17 +158,32 @@ class ClarificationResult:
     needs_clarification: bool
     question: str = ""
 
-def check_clarification(query, history=None, api_key=None):
-    """LLM-based clarification gate.
-    Generates a clarification question dynamically via Gemini."""
-    prompt = CLARIFICATION_PROMPT.format(
-        query=query,
-        history_text=format_history(history))
-    response = model.generate_content(prompt)
-    data = json.loads(response.text)
-    return ClarificationResult(
-        needs_clarification=True,
-        question=data.get("question", ""))
+def check_clarification(query: str, history: list | None = None) -> ClarificationResult:
+    """Called only when intent is unclear / low confidence."""
+    lang = detect_language(query)
+    fallback_q = FALLBACK_QUESTION.get(lang, FALLBACK_QUESTION["en"])
+
+    try:
+        model = get_model()
+    except RuntimeError:
+        return ClarificationResult(needs_clarification=True, question=fallback_q)
+
+    history_text = format_history_text(history, limit=4)
+    prompt = CLARIFICATION_PROMPT.format(query=query, history_text=history_text)
+
+    try:
+        response = model.generate_content(prompt)
+        data = parse_llm_json(response.text)
+        question = data.get("question", "")
+        if question:
+            return ClarificationResult(
+                needs_clarification=True,
+                question=question,
+            )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Clarification LLM failed: %s", exc)
+
+    return ClarificationResult(needs_clarification=True, question=fallback_q)
 \end{lstlisting}
 
 \section{Step 3 --- Memory Agent (PostgreSQL)}
