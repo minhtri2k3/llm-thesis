@@ -1,0 +1,50 @@
+% Chapter 8: CONCLUSION
+% Content from: evaluation_conclusion.tex (lines 144-191)
+
+\section{Conclusion}
+This project successfully built an intelligent multimodal fashion search system following a clear two-phase roadmap. The RAG v1.0 phase established a hybrid search foundation with FashionCLIP 2.0 and BM25, while Agent v2.0 PATH 1 upgraded to a proactive architecture featuring a ReAct loop, intent classification, a clarification gate, and persistent memory via PostgreSQL.
+
+Version v2.0 represents significant improvements over v1.0:
+\begin{itemize}
+    \item \textbf{Embedding}: Upgraded from FashionCLIP (512-d) to Marqo-FashionSigLIP (768-d).
+    \item \textbf{Query Expansion}: Added Gemini-powered synonym expansion for short queries.
+    \item \textbf{Reranker}: Integrated BGE Reranker v2-m3 cross-encoder for improved precision.
+    \item \textbf{Deployment}: Docker Compose stack with 4 services (PostgreSQL + Qdrant + FastAPI + Cloudflare Tunnel).
+\end{itemize}
+
+\subsection{Evidence-Based Claim Mapping for Final Conclusion}
+\label{subsec:evidence_claim_mapping}
+
+Final claims are mapped to evidence strength so that conclusions remain proportional to verified data:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{4.0cm}p{5.8cm}p{3.0cm}}
+\toprule
+\textbf{Claim} & \textbf{Primary Evidence} & \textbf{Status}\\
+\midrule
+Agent v2.0 improves retrieval quality over v1.0. & Recall@5, MRR, Hit Rate@5 (Section~\ref{sec:data_evidence_integrity} and Section~\ref{subsec:metric_definitions_boundaries}). & Supported\\
+Agent behavior is robust in multi-turn interaction. & Task completion, faithfulness, and clarification behavior logs. & Supported\\
+Operational LLM cost is explainable and monitorable. & \texttt{llm\_token\_usage}, \texttt{session\_token\_summary}, mode cost aggregation. & Partially supported\\
+User purchase tendency is improved by recommendations. & CartAddRate / WillBuyRate / ConversionRate from behavior funnel. & Inconclusive (depends on cohort size and balance)\\
+\bottomrule
+\end{tabular}
+\caption{Claim-to-evidence mapping used in the final thesis conclusion}
+\label{tab:claim_evidence_mapping}
+\end{table}
+
+Therefore, the final conclusion follows three rules: (1) only claims marked \textit{Supported} are stated as confirmed findings, (2) \textit{Partially supported} claims are reported with operational caveats, and (3) \textit{Inconclusive} claims are retained as hypotheses for future data collection.
+
+\textbf{Current evidence limitations.}
+\begin{itemize}
+    \item Token-to-cost estimates depend on fixed public list prices and may vary over time.
+    \item Behavior metrics are sensitive to sample imbalance across orchestration modes and user groups.
+    \item Conversion-style claims require larger longitudinal cohorts than early-stage thesis collection windows.
+\end{itemize}
+
+\textbf{Future development directions:}
+\begin{itemize}
+    \item \textbf{Phase 3}: Scale dataset to 15K--100K products, fine-tune the reranker, Redis session cache.
+    \item \textbf{Phase 4}: Virtual Try-on (IDM-VTON), fine-tune FashionSigLIP on proprietary data, A/B testing.
+    \item \textbf{PATH 2}: Image-to-Image search with Composed Search.
+\end{itemize}

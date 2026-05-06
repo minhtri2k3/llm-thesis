@@ -216,7 +216,7 @@ International University -- VNU-HCM
 Ho Chi Minh City, \rule{3cm}{0.4pt}\,/\,\rule{3cm}{0.4pt}\,/\,2025
 
 % =====================================================================
-% 4. ABSTRACT  (Appendix D) – 300-500 words
+% 4. ACKNOWLEDGEMENTS  (Appendix E)
 % =====================================================================
 
 \chapter*{Acknowledgements}
@@ -287,114 +287,48 @@ Finally, I am profoundly grateful to my family for their unconditional love, enc
 \noindent
 \textbf{Results.} On the evaluation set, Agent~v2.0 achieves Recall@5 $\geq 88\%$, MRR $\geq 0.80$, Hit-Rate@5 $\geq 93\%$, task-completion $\geq 95\%$, and RAGAS faithfulness $\geq 0.87$, while keeping P95 latency under 15~seconds. These figures represent consistent improvements over RAG~v1.0 on every retrieval metric. Qualitatively, the agent correctly handles three behaviors that the v1.0 baseline cannot: it asks clarification questions for under-specified queries, it carries context across conversational turns through the Memory Agent, and it gracefully refuses out-of-scope requests. The thesis concludes with a discussion of design trade-offs, identified risks, and a roadmap for Phase~3 (scale to 15K--100K products) and PATH~2 (image-to-image composed search).
 
-% =====================================================================
-% 5. ACKNOWLEDGEMENTS  (Appendix E) – optional
-% =====================================================================
-
-% =====================================================================
-% MAIN TEXT – switch to Arabic numerals starting at 1
-% =====================================================================
-\clearpage
+% ===========================================================================
+% MAIN CHAPTERS — IU standard 8-chapter structure
+% ===========================================================================
+% TODO: Add \chapter{Chapter name} followed by \input{chapters/filename} if you need more chapter or modify them
+\chapter{INTRODUCTION}
 \pagenumbering{arabic}
 \setcounter{page}{1}
+\input{chapters/introduction}
 
-% ===========================================================================
-% CHAPTER 1: SYSTEM OVERVIEW
-% ===========================================================================
-\chapter{System Overview}
-\input{chapters/system_overview}
+\chapter{RELATED WORK}
+\input{chapters/work}
 
-\chapter{Data Pre-processing}
-\input{chapters/data_preprocessing}
+\chapter{METHODOLOGY}
+\input{chapters/methodology}
 
-\chapter{RAG v1.0 Architecture --- Search Foundation}
-\input{chapters/rag_v1_architecture}
+\chapter{PROTOTYPING}
+\input{chapters/prototyping}
 
-\chapter{PostgreSQL Integration --- Server Deployment}
-\input{chapters/postgresql_integration}
+\chapter{IMPLEMENTATION}
+\input{chapters/implementation}
 
-\chapter{Agent v2.0 --- PATH 1: Text-to-Image Search}
-\input{chapters/agent_v2_path1}
+\chapter{RESULT}
+\input{chapters/result}
 
-\chapter{Agent v2.0 --- PATH 2: Image-to-Image Search}
-\input{chapters/agent_v2_path2}
+\chapter{DISCUSSION}
+\input{chapters/discussion}
 
-\chapter{End-to-End Working Example}
-\input{chapters/end_to_end_example}
-
-\chapter{Interface and Deployment}
-\input{chapters/interface_deployment}
-
-\chapter{Evaluation and Conclusion}
-\input{chapters/evaluation_conclusion}
+\chapter{CONCLUSION}
+\input{chapters/conclusion}
 
 % =====================================================================
-% REFERENCES (Appendix K) – Numbered with [ ], APA-style entries
+% REFERENCES — ieeetr numbered style, external .bib file
+% Compile with: pdflatex → bibtex → pdflatex → pdflatex
 % =====================================================================
 \renewcommand{\bibname}{References}
-
-\begin{thebibliography}{99}
-\addchaptertoc{References}
-
-\bibitem{lewis2020rag}
-Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., \ldots\ \& Kiela, D. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. \textit{Advances in Neural Information Processing Systems}, \textit{33}, 9459--9474.
-
-\bibitem{yao2023react}
-Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., \& Cao, Y. (2023). ReAct: Synergizing reasoning and acting in language models. In \textit{Proceedings of the International Conference on Learning Representations (ICLR)}.
-
-\bibitem{radford2021clip}
-Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., \ldots\ \& Sutskever, I. (2021). Learning transferable visual models from natural language supervision. In \textit{Proceedings of the 38th International Conference on Machine Learning (ICML)} (pp. 8748--8763).
-
-\bibitem{zhai2023siglip}
-Zhai, X., Mustafa, B., Kolesnikov, A., \& Beyer, L. (2023). Sigmoid loss for language image pre-training. In \textit{Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)} (pp. 11975--11986).
-
-\bibitem{marqo2024fashionsiglip}
-Marqo. (2024). \textit{Marqo-FashionSigLIP: A SigLIP-based fashion embedding model} [Computer software]. Hugging Face. \url{https://huggingface.co/Marqo/marqo-fashionSigLIP}
-
-\bibitem{robertson2009bm25}
-Robertson, S., \& Zaragoza, H. (2009). The probabilistic relevance framework: BM25 and beyond. \textit{Foundations and Trends in Information Retrieval}, \textit{3}(4), 333--389.
-
-\bibitem{cormack2009rrf}
-Cormack, G. V., Clarke, C. L. A., \& Buettcher, S. (2009). Reciprocal rank fusion outperforms Condorcet and individual rank learning methods. In \textit{Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval} (pp. 758--759).
-
-\bibitem{xiao2024bge}
-Xiao, S., Liu, Z., Zhang, P., \& Muennighoff, N. (2024). C-Pack: Packed resources for general Chinese embeddings. In \textit{Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval} (pp. 641--649).
-
-\bibitem{google2024gemini}
-Google DeepMind. (2024). \textit{Gemini 2.5 Flash: Multimodal large language model} [Technical report]. Google. \url{https://ai.google.dev/gemini-api/docs}
-
-\bibitem{es2024ragas}
-Es, S., James, J., Espinosa-Anke, L., \& Schockaert, S. (2024). RAGAS: Automated evaluation of retrieval augmented generation. In \textit{Proceedings of the 18th Conference of the European Chapter of the Association for Computational Linguistics: System Demonstrations} (pp. 150--158).
-
-\bibitem{qdrant2024docs}
-Qdrant. (2024). \textit{Qdrant: Vector similarity search engine} [Documentation]. \url{https://qdrant.tech/documentation/}
-
-\bibitem{postgresql2024}
-The PostgreSQL Global Development Group. (2024). \textit{PostgreSQL 16 documentation}. \url{https://www.postgresql.org/docs/16/}
-
-\bibitem{abid2019gradio}
-Abid, A., Abdalla, A., Abid, A., Khan, D., Alfozan, A., \& Zou, J. (2019). Gradio: Hassle-free sharing and testing of ML models in the wild. \textit{arXiv preprint arXiv:1906.02569}.
-
-\bibitem{kaggle2023clothing}
-Kaggle Community. (2023). \textit{Clothing dataset full} [Data set]. Kaggle. \url{https://www.kaggle.com/datasets/agrigorev/clothing-dataset-full}
-
-\end{thebibliography}
+\bibliographystyle{ieeetr}
+\bibliography{bibliography.bib}
 
 % =====================================================================
-% APPENDICES (Appendix L) – Eq. (A.1), Table A.1, Fig. A.1, etc.
+% APPENDIX — Single LISTINGS appendix per IU template
 % =====================================================================
 \appendix
-% Re-style chapter so it reads "Appendix A" instead of "Chapter A"
-\titleformat{\chapter}[display]
-  {\centering\normalfont\fontsize{14}{16}\bfseries}
-  {Appendix \thechapter}
-  {0pt}
-  {}
-
-\chapter{Supplementary Equations and Derivations}
-\input{chapters/appendix_equations}
-
-\chapter{Sample Configuration Files}
-\input{chapters/appendix_configs}
-
+\chapter{LISTINGS}
+\input{chapters/appendix}
 \end{document}
