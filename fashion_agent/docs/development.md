@@ -164,9 +164,11 @@ docker logs -f fashion-api
 | Mục đích | Lệnh |
 |----------|-------|
 | Khởi động tất cả | `docker compose up -d` |
+| Khởi động kèm ngrok (URL cố định) | `docker compose --profile ngrok up -d` |
 | Khởi động + xem logs | `docker compose up -d && docker logs -f fashion-api` |
 | Chạy foreground (thấy hết) | `docker compose up` |
 | Xem logs API | `docker logs -f fashion-api` |
+| Xem logs ngrok | `docker logs -f fashion-ngrok-fe` |
 | Xem trạng thái | `docker compose ps` |
 | Health check | `curl localhost:8000/health` |
 | Dừng tất cả (giữ data) | `docker compose down` |
@@ -226,6 +228,10 @@ uv run python test_chat.py
 > ⚠️ **`docker compose down -v`** sẽ **xóa toàn bộ** PostgreSQL data + Qdrant vectors.
 > Bạn sẽ phải chạy lại bước 4 + 5 (tốn vài giờ)!
 > Chỉ dùng `docker compose down` (không có `-v`) nếu muốn giữ data.
+
+> 🌐 **ngrok cố định:** đặt `NGROK_AUTHTOKEN` trong `.env`, rồi chạy
+> `docker compose --profile ngrok up -d` để bật tunnel
+> `https://special-explicitly-ram.ngrok-free.app`.
 
 > 💡 **Models cache:** Lần đầu chạy, SigLIP và BGE Reranker sẽ tải từ HuggingFace
 > và cache vào `./models/`. Các lần sau sẽ nhanh hơn nhiều.
