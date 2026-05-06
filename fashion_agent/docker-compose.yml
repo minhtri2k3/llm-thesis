@@ -108,6 +108,23 @@ services:
     depends_on:
       - clothie-web
 
+  ngrok-fe:
+    image: ngrok/ngrok:latest
+    container_name: fashion-ngrok-fe
+    restart: unless-stopped
+    command:
+      - "http"
+      - "--url=${NGROK_DOMAIN:-special-explicitly-ram.ngrok-free.app}"
+      - "clothie-web:80"
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    networks:
+      - internal
+    depends_on:
+      - clothie-web
+    profiles:
+      - ngrok
+
   clothie-web:
     build:
       context: ../clothie_web
