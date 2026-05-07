@@ -11,49 +11,54 @@ RAG (Retrieval-Augmented Generation) in this system combines two complementary s
 \subsection{Why FashionSigLIP Instead of the Original FashionCLIP?}
 \textbf{Marqo-FashionSigLIP} (\texttt{Marqo/marqo-fashionSigLIP}) is a SigLIP-based model fine-tuned on fashion data, producing \textbf{768-dimensional vectors} (vs.\ 512-d from the original FashionCLIP). The model uses the \texttt{open\_clip} library instead of HuggingFace's CLIPModel, with better support for Apple MPS.
 
-\begin{lstlisting}[caption={FashionEmbedder class --- indexing/build\_index.py}]
-class FashionEmbedder:
-    """Wraps Marqo-FashionSigLIP for image/text encoding."""
-    def __init__(self, model_name: str = MODEL_NAME, cache_dir: Optional[Path] = None):
-        import open_clip
-        import torch
+\subsection{Cross-Modal Alignment for Unified Search (PATH 1 \& PATH 2)}
+A fundamental reason for selecting FashionSigLIP is its \textbf{cross-modal architecture}. It projects both text (captions, user queries) and images (product photos) into the \textit{exact same shared semantic vector space}. This dual-capability is what allows the system to seamlessly execute both conversational text search and direct visual search:
+\begin{itemize}
+    \item \textbf{PATH 1 (Text-to-Image):} A user's natural language query is encoded into a text vector, which is then compared directly against the stored image vectors.
+    \item \textbf{PATH 2 (Image-to-Image):} An uploaded reference image is encoded into an image vector and compared against the exact same stored image vectors.
+\end{itemize}
+By utilizing a single, unified embedding model for both modalities, the architecture drastically reduces memory overhead, simplifies deployment, and guarantees mathematical consistency whether the user is typing a description or uploading a photo.
 
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self.model, self.preprocess_train, self.preprocess_val = (
-            open_clip.create_model_and_transforms(
-                "ViT-B-16-SigLIP",
-                pretrained="webli",
-                cache_dir=str(cache_dir) if cache_dir else None,
-            )
-        )
+\begin{algorithm}[H]
+\caption{Cosine Similarity for Cross-Modal Matching}\label{alg:cosine_sim}
+\begin{algorithmic}[1]
+\Require Text Vector $v_{text}$ (from PATH 1) or Image Vector $v_{query}$ (from PATH 2)
+\Require Stored Image Vector $v_{stored}$ from Qdrant
+\Ensure Similarity score $S \in [-1, 1]$
+\Function{CosineSimilarity}{$v_A, v_B$}
+    \State $dot\_product \gets \sum_{i=1}^{768} v_A[i] \times v_B[i]$
+    \State $norm\_A \gets \sqrt{\sum_{i=1}^{768} (v_A[i])^2}$
+    \State $norm\_B \gets \sqrt{\sum_{i=1}^{768} (v_B[i])^2}$
+    \State \Return $\frac{dot\_product}{norm\_A \times norm\_B}$
+\EndFunction
+\State \Comment{Since FashionSigLIP vectors are L2-normalized (norm = 1), this reduces to:}
+\State $S \gets \text{CosineSimilarity}(v_{query}, v_{stored}) \equiv v_{query} \cdot v_{stored}$
+\end{algorithmic}
+\end{algorithm}
 
-        import huggingface_hub
-        ckpt_path = huggingface_hub.hf_hub_download(
-            model_name, "open_clip_pytorch_model.bin",
-            cache_dir=str(cache_dir) if cache_dir else None,
-        )
-        state_dict = torch.load(ckpt_path, map_location=self.device, weights_only=True)
-        self.model.load_state_dict(state_dict)
-        self.model = self.model.to(self.device).eval()
-        self.tokenizer = open_clip.get_tokenizer("ViT-B-16-SigLIP")
-
-    def encode_image(self, image_path: Path) -> list[float]:
-        """Convert image to 768-d vector."""
-        img = Image.open(image_path).convert("RGB")
-        tensor = self.preprocess_val(img).unsqueeze(0).to(self.device)
-        with torch.no_grad(), torch.amp.autocast(device_type=self.device):
-            feat = self.model.encode_image(tensor)
-            feat = feat / feat.norm(dim=-1, keepdim=True)
-        return feat[0].cpu().tolist()
-
-    def encode_text(self, text: str) -> list[float]:
-        """Convert text to 768-d vector."""
-        tokens = self.tokenizer([text]).to(self.device)
-        with torch.no_grad(), torch.amp.autocast(device_type=self.device):
-            feat = self.model.encode_text(tokens)
-            feat = feat / feat.norm(dim=-1, keepdim=True)
-        return feat[0].cpu().tolist()
-\end{lstlisting}
+\begin{algorithm}[H]
+\caption{Cross-Modal Encoding via Marqo-FashionSigLIP}\label{alg:fashionsiglip}
+\begin{algorithmic}[1]
+\Require Image $I$ or Text query $T$
+\Ensure 768-dimensional normalized feature vector $\hat{v}$
+\State Initialize device to MPS (Apple Silicon) or CPU
+\State Load \texttt{ViT-B-16-SigLIP} model and tokenizer
+\Function{EncodeImage}{$I$}
+    \State Convert $I$ to RGB format
+    \State Apply validation preprocessing to get tensor $t$
+    \State Compute dense features $v \gets \text{model.encode\_image}(t)$
+    \State Normalize vector: $\hat{v} \gets v / \|v\|_2$
+    \State \Return $\hat{v}$
+\EndFunction
+\State
+\Function{EncodeText}{$T$}
+    \State Tokenize $T$ to get tokens $t$
+    \State Compute dense features $v \gets \text{model.encode\_text}(t)$
+    \State Normalize vector: $\hat{v} \gets v / \|v\|_2$
+    \State \Return $\hat{v}$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
 
 \textbf{Task breakdown:}
 \begin{itemize}
@@ -66,6 +71,11 @@ class FashionEmbedder:
 \section{BM25 --- Label and Color Search}
 BM25 (Best Match 25) is applied on short content \texttt{``label color''} --- e.g., ``T-Shirt Navy Blue'' --- enabling precise keyword matching on category names and specific colors.
 
+\subsection{Overcoming the Semantic Gap with Exact Lexical Matching}
+While FashionSigLIP vector embeddings are exceptional at capturing broad semantic concepts and stylistic ``vibes'', dense vector search inherently struggles with \textbf{exact keyword matching} (lexical retrieval). For example, a pure vector search might return a ``cyan shirt'' when a user explicitly typed ``blue'', or return a visually similar ``Prada'' bag when the user specifically requested ``Gucci'', simply because they are semantically close in the vector space.
+
+To solve this limitation, BM25 is introduced to act as a \textbf{hard lexical anchor}. Because BM25 operates on Term Frequency-Inverse Document Frequency (TF-IDF), it does not guess meaning; it strictly hunts for exact token matches. By combining BM25 with Vector Search, the system guarantees that explicit user constraints (exact brands, specific colors, unique product numbers) are heavily boosted, while the vector search provides the broader conceptual understanding. This synergistic fallback is precisely why BM25 is assigned the highest weight (2.5) during the fusion phase.
+
 \begin{tcolorbox}[title=Method: Hybrid Search --- BM25 + FashionSigLIP]
 \begin{itemize}
     \item BM25 excels at: precise category name and color matching (e.g., ``navy blue shirt'').
@@ -74,18 +84,57 @@ BM25 (Best Match 25) is applied on short content \texttt{``label color''} --- e.
 \end{itemize}
 \end{tcolorbox}
 
-\begin{lstlisting}[caption={BM25 content composition --- indexing/build\_index.py}]
-def compose_bm25_content(item: dict) -> str:
-    """Create BM25 text using label + color only (caption excluded)."""
-    label = item.get("label", "")
-    color = item.get("color", "")
-    parts = []
-    if label:
-        parts.append(label)
-    if color:
-        parts.append(color)
-    return ". ".join(parts) + "." if parts else ""
-\end{lstlisting}
+\begin{algorithm}[H]
+\caption{BM25 Content Composition for Lexical Retrieval}\label{alg:bm25_composition}
+\begin{algorithmic}[1]
+\Require Item metadata containing \texttt{label} and \texttt{color}
+\Ensure String $S_{bm25}$ representing the precise text for lexical indexing
+\Function{ComposeBM25Content}{item}
+    \State $parts \gets []$
+    \If{item has valid \texttt{label}}
+        \State Append item.\texttt{label} to $parts$
+    \EndIf
+    \If{item has valid \texttt{color}}
+        \State Append item.\texttt{color} to $parts$
+    \EndIf
+    \State Join elements of $parts$ with ``. ''
+    \If{$parts$ is not empty}
+        \State Append ``.'' at the end
+    \EndIf
+    \State \Return Joined string
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{BM25 Storage and Scoring Mechanism}
+BM25 does not store dense floating-point vectors like FashionSigLIP. Instead, it builds an \textbf{Inverted Index}. The ``type elements'' stored by BM25 are simply integer counts and mappings:
+\begin{itemize}
+    \item \textbf{Term Frequency (TF)}: How many times a specific word (e.g., ``blue'') appears in a product's BM25 content string.
+    \item \textbf{Inverse Document Frequency (IDF)}: A pre-calculated weight indicating how rare a word is across the entire 12K product catalog. Rare words (e.g., ``Gucci'') get high IDF; common words (e.g., ``shirt'') get low IDF.
+\end{itemize}
+When a user searches for ``navy blue shirt'', the BM25 algorithm computes a relevance score based on these stored frequencies rather than semantic meaning.
+
+\begin{algorithm}[H]
+\caption{BM25 Scoring Algorithm}\label{alg:bm25_scoring}
+\begin{algorithmic}[1]
+\Require Query $Q = \{q_1, q_2, \ldots, q_n\}$, Document $D$
+\Require Constants $k_1 = 1.2$ (term saturation), $b = 0.75$ (length normalization)
+\Ensure Relevance score for $D$ given $Q$
+\Function{CalculateBM25}{$Q, D$}
+    \State $score \gets 0$
+    \State $|D| \gets \text{length of document in words}$
+    \State $avgdl \gets \text{average document length in corpus}$
+    \For{each term $q_i$ in $Q$}
+        \State $f(q_i, D) \gets \text{term frequency of } q_i \text{ in } D$
+        \State $idf(q_i) \gets \ln\left(1 + \frac{N - n(q_i) + 0.5}{n(q_i) + 0.5}\right)$
+        \State $numerator \gets f(q_i, D) \cdot (k_1 + 1)$
+        \State $denominator \gets f(q_i, D) + k_1 \cdot \left(1 - b + b \cdot \frac{|D|}{avgdl}\right)$
+        \State $score \gets score + idf(q_i) \cdot \frac{numerator}{denominator}$
+    \EndFor
+    \State \Return $score$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
 
 \section{RRF Fusion and Soft Relevance Scoring}
 
@@ -95,58 +144,38 @@ The Reciprocal Rank Fusion score is computed as in Equation~(\ref{eq:rrf}):
 \text{score}(d) \;=\; \sum_{r \in R} \frac{w_r}{k + \text{rank}_r(d) + 1}
 \end{equation}
 
-\begin{lstlisting}[caption={Reciprocal Rank Fusion --- search/fusion.py}]
-@dataclass
-class NodeWithScore:
-    """Search result with full metadata."""
-    image_id: str
-    label: str = ""
-    color: str = ""
-    caption: str = ""
-    image_path: str = ""
-    bm25_content: str = ""
-    score: float = 0.0
-
-def reciprocal_rank_fusion(
-    bm25_results: list[NodeWithScore],
-    vec_results: list[NodeWithScore],
-    text_vec_results: list[NodeWithScore] | None = None,
-    k: int = 60,
-    bm25_weight: float = 2.5,
-    vec_weight: float = 1.0,
-    text_vec_weight: float = 1.5,
-) -> list[NodeWithScore]:
-    """Combine BM25 + image-vector + text-vector via RRF."""
-    scores: dict[str, float] = {}
-    nodes: dict[str, NodeWithScore] = {}
-
-    for rank, node in enumerate(bm25_results):
-        rrf = bm25_weight * (1.0 / (k + rank + 1))
-        scores[node.image_id] = scores.get(node.image_id, 0.0) + rrf
-        nodes[node.image_id] = node
-
-    for rank, node in enumerate(vec_results):
-        rrf = vec_weight * (1.0 / (k + rank + 1))
-        scores[node.image_id] = scores.get(node.image_id, 0.0) + rrf
-        if node.image_id not in nodes:
-            nodes[node.image_id] = node
-
-    if text_vec_results:
-        for rank, node in enumerate(text_vec_results):
-            rrf = text_vec_weight * (1.0 / (k + rank + 1))
-            scores[node.image_id] = scores.get(node.image_id, 0.0) + rrf
-            if node.image_id not in nodes:
-                nodes[node.image_id] = node
-
-    merged = []
-    for image_id, score in scores.items():
-        node = nodes[image_id]
-        node.score = score
-        merged.append(node)
-
-    merged.sort(key=lambda n: n.score, reverse=True)
-    return merged
-\end{lstlisting}
+\begin{algorithm}[H]
+\caption{Reciprocal Rank Fusion (RRF) for Hybrid Retrieval}\label{alg:rrf}
+\begin{algorithmic}[1]
+\Require $L_{bm25}$, $L_{vec}$, $L_{text\_vec}$ (lists of ranked items), constant $k = 60$
+\Require Weights $W_{bm25} = 2.5$, $W_{vec} = 1.0$, $W_{text\_vec} = 1.5$
+\Ensure Combined and sorted list of ranked items $L_{merged}$
+\State Initialize empty map $scores$ mapping image ID to cumulative score
+\State Initialize empty map $nodes$ storing item metadata
+\Procedure{ApplyRRF}{$L_{items}, W_{weight}$}
+    \For{$\text{rank} = 0 \text{ to } |L_{items}| - 1$}
+        \State $id \gets L_{items}[\text{rank}].\text{image\_id}$
+        \State $rrf\_score \gets W_{weight} \times \frac{1}{k + \text{rank} + 1}$
+        \State $scores[id] \gets scores[id] + rrf\_score$
+        \If{$id \notin nodes$}
+            \State $nodes[id] \gets L_{items}[\text{rank}]$
+        \EndIf
+    \EndFor
+\EndProcedure
+\State \Call{ApplyRRF}{$L_{bm25}, W_{bm25}$}
+\State \Call{ApplyRRF}{$L_{vec}, W_{vec}$}
+\If{$L_{text\_vec}$ is provided}
+    \State \Call{ApplyRRF}{$L_{text\_vec}, W_{text\_vec}$}
+\EndIf
+\State $L_{merged} \gets \emptyset$
+\For{each $id, score$ in $scores$}
+    \State $nodes[id].\text{score} \gets score$
+    \State Append $nodes[id]$ to $L_{merged}$
+\EndFor
+\State Sort $L_{merged}$ in descending order based on score
+\State \Return $L_{merged}$
+\end{algorithmic}
+\end{algorithm}
 
 \textbf{Task breakdown:}
 \begin{itemize}
@@ -154,6 +183,35 @@ def reciprocal_rank_fusion(
     \item \textbf{bm25\_weight = 2.5}: BM25 is upweighted in the current code configuration, while image-vector and text-vector contribute with weights 1.0 and 1.5.
     \item \textbf{Soft filter}: \texttt{soft\_relevance\_filter()} uses RapidFuzz for fuzzy color/category comparison (threshold = 60), without completely excluding results that do not match exactly.
 \end{itemize}
+
+\section{Qdrant: The High-Performance Vector Storage Engine}
+
+\subsection{The Role of Qdrant in the Architecture}
+While the Fashion Agent relies on Large Language Models for orchestration and FashionSigLIP for semantic understanding, \textbf{Qdrant} is the foundational storage and retrieval engine that executes the core search logic. Written in Rust, Qdrant is an open-source vector database designed for high-performance similarity search. In this project, it is absolutely critical because it acts as the bridge between the mathematical vector space and the actual fashion catalog.
+
+\subsection{What Qdrant Stores}
+Qdrant does not just store raw vectors; it acts as a hybrid database storing three distinct types of data for every fashion product in the catalog:
+
+\begin{enumerate}
+    \item \textbf{Named Vectors:} Qdrant supports storing multiple vectors for a single item. For each fashion product, Qdrant stores:
+    \begin{itemize}
+        \item \texttt{image} vector (768-dimensional): The visual representation of the product, encoded by FashionSigLIP from the product photo.
+        \item \texttt{text} vector (768-dimensional): The semantic representation of the product, encoded by FashionSigLIP from the product's textual caption.
+    \end{itemize}
+    \item \textbf{JSON Payload (Metadata):} Alongside the vectors, Qdrant stores a rich JSON payload containing the product's attributes. This includes the \texttt{label} (category), \texttt{color}, \texttt{caption}, \texttt{image\_path}, and unique identifiers.
+    \item \textbf{BM25 Content:} The payload also explicitly stores a pre-tokenized \texttt{bm25\_content} string (e.g., ``red nike running shoes''). When the hybrid search is executed, the BM25 retrieval algorithm searches against this specific payload field to guarantee exact lexical matches.
+\end{enumerate}
+
+\subsection{Why Qdrant is Critical to the Project}
+The decision to use Qdrant over traditional relational databases or simpler vector stores stems from its ability to handle complex, multi-modal workflows:
+
+\begin{itemize}
+    \item \textbf{Unified Multi-Modal Querying:} Because Qdrant holds both \texttt{text} and \texttt{image} named vectors, a single API call can execute a query against both visual and textual representations simultaneously. This perfectly supports PATH 1 (which uses text queries to search both spaces) and PATH 2 (which uses image queries to search the image space).
+    \item \textbf{Lightning-Fast Similarity Calculation:} Qdrant is heavily optimized to compute distances (such as Cosine Similarity or Dot Product) between the user's query vector and the tens of thousands of vectors in the database in milliseconds.
+    \item \textbf{Payload Filtering:} Qdrant allows for metadata filtering alongside vector search. If a user explicitly asks for ``red shoes,'' the system could potentially pass a payload filter to Qdrant, restricting the similarity search to only points where the JSON payload has \texttt{color: "red"}.
+\end{itemize}
+
+In summary, if FashionSigLIP is the ``brain'' that understands fashion semantics, Qdrant is the ``memory'' that stores that understanding and retrieves it instantly upon request.
 
 % ===========================================================================
 % CHAPTER 4: POSTGRESQL INTEGRATION

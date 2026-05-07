@@ -12,11 +12,11 @@ The 5-step processing flow:
 
 \begin{figure}[H]
 \centering
-\resizebox{\linewidth}{!}{%
+\resizebox{0.55\textwidth}{!}{%
 \begin{tikzpicture}[
-    node distance=1.5cm and 1cm,
+    node distance=1.5cm and 1.5cm,
     process/.style={rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
-    model/.style={rectangle, draw=red!80!black, fill=red!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    decision/.style={diamond, draw=red!80!black, fill=red!10, text width=2.2cm, text centered, inner sep=0pt},
     db/.style={cylinder, draw=orange, fill=orange!20, shape border rotate=90, aspect=0.25, text width=2.5cm, text centered, minimum height=1.5cm},
     input/.style={rectangle, draw=blue, fill=blue!10, rounded corners, text width=3cm, text centered, minimum height=1cm},
     arrow/.style={thick,->,>=stealth}
@@ -24,30 +24,28 @@ The 5-step processing flow:
 
 % Nodes
 \node[input] (query) {User Query};
-\node[process, below left=of query, xshift=0.5cm] (bm25) {BM25 Keyword Search\\(label + color)};
-\node[model, below right=of query, xshift=-0.5cm] (vector) {FashionSigLIP\\Vector Search (semantic)};
+\node[process, below=of query] (intent) {Step 1: Intent Classification (LLM)};
+\node[db, right=of intent] (ttl) {TTLCache\\(Ranked Slots)};
 
-\node[db, left=of bm25] (bm25db) {BM25 Index};
-\node[db, right=of vector] (qdrant) {Qdrant Vector DB};
+\node[decision, below=of intent] (gate) {Step 2: Gate\\Score $\geq$ 0.75?};
+\node[input, right=2.5cm of gate] (clarify) {Clarification Question (0 LLM calls)};
 
-\node[process, below=2.5cm of query] (rrf) {RRF Fusion \&\\Soft Filter};
+\node[process, below=of gate] (memory) {Step 3: Memory Agent};
+\node[db, right=of memory] (pg) {PostgreSQL\\(User DB)};
 
-\node[model, below=of rrf] (rerank) {BGE Reranker\\(multilingual)};
-\node[process, below=of rerank] (synth) {Gemini 2.5 Flash\\Synthesis};
-
-\node[db, left=of synth] (pg) {PostgreSQL\\(products)};
-\node[input, below=of synth] (output) {Results \& Advice};
+\node[process, below=of memory] (route) {Step 4: Route \& Execute Search (Hybrid)};
+\node[process, below=of route] (synth) {Step 5: LLM Synthesis};
+\node[input, below=of synth] (output) {Final Response};
 
 % Arrows
-\draw[arrow] (query) -- (bm25);
-\draw[arrow] (query) -- (vector);
-\draw[arrow, dashed] (bm25db) -- (bm25);
-\draw[arrow, dashed] (qdrant) -- (vector);
-\draw[arrow] (bm25) -- (rrf);
-\draw[arrow] (vector) -- (rrf);
-\draw[arrow] (rrf) -- (rerank);
-\draw[arrow] (rerank) -- (synth);
-\draw[arrow, dashed] (pg) -- (synth);
+\draw[arrow] (query) -- (intent);
+\draw[arrow, <->, dashed] (intent) -- (ttl) node[midway, above, text width=2cm, align=center, font=\scriptsize] {Merge slots};
+\draw[arrow] (intent) -- (gate);
+\draw[arrow] (gate) -- node[above] {No} (clarify);
+\draw[arrow] (gate) -- node[right] {Yes} (memory);
+\draw[arrow, <->, dashed] (memory) -- (pg) node[midway, above, font=\scriptsize] {Load ctx};
+\draw[arrow] (memory) -- (route);
+\draw[arrow] (route) -- (synth);
 \draw[arrow] (synth) -- (output);
 
 \end{tikzpicture}
@@ -80,48 +78,23 @@ unclear         & Information too vague          & Ask for clarification\\
 \caption{Intent classification table with conditions and corresponding actions}
 \end{table}
 
-\begin{lstlisting}[caption={Intent Classification --- agent/intent\_classifier.py}]
-@dataclass
-class ExtractedSlots:
-    category: Optional[str] = None
-    color: Optional[str] = None
-    fabric: Optional[str] = None
-    fit: Optional[str] = None
-    construction: Optional[str] = None
-    aesthetic: Optional[str] = None
-    selected_numbers: list[int] = field(default_factory=list)
-
-@dataclass
-class ClassifiedIntent:
-    intent: str  # text_search|outfit_request|follow_up|product_select|view_selections|out_of_scope|unclear
-    confidence: float
-    filters: dict
-    refined_query: str
-    extracted_slots: ExtractedSlots = field(default_factory=ExtractedSlots)
-    input_tokens: int = 0
-    output_tokens: int = 0
-
-def classify_intent(query: str, history: list | None = None) -> ClassifiedIntent:
-    model = get_model()
-    history_text = format_history_text(history, limit=4)
-    full_prompt = INTENT_PROMPT.format(history_text=history_text) + query
-    response = model.generate_content(full_prompt)
-
-    usage = getattr(response, "usage_metadata", None)
-    in_tok = getattr(usage, "prompt_token_count", 0) or 0
-    out_tok = getattr(usage, "candidates_token_count", 0) or 0
-
-    data = parse_llm_json(response.text)
-    return ClassifiedIntent(
-        intent=data.get("intent", "text_search"),
-        confidence=float(data.get("confidence", 0.5)),
-        filters=data.get("filters", {}),
-        refined_query=data.get("refined_query", query),
-        extracted_slots=_parse_slots(data),  # slot_* + selected_numbers
-        input_tokens=in_tok,
-        output_tokens=out_tok,
-    )
-\end{lstlisting}
+\begin{algorithm}[H]
+\caption{LLM-based Intent Classification}\label{alg:intent_class}
+\begin{algorithmic}[1]
+\Require User query $Q$, Conversation history $H$
+\Ensure Classified intent with slots and confidence score
+\Function{ClassifyIntent}{$Q, H$}
+    \State $H_{text} \gets \text{Format last 4 messages of } H$
+    \State $prompt \gets \text{INTENT\_PROMPT}(H_{text}) + Q$
+    \State $response \gets \text{LLM.Generate}(prompt)$
+    \State $data \gets \text{ParseJSON}(response)$
+    \State $intent \gets data.\text{intent} \textbf{ or } \text{``text\_search''}$
+    \State $conf \gets data.\text{confidence} \textbf{ or } 0.5$
+    \State $slots \gets \text{ExtractSlots}(data)$
+    \State \Return $(intent, conf, slots)$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
 
 \textbf{Explanation:}
 \begin{itemize}
@@ -133,58 +106,121 @@ def classify_intent(query: str, history: list | None = None) -> ClassifiedIntent
 
 \section{Step 2 --- Clarification Gate}
 
-\begin{tcolorbox}[title=Method: Proactive Clarification]
-When confidence $< 0.6$, the Agent does not guess --- it asks the user instead. This mechanism prevents incorrect searches, wastes fewer resources, and avoids returning irrelevant results.
+\begin{tcolorbox}[title=Method: Rule-Based Slot Readiness \& Hybrid Clarification]
+To minimize latency and reduce unnecessary LLM calls, the Clarification Gate utilizes a \textbf{Rule-based Slot Readiness Check} for search intents (\texttt{text\_search}, \texttt{outfit\_request}, \texttt{follow\_up}). It calculates a readiness score based on predefined slot weights and a confidence threshold of $0.75$. For non-search intents or extremely ambiguous queries, it falls back to an LLM-based clarification.
 \end{tcolorbox}
+
+\begin{tcolorbox}[colback=green!5,colframe=green!40!black,title=Massive Token \& Latency Optimization]
+This architectural change is a \textbf{massive optimization} compared to the previous iteration:
+\begin{itemize}
+    \item \textbf{Significant Token Savings}: By removing the secondary LLM clarification call, the system saves thousands of input/output tokens per session, drastically reducing API costs.
+    \item \textbf{Reduced Latency}: It ensures \textbf{0 LLM calls for most clarifications}. The deterministic templates return instantly, bypassing LLM generation delays.
+    \item \textbf{Prevents Useless Searches}: It ensures the search engine (BM25 + Qdrant) is only hit when enough context has been explicitly established, preventing the system from wasting computational resources on broad, noisy searches.
+\end{itemize}
+\end{tcolorbox}
+
+\subsection{Short-Term Conversation Memory (TTLCache)}
+In order to support multi-turn conversations seamlessly, the orchestrator relies on \texttt{TTLCache} (Time-To-Live Cache) to maintain the short-term state of the session in-memory. This acts as a highly optimized conversational state manager, sitting above the long-term PostgreSQL database.
+
+\begin{itemize}
+    \item \textbf{\texttt{\_session\_ranked\_slots} (TTL: 1800s)}: This is the most critical cache for the Clarification Gate. As the user talks, extracted entities (like \texttt{color: "red"}) are saved here. If the user's next message is simply ``and for a party,'' the system automatically merges the new \texttt{occasion} slot with the cached \texttt{color} slot. This completely removes the need to constantly re-send the entire chat history back to the LLM to understand the context, drastically saving input tokens.
+    \item \textbf{\texttt{\_session\_last\_results} \& \texttt{\_session\_pending\_selection}}: These caches map UI integers (e.g., ``item 1'') back to actual product UUIDs from the most recent search results, allowing the agent to process cart-additions effortlessly.
+\end{itemize}
+
+By leveraging \texttt{TTLCache}, the system achieves instant cross-turn entity resolution, avoiding database round-trips and massive token overheads during the iterative search process.
+
+\begin{algorithm}[H]
+\caption{Short-Term Memory Management via TTLCache}\label{alg:ttlcache_memory}
+\begin{algorithmic}[1]
+\Require Current session ID $session\_id$, Newly extracted slots $E_{new}$
+\Require Global Cache \texttt{\_session\_ranked\_slots} (TTL=1800s)
+\Ensure Updated slots $E_{merged}$ for intent processing
+\Function{MergeSessionSlots}{$session\_id, E_{new}$}
+    \State $E_{cached} \gets \text{\texttt{\_session\_ranked\_slots}}[session\_id]$ \textbf{or} $\emptyset$
+    \State $E_{merged} \gets E_{cached}$
+    \For{each $key, value$ in $E_{new}$}
+        \If{$value$ is not empty and $value \neq \text{``none''}$}
+            \State $E_{merged}[key] \gets value$
+        \EndIf
+    \EndFor
+    \State $\text{\texttt{\_session\_ranked\_slots}}[session\_id] \gets E_{merged}$
+    \State \Return $E_{merged}$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Slot Readiness and Confidence Threshold}
+The orchestrator evaluates the accumulated slots against defined weights to determine if the query is ready for execution without prompting the user.
 
 \begin{table}[H]
 \centering
-\begin{tabular}{ll}
+\begin{tabular}{lcc}
 \toprule
-\textbf{Ambiguous Query} & \textbf{Agent's Clarification Question}\\
+\textbf{Slot} & \textbf{Weight} & \textbf{Requirement}\\
 \midrule
-``I want a shirt''        & ``Do you want a dress shirt, T-shirt, or jacket?''\\
-``something nice''        & ``What occasion are you shopping for?''\\
-``party outfit''          & ``Indoor or outdoor? What color do you prefer?''\\
-``this style''            & ``Could you describe it in more detail?''\\
+Category & 4 & Required for text\_search\\
+Color & 3 & Required for text\_search\\
+Occasion & 3 & Required for outfit\_request\\
+Style & 2 & Secondary signal\\
 \bottomrule
 \end{tabular}
-\caption{Examples of clarification questions generated by the Clarification Gate}
+\caption{Ranked slot weights for readiness scoring}
 \end{table}
 
-\begin{lstlisting}[caption={Clarification Gate --- agent/clarification\_gate.py}]
-@dataclass
-class ClarificationResult:
-    needs_clarification: bool
-    question: str = ""
+\begin{algorithm}[H]
+\caption{Slot Readiness Evaluation}\label{alg:slot_readiness}
+\begin{algorithmic}[1]
+\Require Intent string $I$, Dictionary of ranked slots $S$
+\Ensure Boolean indicating readiness, List of missing slots
+\State $W \gets \{ \text{``category''}: 4, \text{``color''}: 3, \text{``style''}: 2, \text{``occasion''}: 3 \}$
+\Function{IsQueryReady}{$I, S$}
+    \State $missing \gets \text{CheckMandatorySlots}(I, S)$
+    \If{$missing$ is not empty}
+        \State \Return $\text{False}, missing$
+    \EndIf
+    \State $min\_score \gets \text{GetMinScoreForIntent}(I)$ \Comment{e.g., text\_search: 7}
+    \State $score \gets 0$
+    \For{each $slot, weight$ in $W$}
+        \If{$S$ contains valid value for $slot$}
+            \State $score \gets score + weight$
+        \EndIf
+    \EndFor
+    \If{$score \ge min\_score$}
+        \State \Return $\text{True}, []$
+    \Else
+        \State \Return $\text{False}, [\text{``one\_of\_four''}]$
+    \EndIf
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
 
-def check_clarification(query: str, history: list | None = None) -> ClarificationResult:
-    """Called only when intent is unclear / low confidence."""
-    lang = detect_language(query)
-    fallback_q = FALLBACK_QUESTION.get(lang, FALLBACK_QUESTION["en"])
+\subsection{Deterministic Clarification Questions}
+If the query fails the readiness check, or if the intent classification confidence is below the search threshold ($0.75$), the system generates a template-based multilingual clarification question immediately \textbf{without calling the LLM} (0 LLM calls).
 
-    try:
-        model = get_model()
-    except RuntimeError:
-        return ClarificationResult(needs_clarification=True, question=fallback_q)
+\begin{lstlisting}[caption={Deterministic Clarification --- agent/fashion\_agent.py}]
+def _resolve_search_query(intent: str, intent_result: ClassifiedIntent, session_id: str, history: list[Message], query: str = "") -> tuple[str, str, "ExtractedSlots"]:
+    # ... slot accumulation logic ...
+    
+    search_confidence_threshold = _get_search_confidence_threshold()
+    if intent_result.confidence < search_confidence_threshold:
+        low_conf_missing = _readiness_missing_slots(intent, ranked_slots) or ["one_of_four"]
+        question = _build_ranked_clarification_question(
+            intent, query, low_conf_missing, low_confidence=True
+        )
+        return "", question, accumulated
 
-    history_text = format_history_text(history, limit=4)
-    prompt = CLARIFICATION_PROMPT.format(query=query, history_text=history_text)
-
-    try:
-        response = model.generate_content(prompt)
-        data = parse_llm_json(response.text)
-        question = data.get("question", "")
-        if question:
-            return ClarificationResult(
-                needs_clarification=True,
-                question=question,
-            )
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Clarification LLM failed: %s", exc)
-
-    return ClarificationResult(needs_clarification=True, question=fallback_q)
+    is_ready, missing_slots = _is_query_ready(intent, ranked_slots)
+    if not is_ready:
+        question = _build_ranked_clarification_question(
+            intent, query, missing_slots
+        )
+        return "", question, accumulated
+        
+    # Build ranked query...
+    return search_query, "", accumulated
 \end{lstlisting}
+
+For unclear intents (\texttt{unclear}) or low-confidence non-search intents, the system falls back to the original LLM-based \texttt{check\_clarification} mechanism.
 
 \section{Step 3 --- Memory Agent (PostgreSQL)}
 
@@ -231,55 +267,40 @@ def add_liked_item(session_id, image_id, label, color):
 Instead of an iterative ReAct loop, the orchestrator uses \textbf{deterministic routing}: intent and slots from Step~1 are forwarded directly to the correct search pipeline. No additional LLM call is needed at this step --- the routing logic is pure Python branching on the classified intent, executing the hybrid search (BM25 + vector + reranker) in one pass.
 \end{tcolorbox}
 
-\begin{lstlisting}[caption={Direct Routing Orchestrator --- agent/fashion\_agent.py}]
-def _orchestrate_stream(
-    query: str,
-    session_id: Optional[str] = None,
-) -> Generator:
-    """Streaming orchestration: yields ThinkingEvent then OrchestrateResult."""
-    yield ThinkingEvent("start", "Analyzing your question...")
+\begin{algorithm}[H]
+\caption{Direct Routing Orchestration}\label{alg:routing}
+\begin{algorithmic}[1]
+\Require User query $Q$, Session $S$
+\Ensure Streaming response elements (Events and Results)
+\Procedure{OrchestrateStream}{$Q, S$}
+    \State \textbf{Yield} ThinkingEvent(``Analyzing...'')
+    \State $intent\_res \gets \text{ClassifyIntent}(Q, S.\text{history})$
+    \State $intent \gets intent\_res.\text{intent}$
+    
+    \If{$intent = \text{``out\_of\_scope''}$}
+        \State \textbf{Yield} OrchestrateResult(``out\_of\_scope'')
+        \State \Return
+    \ElsIf{$intent = \text{``product\_select''}$}
+        \State \textbf{Yield} HandleProductSelect($\dots$)
+        \State \Return
+    \EndIf
+    
+    \State $query, clarify, slots \gets \text{ResolveSearchQuery}(intent, intent\_res)$
+    \If{$clarify$ is not empty}
+        \State \textbf{Yield} OrchestrateResult(clarification)
+        \State \Return
+    \EndIf
+    
+    \State \textbf{Yield} ThinkingEvent(``Searching...'')
+    \State $products, reasoning \gets \text{RouteAndExecute}(intent, query, slots)$
+    \State \textbf{Yield} OrchestrateResult($products, reasoning$)
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
 
-    # Step 1: Intent classification (1 LLM call)
-    yield ThinkingEvent("classify", "Classifying intent...")
-    intent_result = classify_intent(query, history=history)
-    intent = intent_result.intent
-    yield ThinkingEvent("classify_done",
-        f"Intent: {intent} (confidence: {intent_result.confidence:.2f})")
-
-    # Step 2: Early exits for special intents (0 LLM)
-    if intent == "out_of_scope":
-        yield OrchestrateResult(intent="out_of_scope", clarification=msg)
-        return
-    if intent == "product_select":
-        yield from _handle_product_select(...)
-        return
-
-    # Step 3: Resolve search query via slot gate (0 LLM)
-    search_query, clarification, slots = _resolve_search_query(
-        intent, intent_result, session_id, history, query)
-    if clarification:
-        yield OrchestrateResult(clarification=clarification)
-        return
-
-    # Step 4: Route & execute search (0 LLM)
-    yield ThinkingEvent("search", f"Searching: '{search_query[:50]}'...")
-    products, reasoning = _route_and_execute(
-        intent=intent,
-        search_query=search_query,
-        session_id=session_id,
-        filters=intent_result.filters,
-        preferences=preferences,
-    )
-
-    yield OrchestrateResult(
-        intent=intent, session_id=session_id,
-        products=products, reasoning=reasoning,
-    )
-\end{lstlisting}
-
-\textbf{Clarification gate (confidence $< 0.6$):}
-\begin{lstlisting}[caption={Confidence-based clarification --- agent/fashion\_agent.py}]
-# outfit_request, unclear, etc.
+\textbf{Fallback Clarification Gate (for unclear non-search intents):}
+\begin{lstlisting}[caption={Confidence-based clarification fallback --- agent/fashion\_agent.py}]
+# unclear and other non-search intents
 if intent_result.confidence < 0.6 or intent == "unclear":
     clarification = check_clarification(
         intent_result.refined_query or "", history=history,
@@ -326,7 +347,6 @@ def _synthesize_response(
 \textbf{Explanation:}
 \begin{itemize}
     \item \textbf{Gender Context Injection}: By explicitly stating the \texttt{gender\_context} in the prompt, Gemini can tailor the phrasing and styling tips appropriately (e.g., suggesting a ``sharp tailored fit'' for men vs. a ``flattering silhouette'' for women).
-    \item \textbf{A/B Testing Capabilities}: The \texttt{gender\_hint\_enabled} flag allows developers to toggle this feature for controlled experimentation and research easily.
 \end{itemize}
 
 % ===========================================================================

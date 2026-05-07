@@ -26,39 +26,33 @@ Remove ambiguous labels (Not sure, Skip, Other) and verify image-file existence 
 
 In the production source code (\texttt{pre\_processing/processing\_data.py}), noise label filtering is implemented via a constant set:
 
-\begin{lstlisting}[caption={Noise label filtering --- processing\_data.py}]
-EXCLUDED_LABELS = {"Not sure", "Skip", "Other"}
-
-def load_kaggle_rows_for_upsert(
-    dataset_ref: str,
-    source: str,
-    limit: Optional[int],
-    allow_missing_images: bool,
-) -> list[tuple[str, str, str, str]]:
-    cache_path = Path(kagglehub.dataset_download(dataset_ref))
-    csv_path = cache_path / "images.csv"
-    images_dir = cache_path / "images_compressed"
-
-    rows = []
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        for raw in reader:
-            image_id = (raw.get("image") or "").strip()
-            label = (raw.get("label") or "").strip()
-
-            if not image_id or not label or label in EXCLUDED_LABELS:
-                continue
-
-            image_path = images_dir / f"{image_id}.jpg"
-            if not allow_missing_images and not image_path.exists():
-                continue
-
-            rows.append((image_id, label, str(image_path), source))
-            if limit and len(rows) >= limit:
-                break
-
-    return rows
-\end{lstlisting}
+\begin{algorithm}[H]
+\caption{Data Ingestion and Noise Filtering}\label{alg:data_filtering}
+\begin{algorithmic}[1]
+\Require CSV File $csv$, Image Directory $img\_dir$, Limit $L$
+\Ensure Cleaned list of product tuples $R$
+\Function{LoadAndFilterData}{$csv, img\_dir, L$}
+    \State $R \gets []$
+    \State $E \gets \{\text{``Not sure''}, \text{``Skip''}, \text{``Other''}\}$
+    \For{each row in $csv$}
+        \State $id \gets \text{row.image}$
+        \State $label \gets \text{row.label}$
+        \If{$id$ is empty \textbf{or} $label$ is empty \textbf{or} $label \in E$}
+            \State \textbf{continue}
+        \EndIf
+        \State $path \gets img\_dir / \text{f``}\{id\}\text{.jpg''}$
+        \If{\textbf{not} $path.\text{exists}()$}
+            \State \textbf{continue}
+        \EndIf
+        \State Append $(id, label, path)$ to $R$
+        \If{$\text{length of } R \ge L$}
+            \State \textbf{break}
+        \EndIf
+    \EndFor
+    \State \Return $R$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
 
 \textbf{Task breakdown:}
 \begin{enumerate}
@@ -75,35 +69,26 @@ This is a critical step to add \textbf{semantic tokens} to each product. Instead
 Gemini receives the actual product image as input and generates a 30--40 word description focusing on: (1) fabric/texture, (2) silhouette/fit, (3) construction details, (4) overall aesthetic. Colors and brand names are excluded to ensure generalizability.
 \end{tcolorbox}
 
-\begin{lstlisting}[caption={Fashion caption generation via Gemini --- processing\_data.py}]
-class GeminiFashionProcessor:
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash"):
-        self.model_name = model_name
-        self.model = self._build_model(api_key, model_name)
-
-    def generate_search_caption(self, image_path: Path) -> Optional[str]:
-        prompt = """
-        Write a 30-40 word fashion-centric morphological description.
-        Focus: Fabric/Texture, Silhouette/Fit, Construction, Overall aesthetic.
-        Rules: NO colors, NO brand names, NO generic category names.
-        """
-        img = Image.open(image_path)
-        response = self.model.generate_content([prompt, img])
-        return response.text.strip().replace("*", "")
-
-    def detect_item_color(self, image_path: Path, label: str) -> Optional[str]:
-        prompt = f"""
-        Identify the primary color of this {label}.
-        Rules:
-        1. Return only color name(s).
-        2. Be specific (e.g., Olive Green, Charcoal Grey).
-        3. Pattern case: include base color + pattern type.
-        4. Max 3-4 words.
-        """
-        img = Image.open(image_path)
-        response = self.model.generate_content([prompt, img])
-        return response.text.strip().replace("*", "")
-\end{lstlisting}
+\begin{algorithm}[H]
+\caption{Multimodal Caption and Color Enrichment via LLM}\label{alg:llm_enrichment}
+\begin{algorithmic}[1]
+\Require Image file $I$, Product Label $L$, LLM model $M$ (Gemini 2.5 Flash)
+\Ensure Search Caption $C$, Primary Color $K$
+\Function{GenerateSearchCaption}{$I$}
+    \State $prompt \gets \text{``Write a 30-40 word fashion-centric morphological description...''}$
+    \State $response \gets M.\text{generate\_content}(prompt, I)$
+    \State $C \gets \text{Clean}(response.\text{text})$
+    \State \Return $C$
+\EndFunction
+\State
+\Function{DetectItemColor}{$I, L$}
+    \State $prompt \gets \text{``Identify the primary color of this \{}L\text{\}...''}$
+    \State $response \gets M.\text{generate\_content}(prompt, I)$
+    \State $K \gets \text{Clean}(response.\text{text})$
+    \State \Return $K$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
 
 \textbf{Task breakdown:}
 \begin{itemize}
