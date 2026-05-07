@@ -337,6 +337,38 @@ class ApiService {
     }
   }
 
+  /// Directly add a selected item to cart (PATH 2 flow).
+  Future<Map<String, dynamic>> addDirectSelection({
+    required String sessionId,
+    required String imageId,
+    required String label,
+    required String imagePath,
+    required int position,
+    String color = '',
+    String caption = '',
+    String searchQuery = '',
+    String pathMode = 'path2',
+  }) async {
+    final resp = await _client.post(
+      Uri.parse('$kApiBaseUrl/api/sessions/$sessionId/selections'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'image_id': imageId,
+        'label': label,
+        'color': color,
+        'caption': caption,
+        'image_path': imagePath,
+        'search_query': searchQuery,
+        'position': position,
+        'path_mode': pathMode,
+      }),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to add selection: ${resp.body}');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
   /// PATH 2: search visually similar items by query image.
   ///
   /// Uses a dedicated backend endpoint isolated from PATH 1 chat flow.

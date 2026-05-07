@@ -35,7 +35,6 @@ from shared.llm import get_client, LLMClient, TokenUsage
 
 from agent.intent_classifier import classify_intent, ClassifiedIntent, ExtractedSlots
 from agent.slot_completeness import (
-    check_slot_completeness,
     build_template_question,
     merge_slots,
     should_reset_slots,
@@ -286,16 +285,195 @@ OUT_OF_SCOPE_RESPONSE = {
 }
 
 MAX_CLARIFICATION_TURNS = 3
+DEFAULT_SEARCH_CONFIDENCE_THRESHOLD = 0.75
+_RANKED_SLOT_WEIGHTS = {
+    "category": 4,
+    "color": 3,
+    "style": 2,
+    "occasion": 3,
+}
 
 # In-memory storage for accumulated slots per session (auto-evicted after 30 min)
 # Key: session_id, Value: ExtractedSlots
 from cachetools import TTLCache
 
 _session_accumulated_slots: TTLCache = TTLCache(maxsize=100, ttl=1800)
+_session_ranked_slots: TTLCache = TTLCache(maxsize=100, ttl=1800)
 
 # Product selection caches
 _session_last_results: TTLCache = TTLCache(maxsize=1000, ttl=1800)   # 30 min
 _session_pending_selection: TTLCache = TTLCache(maxsize=1000, ttl=300)  # 5 min
+
+
+def _get_search_confidence_threshold() -> float:
+    """Return configured confidence threshold for pre-search gating."""
+    raw = os.getenv(
+        "SEARCH_CONFIDENCE_THRESHOLD",
+        str(DEFAULT_SEARCH_CONFIDENCE_THRESHOLD),
+    ).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_SEARCH_CONFIDENCE_THRESHOLD
+    return min(1.0, max(0.0, value))
+
+
+def _empty_ranked_slots() -> dict[str, str]:
+    return {"category": "", "color": "", "style": "", "occasion": ""}
+
+
+def _normalize_slot_text(value: Optional[str]) -> str:
+    return (value or "").strip()
+
+
+def _merge_ranked_slots(
+    session_id: str,
+    intent_result: ClassifiedIntent,
+    accumulated: ExtractedSlots,
+    *,
+    reset: bool = False,
+) -> dict[str, str]:
+    base = _empty_ranked_slots() if reset else {
+        **_empty_ranked_slots(),
+        **(_session_ranked_slots.get(session_id) or {}),
+    }
+    filters = intent_result.filters or {}
+
+    category = _normalize_slot_text(accumulated.category) or _normalize_slot_text(
+        filters.get("category")
+    )
+    color = _normalize_slot_text(accumulated.color) or _normalize_slot_text(
+        filters.get("color")
+    )
+    style = _normalize_slot_text(filters.get("style")) or _normalize_slot_text(
+        accumulated.aesthetic
+    )
+    occasion = _normalize_slot_text(filters.get("occasion"))
+
+    if category:
+        base["category"] = category
+    if color:
+        base["color"] = color
+    if style:
+        base["style"] = style
+    if occasion:
+        base["occasion"] = occasion
+
+    _session_ranked_slots[session_id] = base
+    return base
+
+
+def _ranked_slot_score(ranked_slots: dict[str, str]) -> int:
+    return sum(
+        weight
+        for slot, weight in _RANKED_SLOT_WEIGHTS.items()
+        if _normalize_slot_text(ranked_slots.get(slot))
+    )
+
+
+def _readiness_missing_slots(intent: str, ranked_slots: dict[str, str]) -> list[str]:
+    has_category = bool(_normalize_slot_text(ranked_slots.get("category")))
+    has_color = bool(_normalize_slot_text(ranked_slots.get("color")))
+    has_style = bool(_normalize_slot_text(ranked_slots.get("style")))
+    has_occasion = bool(_normalize_slot_text(ranked_slots.get("occasion")))
+
+    if intent == "text_search":
+        missing: list[str] = []
+        if not has_category:
+            missing.append("category")
+        if not has_color:
+            missing.append("color")
+        return missing
+    if intent == "outfit_request":
+        missing = []
+        if not has_occasion:
+            missing.append("occasion")
+        if not (has_style or has_category):
+            missing.append("style_or_category")
+        return missing
+    if intent == "follow_up":
+        if has_category or has_color or has_style or has_occasion:
+            return []
+        return ["one_of_four"]
+    return []
+
+
+def _is_query_ready(intent: str, ranked_slots: dict[str, str]) -> tuple[bool, list[str]]:
+    missing = _readiness_missing_slots(intent, ranked_slots)
+    if missing:
+        return False, missing
+
+    # Secondary score guard to reduce unnecessary broad retrieval.
+    min_score = {
+        "text_search": 7,     # category + color baseline
+        "outfit_request": 5,  # occasion + one supporting signal
+        "follow_up": 2,       # at least one strong signal
+    }.get(intent, 0)
+    return _ranked_slot_score(ranked_slots) >= min_score, [] if _ranked_slot_score(ranked_slots) >= min_score else ["one_of_four"]
+
+
+def _build_ranked_clarification_question(
+    intent: str,
+    query: str,
+    missing_slots: list[str],
+    *,
+    low_confidence: bool = False,
+) -> str:
+    lang = detect_language(query)
+    missing = set(missing_slots)
+
+    if lang == "vi":
+        prefix = "Mình cần rõ hơn một chút trước khi tìm kiếm. " if low_confidence else ""
+        if intent == "text_search":
+            if {"category", "color"}.issubset(missing):
+                return prefix + "Bạn muốn loại trang phục nào và màu gì? (ví dụ: áo sơ mi trắng)."
+            if "category" in missing:
+                return prefix + "Bạn muốn loại trang phục nào? (áo, quần, váy, blazer...)."
+            if "color" in missing:
+                return prefix + "Bạn muốn màu gì? (đen, trắng, xanh navy...)."
+        if intent == "outfit_request":
+            if {"occasion", "style_or_category"}.issubset(missing):
+                return prefix + "Bạn đi dịp nào và muốn phong cách hoặc loại đồ gì? (ví dụ: hẹn hò, style lịch sự, váy/áo sơ mi)."
+            if "occasion" in missing:
+                return prefix + "Bạn cần outfit cho dịp nào? (hẹn hò, đi làm, tiệc tối...)."
+            if "style_or_category" in missing:
+                return prefix + "Bạn thích phong cách nào hoặc loại đồ nào? (casual, lịch sự, váy, áo sơ mi...)."
+        return prefix + "Bạn cho mình thêm một chi tiết nhé: loại đồ, màu, phong cách hoặc dịp sử dụng."
+
+    if lang == "es":
+        prefix = "Necesito un poco más de detalle antes de buscar. " if low_confidence else ""
+        if intent == "text_search":
+            if {"category", "color"}.issubset(missing):
+                return prefix + "¿Qué tipo de prenda y qué color prefieres? (ej.: camisa blanca)."
+            if "category" in missing:
+                return prefix + "¿Qué tipo de prenda buscas? (camisa, pantalón, vestido, blazer...)."
+            if "color" in missing:
+                return prefix + "¿Qué color prefieres? (negro, blanco, azul marino...)."
+        if intent == "outfit_request":
+            if {"occasion", "style_or_category"}.issubset(missing):
+                return prefix + "¿Para qué ocasión y qué estilo o tipo de prenda prefieres?"
+            if "occasion" in missing:
+                return prefix + "¿Para qué ocasión necesitas el outfit? (cita, trabajo, fiesta...)."
+            if "style_or_category" in missing:
+                return prefix + "¿Qué estilo o tipo de prenda prefieres? (casual, formal, vestido, camisa...)."
+        return prefix + "Compárteme un detalle más: prenda, color, estilo u ocasión."
+
+    prefix = "I need a bit more detail before searching. " if low_confidence else ""
+    if intent == "text_search":
+        if {"category", "color"}.issubset(missing):
+            return prefix + "What clothing type and color do you want? (e.g., white shirt)."
+        if "category" in missing:
+            return prefix + "What clothing type are you looking for? (shirt, pants, dress, blazer...)."
+        if "color" in missing:
+            return prefix + "Which color do you prefer? (black, white, navy...)."
+    if intent == "outfit_request":
+        if {"occasion", "style_or_category"}.issubset(missing):
+            return prefix + "What occasion is this for, and what style or clothing type do you want?"
+        if "occasion" in missing:
+            return prefix + "What occasion is this outfit for? (date, office, party...)."
+        if "style_or_category" in missing:
+            return prefix + "What style or clothing type do you prefer? (casual, formal, dress, shirt...)."
+    return prefix + "Please add one more detail: clothing type, color, style, or occasion."
 
 
 @dataclass
@@ -450,65 +628,80 @@ def _resolve_search_query(
 ) -> tuple[str, str, "ExtractedSlots"]:
     """Resolve the search query for the current turn.
 
-    Always attempts to build a search query from available slots.
-    Clarification is deferred to AFTER the search (post-search gate),
-    so users are never blocked by missing slots when intent is clear.
+    Applies pre-search readiness checks for search-like intents so the
+    system asks clarifying questions before retrieval when confidence or
+    slot completeness is insufficient.
 
     Returns:
         (search_query, clarification_message, accumulated_slots)
         ``clarification_message`` is non-empty when the caller should
-        return early with a clarification question (category validation
-        failure only — slot completeness no longer blocks pre-search).
+        return early with a clarification question.
         ``accumulated_slots`` is the merged slot state for use in the
-        post-search zero-results gate.
+        follow-up turn.
     """
-    if intent == "text_search":
+    if intent in ("text_search", "follow_up", "outfit_request"):
         new_slots = intent_result.extracted_slots
         accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
-
-        if should_reset_slots(accumulated, new_slots):
+        did_reset = False
+        if intent == "text_search" and should_reset_slots(accumulated, new_slots):
             accumulated = ExtractedSlots()
-
+            did_reset = True
         accumulated = merge_slots(accumulated, new_slots)
         _session_accumulated_slots[session_id] = accumulated
+        ranked_slots = _merge_ranked_slots(
+            session_id,
+            intent_result,
+            accumulated,
+            reset=did_reset,
+        )
 
-        # ── Category validation guard (Mode A) — kept pre-search ──────────
+        # ── Category validation guard (kept pre-search) ───────────────────
         # Unsupported categories must be caught before search; the index
         # has no data for them so search would return irrelevant results.
-        slot_category = accumulated.category
+        slot_category = _normalize_slot_text(ranked_slots.get("category")) or accumulated.category
         if slot_category and slot_category not in SUPPORTED_CATEGORIES:
             lang = detect_language(query)
             suggestions = _find_category_suggestions(slot_category)
             refusal = build_unsupported_category_message(slot_category, suggestions, lang)
             return "", refusal, accumulated
 
-        # Build the best search query from slots — never block on missing slots
-        search_query = compose_refined_query_from_slots(accumulated)
-        if not search_query.strip():
+        search_confidence_threshold = _get_search_confidence_threshold()
+        if intent_result.confidence < search_confidence_threshold:
+            low_conf_missing = _readiness_missing_slots(intent, ranked_slots)
+            if not low_conf_missing:
+                low_conf_missing = ["one_of_four"]
+            question = _build_ranked_clarification_question(
+                intent,
+                query,
+                low_conf_missing,
+                low_confidence=True,
+            )
+            return "", question, accumulated
+
+        is_ready, missing_slots = _is_query_ready(intent, ranked_slots)
+        if not is_ready:
+            question = _build_ranked_clarification_question(
+                intent,
+                query,
+                missing_slots,
+            )
+            return "", question, accumulated
+
+        # Build ranked query from high-value slots once readiness checks pass.
+        ranked_parts = [
+            _normalize_slot_text(ranked_slots.get("color")),
+            _normalize_slot_text(ranked_slots.get("style")),
+            _normalize_slot_text(ranked_slots.get("occasion")),
+            _normalize_slot_text(ranked_slots.get("category")),
+        ]
+        search_query = " ".join([p for p in ranked_parts if p])
+        if not search_query:
+            search_query = compose_refined_query_from_slots(accumulated)
+        if not search_query:
             search_query = intent_result.refined_query or query
-
-        # Always proceed to search — zero-results clarification fires AFTER
         return search_query, "", accumulated
 
-    if intent == "follow_up":
-        new_slots = intent_result.extracted_slots
-        accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
-        accumulated = merge_slots(accumulated, new_slots)
-        _session_accumulated_slots[session_id] = accumulated
-
-        # ── Category validation guard (follow-up) ─────────────────────────
-        slot_category = accumulated.category
-        if slot_category and slot_category not in SUPPORTED_CATEGORIES:
-            lang = detect_language(query)
-            suggestions = _find_category_suggestions(slot_category)
-            refusal = build_unsupported_category_message(slot_category, suggestions, lang)
-            return "", refusal, accumulated
-
-        slot_query = compose_refined_query_from_slots(accumulated)
-        search_query = slot_query if slot_query.strip() else (intent_result.refined_query or "")
-        return search_query, "", accumulated
-
-    # outfit_request, unclear, etc.
+    # unclear and other non-search intents
     if intent_result.confidence < 0.6 or intent == "unclear":
         clarification = check_clarification(
             intent_result.refined_query or "", history=history,
@@ -686,7 +879,7 @@ def _orchestrate_stream(
         yield from _handle_view_selections(session_id, query)
         return
 
-    # Step 3: Search query resolution (slot gate removed — search-first)
+    # Step 3: Search query resolution (pre-search readiness gate enabled)
     search_query, clarification, accumulated_slots = _resolve_search_query(
         intent, intent_result, session_id, history, query,
     )
@@ -727,9 +920,8 @@ def _orchestrate_stream(
     )
 
     # ── Post-search zero-results clarification gate ──────────────────────
-    # Only fires when search returns nothing AND we haven't hit the turn limit.
-    # This replaces the old pre-search slot-completeness gate to prevent the
-    # "blocked before any search" problem while still bounding clarification loops.
+    # Fires when retrieval has already run but returned no products.
+    # Pre-search readiness gating is handled in _resolve_search_query().
     if not products and intent in ("text_search", "follow_up"):
         clarify_count = _count_clarification_turns(history)
         if clarify_count < MAX_CLARIFICATION_TURNS:

@@ -300,10 +300,14 @@ class _AssistantBubble extends StatelessWidget {
                         ProductCardList(
                           products: message.products,
                           sessionId: sessionId,
-                          onCartTap: (num) {
+                          onCartTap: (product, num) async {
                             final chatProvider = context.read<ChatProvider>();
+                            if (product.pathMode == 'path2') {
+                              await chatProvider.addPath2ProductToCart(product, num);
+                              return;
+                            }
                             chatProvider.autoConfirmNext = true; // must be set BEFORE sendMessage
-                            chatProvider.sendMessage(
+                            await chatProvider.sendMessage(
                               '$num',
                               sessionId,
                             );

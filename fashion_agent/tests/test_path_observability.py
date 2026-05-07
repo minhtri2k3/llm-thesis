@@ -6,6 +6,7 @@ from PIL import Image
 import api.main as api_main
 import agent.fashion_agent as fashion_agent
 import agent.memory as memory
+from agent.intent_classifier import ClassifiedIntent, ExtractedSlots
 
 
 def _tiny_png_bytes() -> bytes:
@@ -291,3 +292,215 @@ def test_path_mode_accepts_path1_only_path2_only_and_mixed_inputs(monkeypatch):
     assert resp3.status_code == 200
     assert captured_batches[-1][0]["path_mode"] == "path1"
     assert captured_batches[-1][1]["path_mode"] == "path2"
+
+
+def test_search_query_resolution_blocks_low_confidence_before_search():
+    session_id = "sid-low-conf"
+    fashion_agent._session_accumulated_slots.pop(session_id, None)
+
+    intent_result = ClassifiedIntent(
+        intent="text_search",
+        confidence=0.5,
+        filters={},
+        refined_query="white cotton shirt",
+        extracted_slots=ExtractedSlots(
+            category="Shirt",
+            color="white",
+            fabric="cotton",
+        ),
+    )
+
+    search_query, clarification, _slots = fashion_agent._resolve_search_query(
+        "text_search",
+        intent_result,
+        session_id,
+        history=[],
+        query="show me a white shirt",
+    )
+
+    assert search_query == ""
+    assert clarification.strip() != ""
+
+
+def test_search_query_resolution_blocks_when_required_slots_missing():
+    session_id = "sid-missing-slots"
+    fashion_agent._session_accumulated_slots.pop(session_id, None)
+
+    intent_result = ClassifiedIntent(
+        intent="text_search",
+        confidence=0.95,
+        filters={},
+        refined_query="shirt",
+        extracted_slots=ExtractedSlots(category="Shirt"),
+    )
+
+    search_query, clarification, _slots = fashion_agent._resolve_search_query(
+        "text_search",
+        intent_result,
+        session_id,
+        history=[],
+        query="show shirt",
+    )
+
+    assert search_query == ""
+    assert clarification.strip() != ""
+
+
+def test_search_query_resolution_merges_slots_after_clarification():
+    session_id = "sid-slot-merge"
+    fashion_agent._session_accumulated_slots.pop(session_id, None)
+
+    first_turn = ClassifiedIntent(
+        intent="text_search",
+        confidence=0.95,
+        filters={},
+        refined_query="shirt",
+        extracted_slots=ExtractedSlots(category="Shirt"),
+    )
+    sq1, clarification1, _slots1 = fashion_agent._resolve_search_query(
+        "text_search",
+        first_turn,
+        session_id,
+        history=[],
+        query="show shirts",
+    )
+    assert sq1 == ""
+    assert clarification1.strip() != ""
+
+    second_turn = ClassifiedIntent(
+        intent="follow_up",
+        confidence=0.95,
+        filters={},
+        refined_query="blue regular fit",
+        extracted_slots=ExtractedSlots(color="blue", fit="regular fit"),
+    )
+    sq2, clarification2, _slots2 = fashion_agent._resolve_search_query(
+        "follow_up",
+        second_turn,
+        session_id,
+        history=[],
+        query="blue regular fit",
+    )
+    assert clarification2 == ""
+    assert "Shirt" in sq2
+    assert "blue" in sq2
+
+
+def test_outfit_request_requires_more_than_single_signal():
+    session_id = "sid-outfit-single-signal"
+    fashion_agent._session_accumulated_slots.pop(session_id, None)
+    fashion_agent._session_ranked_slots.pop(session_id, None)
+
+    intent_result = ClassifiedIntent(
+        intent="outfit_request",
+        confidence=0.92,
+        filters={"occasion": "date"},
+        refined_query="date outfit",
+        extracted_slots=ExtractedSlots(),
+    )
+
+    search_query, clarification, _slots = fashion_agent._resolve_search_query(
+        "outfit_request",
+        intent_result,
+        session_id,
+        history=[],
+        query="tôi muốn tìm một bộ quần áo để đi hẹn hò",
+    )
+
+    assert search_query == ""
+    assert clarification.strip() != ""
+
+
+def test_outfit_request_queries_when_occasion_and_style_present():
+    session_id = "sid-outfit-ready"
+    fashion_agent._session_accumulated_slots.pop(session_id, None)
+    fashion_agent._session_ranked_slots.pop(session_id, None)
+
+    intent_result = ClassifiedIntent(
+        intent="outfit_request",
+        confidence=0.92,
+        filters={"occasion": "date", "style": "elegant"},
+        refined_query="date elegant outfit",
+        extracted_slots=ExtractedSlots(),
+    )
+
+    search_query, clarification, _slots = fashion_agent._resolve_search_query(
+        "outfit_request",
+        intent_result,
+        session_id,
+        history=[],
+        query="outfit for a date, elegant style",
+    )
+
+    assert clarification == ""
+    assert "date" in search_query.lower()
+    assert "elegant" in search_query.lower()
+
+
+def test_direct_selection_endpoint_persists_path2_item(monkeypatch):
+    captured = {}
+
+    def fake_save_selected_items(session_id, items):
+        captured["session_id"] = session_id
+        captured["items"] = items
+        return 1
+
+    monkeypatch.setattr(memory, "save_selected_items", fake_save_selected_items)
+    client = TestClient(api_main.app)
+
+    resp = client.post(
+        "/api/sessions/s1/selections",
+        json={
+            "image_id": "img-p2-1",
+            "label": "Dress",
+            "color": "Blue",
+            "caption": "sample caption",
+            "image_path": "img-p2-1.jpg",
+            "search_query": "__path2_image__",
+            "position": 2,
+            "path_mode": "path2",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["inserted"] == 1
+    assert body["already_exists"] == 0
+    assert captured["session_id"] == "s1"
+    assert captured["items"][0]["path_mode"] == "path2"
+
+
+def test_direct_selection_endpoint_rejects_invalid_payload():
+    client = TestClient(api_main.app)
+
+    resp = client.post(
+        "/api/sessions/s1/selections",
+        json={
+            "image_id": "",
+            "label": "Dress",
+            "image_path": "img.jpg",
+            "position": 1,
+            "path_mode": "path2",
+        },
+    )
+    assert resp.status_code == 400
+    assert "image_id" in resp.text
+
+
+def test_direct_selection_endpoint_reports_duplicate_insertion(monkeypatch):
+    monkeypatch.setattr(memory, "save_selected_items", lambda _sid, _items: 0)
+    client = TestClient(api_main.app)
+
+    resp = client.post(
+        "/api/sessions/s1/selections",
+        json={
+            "image_id": "img-p2-1",
+            "label": "Dress",
+            "image_path": "img-p2-1.jpg",
+            "position": 1,
+            "path_mode": "path2",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["inserted"] == 0
+    assert body["already_exists"] == 1

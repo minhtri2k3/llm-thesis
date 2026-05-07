@@ -6,7 +6,7 @@ import 'package:clothie_web/services/api_service.dart';
 class ProductCardList extends StatelessWidget {
   final List<Product> products;
   final String sessionId;
-  final Function(int)? onCartTap;
+  final Future<void> Function(Product product, int position)? onCartTap;
   const ProductCardList({
     super.key,
     required this.products,
@@ -41,7 +41,7 @@ class _ProductCard extends StatefulWidget {
   final Product product;
   final int productIndex;
   final String sessionId;
-  final Function(int)? onCartTap;
+  final Future<void> Function(Product product, int position)? onCartTap;
   const _ProductCard({
     required this.product,
     required this.productIndex,
@@ -133,7 +133,7 @@ class _ProductCardState extends State<_ProductCard> {
   void _showAddToCartDialog(
     BuildContext context,
     Product product,
-    VoidCallback onConfirm,
+    Future<void> Function() onConfirm,
   ) {
     showDialog<void>(
       context: context,
@@ -190,9 +190,9 @@ class _ProductCardState extends State<_ProductCard> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              onConfirm();
+              await onConfirm();
             },
             child: const Text('Add to Cart \u2713'),
           ),
@@ -229,7 +229,10 @@ class _ProductCardState extends State<_ProductCard> {
                     _showAddToCartDialog(
                       context,
                       widget.product,
-                      () => widget.onCartTap!(widget.productIndex + 1),
+                      () => widget.onCartTap!(
+                        widget.product,
+                        widget.productIndex + 1,
+                      ),
                     );
                   }
                 : null,

@@ -167,6 +167,23 @@ class Path2ImageSearchResponse(BaseModel):
     count: int = 0
 
 
+class DirectSelectionRequest(BaseModel):
+    image_id: str
+    label: str
+    color: str = ""
+    caption: str = ""
+    image_path: str
+    search_query: str = ""
+    position: int = 1
+    path_mode: str = "path2"
+
+
+class DirectSelectionResponse(BaseModel):
+    ok: bool = True
+    inserted: int = 0
+    already_exists: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -314,6 +331,53 @@ async def remove_cart_item(session_id: str, image_id: str):
         return {"ok": True}
     except HTTPException:
         raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post(
+    "/api/sessions/{session_id}/selections",
+    response_model=DirectSelectionResponse,
+)
+async def add_session_selection(session_id: str, req: DirectSelectionRequest):
+    """Directly insert a selected item into session cart (PATH 2 flow)."""
+    from agent.memory import save_selected_items
+
+    if not req.image_id.strip():
+        raise HTTPException(status_code=400, detail="image_id is required")
+    if not req.label.strip():
+        raise HTTPException(status_code=400, detail="label is required")
+    if not req.image_path.strip():
+        raise HTTPException(status_code=400, detail="image_path is required")
+    if req.position < 1:
+        raise HTTPException(status_code=400, detail="position must be >= 1")
+
+    normalized_mode = _normalize_path_mode(req.path_mode, default="path2")
+    if normalized_mode != "path2":
+        raise HTTPException(status_code=400, detail="path_mode must be 'path2'")
+
+    try:
+        inserted = save_selected_items(
+            session_id,
+            [
+                {
+                    "image_id": req.image_id.strip(),
+                    "label": req.label.strip(),
+                    "color": req.color.strip(),
+                    "caption": req.caption.strip(),
+                    "image_path": req.image_path.strip(),
+                    "search_query": req.search_query.strip(),
+                    "position": req.position,
+                    "path_mode": normalized_mode,
+                }
+            ],
+        )
+        already_exists = 1 - inserted if inserted in (0, 1) else 0
+        return DirectSelectionResponse(
+            ok=True,
+            inserted=inserted,
+            already_exists=already_exists,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

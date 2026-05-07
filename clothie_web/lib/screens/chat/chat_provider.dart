@@ -143,6 +143,54 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  /// Direct PATH 2 cart insertion without conversational product-select intent.
+  Future<bool> addPath2ProductToCart(Product product, int position) async {
+    if (_sessionId.isEmpty) {
+      _error = 'Session is not initialized.';
+      notifyListeners();
+      return false;
+    }
+    final imagePath = _extractImagePathFromUrl(product.imageUrl);
+    if (imagePath.isEmpty) {
+      _error = 'Invalid product image path.';
+      notifyListeners();
+      return false;
+    }
+    try {
+      await _api.addDirectSelection(
+        sessionId: _sessionId,
+        imageId: product.imageId,
+        label: product.label,
+        color: product.color,
+        caption: product.caption,
+        imagePath: imagePath,
+        searchQuery: product.searchQuery,
+        position: position,
+        pathMode: 'path2',
+      );
+      onSelectionSaved?.call();
+      pendingCartNotification = true;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  String _extractImagePathFromUrl(String imageUrl) {
+    try {
+      final uri = Uri.parse(imageUrl);
+      if (uri.pathSegments.isNotEmpty) {
+        return uri.pathSegments.last;
+      }
+    } catch (_) {
+      // Best-effort fallback below.
+    }
+    return '';
+  }
+
   void _handleSseEvent(SseEvent event, ChatMessage aiMsg) {
     final data = event.data;
     switch (event.type) {
