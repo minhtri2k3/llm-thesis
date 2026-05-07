@@ -1,12 +1,12 @@
 \section{Overall Agent Architecture}
-Agent v2.0 is built on the \textbf{Orchestrator + Sub-agents + ReAct Loop} model. Instead of a fixed pipeline, Gemini 2.5 Flash acts as the Orchestrator: analyzing requests, planning, invoking appropriate tools, and synthesizing results.
+Agent v2.0 is built on the \textbf{Orchestrator + Direct Routing} model. Instead of a general-purpose loop, Gemini 2.5 Flash acts as the Orchestrator: classifying intent, resolving slots, executing a deterministic search route, and synthesizing results in 1--2 LLM calls.
 
 The 5-step processing flow:
 \begin{enumerate}
     \item \textbf{Intent Classification} --- Classify user intent
     \item \textbf{Clarification Gate} --- Ask for clarification if ambiguous
     \item \textbf{Memory Agent} --- Load user preferences from PostgreSQL
-    \item \textbf{ReAct Loop} --- Plan $\rightarrow$ Execute $\rightarrow$ Observe cycle (max 8 iterations)
+    \item \textbf{Route \& Execute} --- Deterministic routing to the correct search path (0 LLM calls)
     \item \textbf{LLM Synthesis} --- Generate a natural language response
 \end{enumerate}
 
@@ -225,128 +225,108 @@ def add_liked_item(session_id, image_id, label, color):
     \item \textbf{Limits}: Retains a maximum of 20 query history entries and 50 liked items.
 \end{itemize}
 
-\section{Step 4 --- The ReAct Loop}
+\section{Step 4 --- Route \& Execute (Direct Routing)}
 
-\begin{tcolorbox}[title=Method: ReAct (Reason + Act) Loop]
-ReAct is the central loop: Thought $\rightarrow$ Action $\rightarrow$ Observation $\rightarrow$ (repeat if needed, up to 8 iterations). Gemini both reasons and proactively selects the appropriate tool based on each step's observation.
+\begin{tcolorbox}[title=Method: Deterministic Direct Routing (0 LLM calls)]
+Instead of an iterative ReAct loop, the orchestrator uses \textbf{deterministic routing}: intent and slots from Step~1 are forwarded directly to the correct search pipeline. No additional LLM call is needed at this step --- the routing logic is pure Python branching on the classified intent, executing the hybrid search (BM25 + vector + reranker) in one pass.
 \end{tcolorbox}
 
-\begin{lstlisting}[caption={ReAct Loop --- agent/fashion\_agent.py}]
-MAX_REACT_ITERATIONS = 8
-LOW_CONFIDENCE_THRESHOLD = 0.5
+\begin{lstlisting}[caption={Direct Routing Orchestrator --- agent/fashion\_agent.py}]
+def _orchestrate_stream(
+    query: str,
+    session_id: Optional[str] = None,
+) -> Generator:
+    """Streaming orchestration: yields ThinkingEvent then OrchestrateResult."""
+    yield ThinkingEvent("start", "Analyzing your question...")
 
-def chat(query, session_id=None, api_key=None):
-    """Main agent entry point - ReAct orchestrator."""
-    # ... (intent, clarify, memory setup) ...
+    # Step 1: Intent classification (1 LLM call)
+    yield ThinkingEvent("classify", "Classifying intent...")
+    intent_result = classify_intent(query, history=history)
+    intent = intent_result.intent
+    yield ThinkingEvent("classify_done",
+        f"Intent: {intent} (confidence: {intent_result.confidence:.2f})")
 
-    search_query = intent_result.refined_query or query
-    all_products = []
-    observations = []
-    threshold = LOW_CONFIDENCE_THRESHOLD
+    # Step 2: Early exits for special intents (0 LLM)
+    if intent == "out_of_scope":
+        yield OrchestrateResult(intent="out_of_scope", clarification=msg)
+        return
+    if intent == "product_select":
+        yield from _handle_product_select(...)
+        return
 
-    for iteration in range(1, MAX_REACT_ITERATIONS + 1):
-        # THOUGHT: Planner decides which tool to call
-        plan = _plan(
-            query=search_query,
-            intent=intent_result.intent,
-            preferences=preferences,
-            observations=observations,
-            iteration=iteration,
-            max_iter=MAX_REACT_ITERATIONS)
+    # Step 3: Resolve search query via slot gate (0 LLM)
+    search_query, clarification, slots = _resolve_search_query(
+        intent, intent_result, session_id, history, query)
+    if clarification:
+        yield OrchestrateResult(clarification=clarification)
+        return
 
-        if not plan:  # Planner: "enough results already"
-            break
+    # Step 4: Route & execute search (0 LLM)
+    yield ThinkingEvent("search", f"Searching: '{search_query[:50]}'...")
+    products, reasoning = _route_and_execute(
+        intent=intent,
+        search_query=search_query,
+        session_id=session_id,
+        filters=intent_result.filters,
+        preferences=preferences,
+    )
 
-        # ACTION: Execute at most 2 tools per iteration
-        for tool_call in plan[:2]:
-            tool_name = tool_call.get("tool", "search")
-            tool_args = tool_call.get("args", {})
-            obs, products = _execute_tool(
-                tool_name, tool_args, preferences)
-            observations.append(obs)
-            if products:
-                all_products = products
-
-        # OBSERVE: Check result quality
-        if all_products and all_products[0].score > threshold:
-            break  # Results are good enough
-
-        # Lower threshold after 4 iterations
-        if iteration == 4:
-            threshold -= 0.2
-
-    # SYNTHESIZE response
-    answer, styling = _synthesize_response(
-        query, all_products, history, intent, preferences)
-    return AgentResponse(answer=answer, products=all_products,
-                         styling_suggestion=styling)
+    yield OrchestrateResult(
+        intent=intent, session_id=session_id,
+        products=products, reasoning=reasoning,
+    )
 \end{lstlisting}
 
-\textbf{3 available tools in ReAct:}
-\begin{enumerate}
-    \item \texttt{search(query, top\_k)} --- Calls the full hybrid search pipeline
-    \item \texttt{memory\_enrich(query, preferences)} --- Enriches the query with user preferences
-    \item \texttt{outfit\_hints(occasion, style)} --- Gemini generates outfit pairing suggestions
-\end{enumerate}
+\textbf{Clarification gate (confidence $< 0.6$):}
+\begin{lstlisting}[caption={Confidence-based clarification --- agent/fashion\_agent.py}]
+# outfit_request, unclear, etc.
+if intent_result.confidence < 0.6 or intent == "unclear":
+    clarification = check_clarification(
+        intent_result.refined_query or "", history=history,
+    )
+    if clarification.needs_clarification:
+        return "", clarification.question, ExtractedSlots()
+\end{lstlisting}
 
-\textbf{Stopping conditions:}
+\textbf{Routing decisions:}
 \begin{itemize}
-    \item Planner returns \texttt{[]} (sufficient results found)
-    \item Top product score $> \text{threshold}$ (0.5, lowered to 0.3 after 4 iterations)
-    \item Maximum of 8 iterations reached
+    \item \texttt{out\_of\_scope} --- Return polite refusal immediately (0 LLM)
+    \item \texttt{product\_select} --- Save selected product IDs, offer confirmation (0 LLM)
+    \item \texttt{view\_selections} --- Return saved picks from session (0 LLM)
+    \item \texttt{text\_search} / \texttt{outfit\_request} / \texttt{follow\_up} --- Run hybrid search pipeline
+    \item Confidence $< 0.6$ or \texttt{unclear} --- Fire clarification gate
 \end{itemize}
 
 \section{Step 5 --- Gender Filtering and LLM Synthesis}
 
 Before finalizing the results, the system applies demographic-aware post-processing. A specific \texttt{\_filter\_by\_gender} function validates the retrieved products against the user's recorded gender in PostgreSQL, ensuring that (for example) female-specific clothing is not inappropriately recommended to male users.
 
-\begin{lstlisting}[caption={Gender Filtering and LLM Synthesis --- agent/fashion\_agent.py}]
-SYNTHESIS_PROMPT = """You are a helpful fashion assistant.
-Based on search results and user query, provide a natural
-response in the same language as the user's query.
-
-User Gender Context: {gender_context}
-User query: {query}
-Search results: {products_text}
-User preferences: {preferences_text}
-Conversation history: {history_text}
-
-Instructions:
-1. Respond in the same language (Vietnamese or English)
-2. Tailor styling advice considering the {gender_context}
-3. Briefly describe top recommendations and why they match
-4. Include styling suggestions for outfit_request intent
-5. Keep response concise (2-4 sentences)
-
-Respond with JSON:
-{{"answer": "<response>",
-  "styling_suggestion": "<optional tips>"}}"""
-
-def _synthesize_response(query, products, history,
-                         intent, preferences, gender_context):
-    """Gemini synthesizes a natural language response with gender awareness."""
-    
-    # Filter products by gender before synthesis
-    filtered_products = _filter_by_gender(products, gender_context)
-    
-    products_text = "\n".join(
-        f"{i}. {p.label} | {p.color} | {p.caption[:80]}"
-        for i, p in enumerate(filtered_products, 1))
-        
-    prompt = SYNTHESIS_PROMPT.format(
-        gender_context=gender_context,
-        query=query, products_text=products_text,
-        preferences_text=format_prefs(preferences),
-        history_text=format_history(history[-6:]))
-    response = model.generate_content(prompt)
-    data = json.loads(response.text)
-    return data["answer"], data.get("styling_suggestion", "")
+\begin{lstlisting}[caption={LLM Synthesis --- agent/fashion\_agent.py}]
+def _synthesize_response(
+    query: str,
+    products: list[NodeWithScore],
+    history: list[Message],
+    intent: str,
+    client: LLMClient,
+    preferences: Optional[dict] = None,
+    session_id: Optional[str] = None,
+) -> tuple[str, str]:
+    """Use Gemini/GPT/Claude to synthesize a natural response."""
+    ctx = _build_synthesis_context(
+        query, products, history, preferences, session_id)
+    prompt = SYNTHESIS_PROMPT.format(query=query, **ctx)
+    try:
+        response_text = client.generate(prompt)
+        data = parse_llm_json(response_text)
+        return data.get("answer", ""), data.get("styling_suggestion", "")
+    except Exception:
+        return fallback_text_response(products), ""
 \end{lstlisting}
 
 \textbf{Explanation:}
 \begin{itemize}
     \item \textbf{Gender Context Injection}: By explicitly stating the \texttt{gender\_context} in the prompt, Gemini can tailor the phrasing and styling tips appropriately (e.g., suggesting a ``sharp tailored fit'' for men vs. a ``flattering silhouette'' for women).
-    \item \textbf{A/B Testing Capabilities}: The \texttt{gender\_hint\_enabled} flag allows developers to easily toggle this feature for controlled experimentation and research.
+    \item \textbf{A/B Testing Capabilities}: The \texttt{gender\_hint\_enabled} flag allows developers to toggle this feature for controlled experimentation and research easily.
 \end{itemize}
 
 % ===========================================================================

@@ -65,7 +65,7 @@ services:
 # PostgreSQL
 PGDATABASE=fashion_rag
 PGUSER=fashion_user
-PGPASSWORD=your_secure_password
+PG_PASSWORD=your_secure_password
 
 # API Keys
 GEMINI_API_KEY=your_gemini_api_key
@@ -74,126 +74,6 @@ CF_TUNNEL_TOKEN=cloudflare_tunnel_token
 
 # Paths
 DATASET_IMAGES_HOST_PATH=./images
-\end{lstlisting}
-
-\section{PostgreSQL Schema Coverage (Source Code)}
-
-The deployed system uses two PostgreSQL schema groups:
-\begin{itemize}
-    \item \textbf{Catalog/Enrichment schema} from \path{pre_processing/processing_data.py}: product catalog, enrichment, and preprocessing logs.
-    \item \textbf{Session/Behavior schema} from \path{agent/memory.py}: session history, behavior funnel events, ratings, and token analytics.
-\end{itemize}
-
-\begin{table}[H]
-\centering
-\begin{tabular}{p{0.30\linewidth}p{0.62\linewidth}}
-\toprule
-\textbf{Schema group} & \textbf{Purpose}\\
-\midrule
-Catalog (\texttt{fashion\_*}) & Product metadata, LLM caption/color enrichment, preprocessing logs\\
-Session core & Conversation persistence and session lifecycle\\
-Behavior funnel & PATH~1/PATH~2 events: impressions, clicks, intents, orders\\
-Evaluation/telemetry & Thesis ratings and LLM token/orchestration analytics\\
-\bottomrule
-\end{tabular}
-\caption{Database schema coverage used in deployment}
-\end{table}
-
-\subsection{Core Session Schema with Demographics (including Gender)}
-
-\begin{lstlisting}[caption={Session schema and demographic fields --- agent/memory.py}]
-CREATE TABLE IF NOT EXISTS user_sessions (
-    session_id TEXT PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS liked_items JSONB NOT NULL DEFAULT '[]'::jsonb;
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS query_history JSONB NOT NULL DEFAULT '[]'::jsonb;
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'gemini-2.5-flash';
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS user_name TEXT NOT NULL DEFAULT '';
-
--- Demographic fields
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS year_of_birth INT;
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('male', 'female'));
-
--- Session lifecycle + A/B control
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS ended_by TEXT
-        CHECK (ended_by IN ('order', 'rating', 'timeout'));
-ALTER TABLE user_sessions
-    ADD COLUMN IF NOT EXISTS gender_hint_enabled BOOLEAN NOT NULL DEFAULT FALSE;
-\end{lstlisting}
-
-\begin{lstlisting}[caption={Session creation storing gender fields --- agent/memory.py}]
-def create_session(
-    user_name: str = "",
-    year_of_birth: int | None = None,
-    gender: str | None = None,
-    preferred_model: str = "gemini-2.5-flash",
-    gender_hint_enabled: bool | None = None,
-) -> str:
-    ...
-    INSERT INTO user_sessions
-        (session_id, user_name, year_of_birth, gender, preferred_model, gender_hint_enabled)
-    VALUES (%s, %s, %s, %s, %s, %s);
-\end{lstlisting}
-
-\textbf{Why store \texttt{year\_of\_birth} and \texttt{gender}?}
-\begin{itemize}
-    \item \textbf{Evaluation axis for thesis analysis}: demographics are used to segment satisfaction and behavior metrics by age/gender cohorts (cross-age and cross-gender analysis).
-    \item \textbf{Controlled personalization (not hard enforcement)}: \texttt{gender} works with a gender-hint flag (\texttt{gender\_hint\_enabled}) as an A/B switch, allowing comparison between hint-enabled and hint-disabled runs.
-    \item \textbf{Safety/quality monitoring}: analytics endpoint \path{/api/analytics/gender-ab} computes Gender-Appropriate Selection (GAS) to quantify match vs mismatch selections by orchestration mode.
-    \item \textbf{Data quality}: API-level validation restricts \texttt{year\_of\_birth} to a valid range and \texttt{gender} to \texttt{male/female} values.
-\end{itemize}
-
-\begin{lstlisting}[caption={Demographic validation and analytics intent --- api/main.py + api/analytics.py}]
-# api/main.py (session input validation)
-if self.year_of_birth is not None:
-    if not (1900 <= self.year_of_birth <= current_year):
-        raise ValueError(...)
-if self.gender is not None and self.gender not in ("male", "female"):
-    raise ValueError(...)
-
-# api/analytics.py (GAS definition)
-# Gender-Appropriate Selection (GAS):
-# matched gendered selections / total gender-applicable selections
-# grouped by (gender_hint_enabled, orchestration_mode)
-\end{lstlisting}
-
-\subsection{Behavior and Analytics Tables}
-
-\begin{lstlisting}[caption={Behavior funnel + ratings/token schema --- agent/memory.py}]
-CREATE TABLE IF NOT EXISTS selected_items (..., path_mode TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1','path2')), UNIQUE (session_id, image_id, path_mode));
-CREATE TABLE IF NOT EXISTS product_impressions (..., path_mode TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1','path2')));
-CREATE TABLE IF NOT EXISTS product_clicks (..., path_mode TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1','path2')));
-CREATE TABLE IF NOT EXISTS product_intents (..., intent_type TEXT NOT NULL CHECK (intent_type IN ('will_buy','not_for_me')), path_mode TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1','path2')), UNIQUE (session_id, image_id, intent_type, path_mode));
-CREATE TABLE IF NOT EXISTS user_orders (..., path_mode TEXT NOT NULL DEFAULT 'path1' CHECK (path_mode IN ('path1','path2')));
-
-CREATE TABLE IF NOT EXISTS user_ratings (
-    id SERIAL PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
-    user_name TEXT NOT NULL DEFAULT '',
-    rating INT NOT NULL CHECK (rating BETWEEN 1 AND 10),
-    feedback TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-ALTER TABLE user_ratings ADD COLUMN IF NOT EXISTS rating_overall INT CHECK (rating_overall BETWEEN 1 AND 5);
-ALTER TABLE user_ratings ADD COLUMN IF NOT EXISTS rating_suggestions INT CHECK (rating_suggestions BETWEEN 1 AND 5);
-ALTER TABLE user_ratings ADD COLUMN IF NOT EXISTS rating_conversation INT CHECK (rating_conversation BETWEEN 1 AND 5);
-
-CREATE TABLE IF NOT EXISTS llm_token_usage (...);
-ALTER TABLE llm_token_usage ADD COLUMN IF NOT EXISTS orchestration_mode TEXT;
-ALTER TABLE llm_token_usage ADD COLUMN IF NOT EXISTS orchestrator_model TEXT;
-ALTER TABLE llm_token_usage ADD COLUMN IF NOT EXISTS synthesizer_model TEXT;
 \end{lstlisting}
 
 % ===========================================================================

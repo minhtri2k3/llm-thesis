@@ -114,7 +114,19 @@ class GeminiFashionProcessor:
 \end{itemize}
 
 \section{Color Detection via LLM}
-Color detection is prompted to return specific labels (e.g., ``Olive Green'' instead of ``Green''), and the output is stored in enrichment fields for downstream retrieval and soft filtering. The \texttt{detect\_item\_color()} method inside \texttt{GeminiFashionProcessor} (shown above) handles this task.
+Color enrichment is designed to produce compact but discriminative color tokens for retrieval. Instead of coarse labels (e.g., ``Green''), the model is prompted to return specific shades (e.g., ``Olive Green'', ``Charcoal Grey'') and pattern-aware output when relevant (e.g., ``White with Black stripes'').
+
+\begin{tcolorbox}[title=Method: Color Enrichment for Retrieval]
+For each product with a missing color, the pipeline loads the image, calls \texttt{detect\_item\_color()}, applies light output cleanup (\texttt{strip()} and markdown-symbol removal), and then upserts the result to \texttt{fashion\_item\_enrichment.color} with model metadata and timestamp fields.
+\end{tcolorbox}
+
+\textbf{Task breakdown:}
+\begin{itemize}
+    \item \textbf{Selective processing}: Only rows with \texttt{NULL}/empty color are selected (\texttt{fetch\_missing\_colors()}).
+    \item \textbf{Prompt constraints}: Output must be color-only, specific, concise (max 3--4 words), and not full-sentence text.
+    \item \textbf{Traceability}: Each item is logged as \texttt{success}, \texttt{failed}, or \texttt{skipped} in preprocessing logs.
+    \item \textbf{Retrieval impact}: Enriched color tokens improve BM25 exact keyword matching on \texttt{label + color} and support downstream fuzzy soft relevance filtering.
+\end{itemize}
 
 
 % ===========================================================================

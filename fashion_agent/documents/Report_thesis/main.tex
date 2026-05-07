@@ -141,15 +141,9 @@
 % === PAGE 1: FRONT COVER (Appendix A) ===
 \begin{titlepage}
   \thispagestyle{empty}
-  % tikzpicture border + darkgreen text
-\end{titlepage}
-
-% =====================================================================
-% 2. INSIDE COVER  (Appendix B)
-% =====================================================================
-\begin{titlepage}
-\thispagestyle{empty}
-\centering
+  \null\vfill
+  \vspace{-1cm}   %% optional fine-tuning
+  \centering
 
 {\fontsize{14}{18}\selectfont\bfseries VIETNAM NATIONAL UNIVERSITY OF HO CHI MINH CITY}\\[0.25cm]
 {\fontsize{14}{18}\selectfont\bfseries INTERNATIONAL UNIVERSITY}\\[0.25cm]
@@ -161,13 +155,13 @@
 {\fontsize{20}{24}\selectfont\bfseries FASHION AGENT MULTIMODAL}\\[0.4cm]
 {\fontsize{14}{18}\selectfont\itshape Agentic Retrieval-Augmented Generation\\
 for Dynamic Decision Support in Product Suggestion}\\[0.3cm]
-{\fontsize{13}{16}\selectfont PATH 1 -- Text-to-Image Search}\\[1.1cm]
+
 
 \begin{tabular}{rl}
 \textbf{Student Name:}  & Nguyen Quang Minh Tri \\[0.18cm]
 \textbf{Student ID:}    & ITITIU21140 \\[0.18cm]
 \textbf{Major:}         & Information Technology \\[0.18cm]
-\textbf{Advisor:}       & [Advisor Name] \\
+\textbf{Advisor:}       & Pros. Tran Thanh Tung \\
 \end{tabular}\\[1.0cm]
 
 \normalsize A thesis submitted to the School of Computer Science and Engineering\\
@@ -175,8 +169,20 @@ in partial fulfillment of the requirements for the degree of\\[0.2cm]
 \textbf{Bachelor of Information Technology}\\[1.0cm]
 
 {\fontsize{13}{16}\selectfont Ho Chi Minh City, Vietnam}\\[0.15cm]
-{\fontsize{13}{16}\selectfont 2025}
+{\fontsize{13}{16}\selectfont 2026}
+  \vfill\null
+  \begin{tikzpicture}[remember picture,overlay,inner sep=0,outer sep=0]
+     \draw[blue!70!black,line width=4pt] ([xshift=-1.5cm,yshift=-2cm]current page.north east) coordinate (A)--([xshift=1.5cm,yshift=-2cm]current page.north west) coordinate(B)--([xshift=1.5cm,yshift=2cm]current page.south west) coordinate (C)--([xshift=-1.5cm,yshift=2cm]current page.south east) coordinate(D)--cycle;
+
+     \draw ([yshift=0.5cm,xshift=-0.5cm]A)-- ([yshift=0.5cm,xshift=0.5cm]B)--
+     ([yshift=-0.5cm,xshift=0.5cm]B) --([yshift=-0.5cm,xshift=-0.5cm]B)--([yshift=0.5cm,xshift=-0.5cm]C)--([yshift=0.5cm,xshift=0.5cm]C)--([yshift=-0.5cm,xshift=0.5cm]C)-- ([yshift=-0.5cm,xshift=-0.5cm]D)--([yshift=0.5cm,xshift=-0.5cm]D)--([yshift=0.5cm,xshift=0.5cm]D)--([yshift=-0.5cm,xshift=0.5cm]A)--([yshift=-0.5cm,xshift=-0.5cm]A)--([yshift=0.5cm,xshift=-0.5cm]A);
+
+     \draw ([yshift=-0.3cm,xshift=0.3cm]A)-- ([yshift=-0.3cm,xshift=-0.3cm]B)--
+     ([yshift=0.3cm,xshift=-0.3cm]B) --([yshift=0.3cm,xshift=0.3cm]B)--([yshift=-0.3cm,xshift=0.3cm]C)--([yshift=-0.3cm,xshift=-0.3cm]C)--([yshift=0.3cm,xshift=-0.3cm]C)-- ([yshift=0.3cm,xshift=0.3cm]D)--([yshift=-0.3cm,xshift=0.3cm]D)--([yshift=-0.3cm,xshift=-0.3cm]D)--([yshift=0.3cm,xshift=-0.3cm]A)--([yshift=0.3cm,xshift=0.3cm]A)--([yshift=-0.3cm,xshift=0.3cm]A);
+  \end{tikzpicture}
 \end{titlepage}
+
+
 
 % =====================================================================
 % Switch to Roman numerals i, ii, iii… from the Approval Letter onward
@@ -184,36 +190,6 @@ in partial fulfillment of the requirements for the degree of\\[0.2cm]
 % =====================================================================
 \pagenumbering{roman}
 \setcounter{page}{1}
-
-% =====================================================================
-% 3. APPROVAL LETTER  (Appendix C)
-% =====================================================================
-\chapter*{Approval Letter from Advisor and Dean}
-
-\noindent
-This thesis, titled \textbf{``Fashion Agent Multimodal -- Agentic Retrieval-Augmented Generation for Dynamic Decision Support in Product Suggestion (PATH 1: Text-to-Image Search)''}, prepared and submitted by \textbf{Nguyen Quang Minh Tri} (Student ID: ITITIU21140) in partial fulfillment of the requirements for the degree of Bachelor of Information Technology, has been examined and approved.\\[1.5cm]
-
-\noindent
-\begin{minipage}[t]{0.45\textwidth}
-\centering
-\rule{6cm}{0.4pt}\\
-\textbf{Advisor}\\[0.2cm]
-[Advisor's Full Name]\\
-School of Computer Science and Engineering\\
-International University -- VNU-HCM
-\end{minipage}
-\hfill
-\begin{minipage}[t]{0.45\textwidth}
-\centering
-\rule{6cm}{0.4pt}\\
-\textbf{Dean}\\[0.2cm]
-[Dean's Full Name]\\
-School of Computer Science and Engineering\\
-International University -- VNU-HCM
-\end{minipage}\\[2cm]
-
-\noindent
-Ho Chi Minh City, \rule{3cm}{0.4pt}\,/\,\rule{3cm}{0.4pt}\,/\,2025
 
 % =====================================================================
 % 4. ACKNOWLEDGEMENTS  (Appendix E)
@@ -322,8 +298,9 @@ Finally, I am profoundly grateful to my family for their unconditional love, enc
 % Compile with: pdflatex → bibtex → pdflatex → pdflatex
 % =====================================================================
 \renewcommand{\bibname}{References}
+\nocite{*}
 \bibliographystyle{ieeetr}
-\bibliography{bibliography.bib}
+\bibliography{bibliography}
 
 % =====================================================================
 % APPENDIX — Single LISTINGS appendix per IU template
