@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/tringuyen/.copilot/**)",
+      "Read(//Users/tringuyen/.claude/**)",
+      "Read(//Users/tringuyen/**)",
+      "Bash(claude mcp *)"
+    ]
+  }
+}
