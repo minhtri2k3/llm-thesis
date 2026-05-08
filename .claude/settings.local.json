@@ -4,7 +4,19 @@
       "Read(//Users/tringuyen/.copilot/**)",
       "Read(//Users/tringuyen/.claude/**)",
       "Read(//Users/tringuyen/**)",
-      "Bash(claude mcp *)"
+      "Bash(claude mcp *)",
+      "Bash(openspec list *)",
+      "Bash(openspec --version)",
+      "Bash(openspec new *)",
+      "Bash(openspec status *)",
+      "Bash(openspec instructions *)",
+      "Bash(grep -nE 'category.{0,4}4|color.{0,4}3|occasion.{0,4}3|style.{0,4}2|0\\\\.75' methodology.tex)",
+      "Bash(grep -nA1 'MIN_SCORE_THRESHOLD\\\\|min_results' methodology.tex)",
+      "Bash(awk '/\\\\\\\\begin{algorithm}/{a=1; line=NR} a && /\\\\\\\\caption\\\\{/ {cap=NR} a && /\\\\\\\\textit\\\\{Source/ {src=NR; printf \"alg @%d  caption @%d  source @%d \\(gap=%d\\)\\\\n\", line, cap, src, src-cap; a=0}' methodology.tex)",
+      "Bash(awk *)",
+      "Bash(grep *)",
+      "Bash(openspec validate *)",
+      "Bash(openspec change *)"
     ]
   }
 }

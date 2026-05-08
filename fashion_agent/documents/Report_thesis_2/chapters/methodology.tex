@@ -67,14 +67,950 @@ The framework is architected around an  \textbf{Orchestrator + Direct Routing} p
 
 \section{Data Acquisition and Knowledge Base Construction}
 
+The knowledge base behind the Clothie agent is built in three logical stages: a deterministic ingestion pass that loads a public catalog into PostgreSQL, a multimodal enrichment pass that uses Gemini~2.5~Flash to add captions and primary colors, and an indexing pass that encodes every item with FashionSigLIP and stores image and text vectors in Qdrant. This section defines the data structures and the algorithms that populate them; concrete metrics are deferred to Section~3.6.
+
+\subsection{Dataset}
+
+The catalog originates from the public \textbf{Clothing Dataset Full} on Kaggle. The dataset was selected because it mirrors the workflow of a non-technical shop owner: each product begins life as three plain fields (\texttt{image}, \texttt{label}, \texttt{color}), and the pipeline progressively enriches every record with a generated caption suitable for retrieval and management. This pattern matches the ``business accessibility'' goal stated in Section~3.1.1: an administrator provides only the minimum product information, and the system handles the embedding-grade descriptions automatically.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Description}\\
+\midrule
+image   & string & Image ID (filename without extension)\\
+label   & string & Category label (T-Shirt, Dress, Pants, \ldots)\\
+color   & string & Primary color of the product\\
+caption & string & Auto-enriched fashion description (30--40 words)\\
+\bottomrule
+\end{tabular}
+\caption{Fashion items data structure as it enters the pipeline}
+\label{tab:dataset_structure}
+\end{table}
+
+\subsection{Data Cleaning and Noise Filtering}
+
+Before any enrichment occurs, the ingestion pass discards rows whose label is missing or carries one of three opaque sentinel values (\texttt{Not sure}, \texttt{Skip}, \texttt{Other}). It also verifies that the corresponding image file is physically present on disk before adding the row to the PostgreSQL upsert batch. These two checks together act as the integrity gate for the rest of the pipeline.
+
+\begin{algorithm}[H]
+\caption{Data Ingestion and Noise Filtering}\label{alg:data_filtering}
+\textit{Source: \texttt{pre\_processing/processing\_data.py}}
+\begin{algorithmic}[1]
+\Require CSV file $csv$, image directory $img\_dir$, ingestion limit $L$
+\Ensure Cleaned list of product tuples $R$
+\Function{LoadAndFilterData}{$csv, img\_dir, L$}
+    \State $R \gets []$
+    \State $E \gets \{\text{``Not sure''}, \text{``Skip''}, \text{``Other''}\}$
+    \For{each row in $csv$}
+        \State $id \gets \text{row.image}$;\quad $label \gets \text{row.label}$
+        \If{$id$ is empty \textbf{or} $label$ is empty \textbf{or} $label \in E$}
+            \State \textbf{continue}
+        \EndIf
+        \State $path \gets img\_dir\,/\,\text{f``\{}id\text{\}.jpg''}$
+        \If{\textbf{not} $path.\text{exists}()$}
+            \State \textbf{continue}
+        \EndIf
+        \State Append $(id, label, path)$ to $R$
+        \If{$|R| \ge L$}
+            \State \textbf{break}
+        \EndIf
+    \EndFor
+    \State \Return $R$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Multimodal Caption and Color Enrichment}
+
+Once an item is in PostgreSQL, the enrichment stage attaches two additional fields that drive retrieval: a 30--40 word fashion-centric caption produced by Gemini~2.5~Flash, and a primary color token. The caption focuses on fabric, silhouette, construction, and aesthetic while deliberately omitting brand names and color terms --- color is carried by a separate, short token (e.g., ``olive green'', ``charcoal grey'') so that BM25 can match it lexically without being diluted by the longer caption text.
+
+\begin{algorithm}[H]
+\caption{Multimodal Caption and Color Enrichment via LLM}\label{alg:llm_enrichment}
+\textit{Source: \texttt{pre\_processing/processing\_data.py}}
+\begin{algorithmic}[1]
+\Require Image file $I$, product label $L$, LLM model $M$
+\Ensure Search caption $C$, primary color $K$
+\Function{GenerateSearchCaption}{$I$}
+    \State $prompt \gets$ ``Write a 30--40 word fashion-centric morphological description \ldots''
+    \State $response \gets M.\text{generate\_content}(prompt, I)$
+    \State \Return $\text{Clean}(response.\text{text})$
+\EndFunction
+\Statex
+\Function{DetectItemColor}{$I, L$}
+    \State $prompt \gets$ ``Identify the primary color of this $\{L\}$ \ldots''
+    \State $response \gets M.\text{generate\_content}(prompt, I)$
+    \State \Return $\text{Clean}(response.\text{text})$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+The pipeline batches items in groups of twenty with an \texttt{asyncio.sleep()} guard to stay below the Gemini rate limit, and commits to PostgreSQL after each batch so that a network interruption does not lose work already paid for in tokens.
+
+\subsection{PostgreSQL Schema}
+\label{subsec:postgres_schema}
+
+The relational store holds the source-of-truth product data and the session/conversation state used by the agent. Four tables drive the system; each is presented below as a schema description rather than DDL.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{3.5cm}p{2.3cm}p{8cm}}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Description}\\
+\midrule
+id            & SERIAL PK     & Internal numeric primary key.\\
+image\_id     & TEXT (unique) & Stable external identifier (filename stem).\\
+label         & TEXT          & Category label from the source catalog.\\
+color         & TEXT          & Primary color (denormalized cache of enrichment).\\
+caption       & TEXT          & Cached caption (denormalized cache of enrichment).\\
+source        & TEXT          & Origin tag (default \texttt{kaggle}).\\
+image\_path   & TEXT          & On-disk path to the product image.\\
+created\_at   & TIMESTAMPTZ   & Insertion timestamp.\\
+\bottomrule
+\end{tabular}
+\caption{Schema for \texttt{fashion\_items}}
+\label{tab:schema_fashion_items}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{3.5cm}p{2.3cm}p{8cm}}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Description}\\
+\midrule
+image\_id    & TEXT PK      & Foreign key to \texttt{fashion\_items.image\_id}.\\
+caption      & TEXT         & LLM-generated 30--40 word search caption.\\
+color        & TEXT         & LLM-detected primary color token.\\
+model\_name  & TEXT         & Identifier of the LLM that produced the enrichment.\\
+updated\_at  & TIMESTAMPTZ  & Last enrichment timestamp.\\
+\bottomrule
+\end{tabular}
+\caption{Schema for \texttt{fashion\_item\_enrichment}}
+\label{tab:schema_enrichment}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{4cm}p{2.5cm}p{7.3cm}}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Description}\\
+\midrule
+session\_id           & TEXT PK     & UUID generated when the session is created.\\
+created\_at           & TIMESTAMPTZ & Session creation time.\\
+updated\_at           & TIMESTAMPTZ & Last write to the session.\\
+query\_history        & JSONB       & Append-only log of \texttt{(query, intent, filters, ts)} entries; capped at 100 most recent.\\
+liked\_items          & JSONB       & Set of \texttt{image\_id}s the user has liked.\\
+gender                & TEXT        & Recorded gender (\texttt{male}/\texttt{female}/\texttt{unisex}).\\
+gender\_hint\_enabled & BOOLEAN     & Whether the gender filter is active.\\
+year\_of\_birth       & INTEGER     & Optional demographic field.\\
+preferred\_model      & TEXT        & LLM the user has chosen for synthesis.\\
+\bottomrule
+\end{tabular}
+\caption{Schema for \texttt{user\_sessions}}
+\label{tab:schema_sessions}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{3.2cm}p{2.5cm}p{8.1cm}}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Description}\\
+\midrule
+id          & SERIAL PK   & Internal numeric primary key.\\
+session\_id & TEXT FK     & Foreign key to \texttt{user\_sessions.session\_id}.\\
+role        & TEXT        & Either \texttt{user} or \texttt{assistant}.\\
+content     & TEXT        & Raw message body.\\
+created\_at & TIMESTAMPTZ & Message timestamp.\\
+\bottomrule
+\end{tabular}
+\caption{Schema for \texttt{session\_messages}}
+\label{tab:schema_messages}
+\end{table}
+
+\subsection{Data Access Layer}
+
+The agent does not embed SQL into business logic. Instead, all PostgreSQL reads and writes pass through a small data-access module (\texttt{agent/memory.py}) that exposes intent-named functions such as \textsc{CreateSession}, \textsc{AddMessage}, \textsc{LogQueryHistory}, \textsc{AddLikedItem}, \textsc{GetPreferences}, and the analogous selection helpers. Three properties hold across the layer: connections are pulled from a small bounded pool to avoid exhausting the database under streaming load; every JSONB write is bounded (history caps at 100 entries; liked items deduplicate via the JSONB containment operator); and every read returns a plain Python dictionary so that the agent never depends on the Postgres driver's row classes.
+
+\subsection{Vector Index Construction}
+\label{subsec:vector_index}
+
+The retrieval-side knowledge base is a single Qdrant collection, \texttt{fashion\_products}, whose schema is summarized in Table~\ref{tab:qdrant_schema}. Two \emph{named} 768-dimensional vector spaces coexist on every point so that one collection can serve both PATH~1 (text query against image or text vectors) and PATH~2 (image query against image vectors), with a shared payload that carries the metadata BM25 needs at retrieval time.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{3.2cm}p{3.2cm}p{7.4cm}}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Description}\\
+\midrule
+\texttt{image}      & 768-d cosine vector & FashionSigLIP image embedding of the product photo.\\
+\texttt{text}       & 768-d cosine vector & FashionSigLIP text embedding of the composed label, color, and caption.\\
+\texttt{image\_id}  & string payload      & Stable identifier (also the Qdrant point id).\\
+\texttt{label}      & string payload      & Category label.\\
+\texttt{color}      & string payload      & Primary color token.\\
+\texttt{caption}    & string payload      & 30--40 word search caption.\\
+\texttt{image\_path}& string payload      & On-disk path used to serve the image to the UI.\\
+\texttt{bm25\_content} & string payload   & Pre-tokenized ``label. color.'' string used by BM25.\\
+\bottomrule
+\end{tabular}
+\caption{Qdrant collection \texttt{fashion\_products} --- named vectors and payload}
+\label{tab:qdrant_schema}
+\end{table}
+
+\begin{algorithm}[H]
+\caption{Build Multi-Vector Index}\label{alg:build_index}
+\textit{Source: \texttt{indexing/build\_index.py}}
+\begin{algorithmic}[1]
+\Require Postgres config $cfg$, batch size $b$, model cache directory $d$
+\Ensure Qdrant collection \texttt{fashion\_products} populated with image and text vectors plus payload
+\State $items \gets \textsc{FetchItemsForIndexing}(cfg)$ \Comment{join \texttt{fashion\_items} and \texttt{fashion\_item\_enrichment}}
+\State $client \gets \textsc{ConnectToQdrant}()$
+\State Initialize \texttt{fashion\_products} with two named cosine spaces
+\Statex \quad\quad \texttt{image}: 768-d, \texttt{text}: 768-d
+\State $existing \gets \textsc{GetExistingPointIds}(client)$
+\State $new \gets [item \in items : item.\text{image\_id} \notin existing]$
+\State $E \gets \textsc{LoadFashionEmbedder}(d)$
+\For{each batch $B$ of size $b$ from $new$}
+    \State $V_{img} \gets E.\textsc{EncodeImagesBatch}(B.\text{image\_path})$
+    \State $points \gets []$
+    \For{each $(item, v_{img})$ where $v_{img}$ is non-empty}
+        \State $t \gets \textsc{ComposeTextEmbedContent}(item)$ \Comment{label + color + caption}
+        \State $v_{txt} \gets E.\textsc{EncodeText}(t)$
+        \State $bm \gets \textsc{ComposeBM25Content}(item)$
+        \State Append a point with id $=$ \texttt{image\_id}, named vectors $\{$\texttt{image}$=v_{img}$, \texttt{text}$=v_{txt}\}$, and payload from $item$ together with $bm$
+    \EndFor
+    \State $client.\textsc{Upsert}(\text{collection}=\text{``fashion\_products''}, points)$
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+The encoder used in line~7 above is described next; the BM25 corpus itself is rebuilt in memory at API start-up by scrolling all payloads out of Qdrant, so there is no separate on-disk BM25 file to keep in sync.
+
+\begin{algorithm}[H]
+\caption{Cross-Modal Encoding via Marqo-FashionSigLIP}\label{alg:fashionsiglip}
+\textit{Source: \texttt{indexing/build\_index.py:FashionEmbedder}}
+\begin{algorithmic}[1]
+\Require Image $I$ or text query $T$
+\Ensure 768-dimensional L2-normalized feature vector $\hat{v}$
+\State Initialize device to MPS (Apple Silicon) or CPU
+\State Load \texttt{ViT-B-16-SigLIP} backbone with Marqo fine-tuned weights
+\Function{EncodeImage}{$I$}
+    \State Convert $I$ to RGB and apply validation preprocessing $\to$ tensor $t$
+    \State $v \gets \text{model.encode\_image}(t)$
+    \State \Return $\hat{v} \gets v / \|v\|_2$
+\EndFunction
+\Statex
+\Function{EncodeText}{$T$}
+    \State Tokenize $T$ $\to$ tokens $t$
+    \State $v \gets \text{model.encode\_text}(t)$
+    \State \Return $\hat{v} \gets v / \|v\|_2$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{BM25 Content Composition for Lexical Retrieval}\label{alg:bm25_composition}
+\textit{Source: \texttt{indexing/build\_index.py:compose\_bm25\_content}}
+\begin{algorithmic}[1]
+\Require Item metadata containing \texttt{label} and \texttt{color}
+\Ensure Indexable string $S_{bm25}$
+\Function{ComposeBM25Content}{item}
+    \State $parts \gets []$
+    \If{item has non-empty \texttt{label}}\State Append \texttt{label} to $parts$\EndIf
+    \If{item has non-empty \texttt{color}}\State Append \texttt{color} to $parts$\EndIf
+    \If{$parts$ is empty}\State \Return ``''\EndIf
+    \State \Return Join($parts$, ``. '') $+$ ``.''
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{BM25 Scoring}\label{alg:bm25_scoring}
+\textit{Source: \texttt{search/search\_engine.py} (uses \texttt{rank\_bm25.BM25Okapi})}
+\begin{algorithmic}[1]
+\Require Query $Q = \{q_1,\ldots,q_n\}$, document $D$, constants $k_1{=}1.2$, $b{=}0.75$
+\Ensure Relevance score for $D$ given $Q$
+\Function{CalculateBM25}{$Q, D$}
+    \State $score \gets 0$;\quad $|D| \gets$ length of $D$;\quad $avgdl \gets$ average document length
+    \For{each term $q_i \in Q$}
+        \State $f \gets$ frequency of $q_i$ in $D$
+        \State $idf \gets \ln\!\left(1 + \frac{N - n(q_i) + 0.5}{n(q_i) + 0.5}\right)$
+        \State $score \gets score + idf \cdot \dfrac{f \cdot (k_1 + 1)}{f + k_1\!\left(1 - b + b\,\frac{|D|}{avgdl}\right)}$
+    \EndFor
+    \State \Return $score$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
 \section{The Agentic Reasoning Engine}
+
+This section walks through the five-step pipeline introduced schematically in Section~3.1.2 (Figure~\ref{fig:workflow_v2}) and specifies the data structures, gates, and clarification logic that sit behind it. The next two sections (Section~3.4 on retrieval pipelines and Section~3.5 on tool-augmented execution) then specify the search engines that the gate routes traffic into and the deterministic logic that runs on their results.
+
+\subsection{Intent Classification with Six-Slot Extraction}
+\label{subsec:intent_classification}
+
+Step~1 of the pipeline is a single Gemini call that classifies the incoming user message into one of seven intents and, in the same response, extracts a structured \texttt{ExtractedSlots} payload. The intents are summarized in Table~\ref{tab:intent_table}; each one maps to a distinct downstream branch in the orchestrator (see Section~3.5).
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{2.9cm}p{4.8cm}p{4.8cm}}
+\toprule
+\textbf{Intent} & \textbf{Condition} & \textbf{Action}\\
+\midrule
+text\_search    & Find specific products                    & Search immediately\\
+outfit\_request & Request outfit suggestions                & Search + outfit advice\\
+follow\_up      & Reference a previous result               & Use session context\\
+product\_select & Choose numbered items from recent results & Save selected product IDs\\
+view\_selections & Ask to review saved picks                & Show selected items list\\
+out\_of\_scope  & Unrelated to fashion                      & Politely refuse\\
+unclear         & Information too vague                     & Ask for clarification\\
+\bottomrule
+\end{tabular}
+\caption{Intent classification table with conditions and corresponding actions}
+\label{tab:intent_table}
+\end{table}
+
+The slot payload tracks six \emph{caption-aligned} attributes plus a list of integers used by the product-selection branch. The six attributes pair the two metadata fields that BM25 indexes (\texttt{category}, \texttt{color}) with the four properties used inside the LLM-generated caption (\texttt{fabric}, \texttt{fit}, \texttt{construction}, \texttt{aesthetic}). The \texttt{selected\_numbers} field is populated only by the \texttt{product\_select} intent and carries 1-indexed item numbers referring to the most recent result list cached for the session.
+
+\begin{algorithm}[H]
+\caption{LLM-based Intent Classification with Six-Slot Extraction}\label{alg:intent_class}
+\textit{Source: \texttt{agent/intent\_classifier.py}}
+\begin{algorithmic}[1]
+\Require User query $Q$, conversation history $H$
+\Ensure ClassifiedIntent $(intent, conf, filters, refined\_query, slots, tokens)$
+\Function{ClassifyIntent}{$Q, H$}
+    \State $H_{text} \gets$ format last 4 messages of $H$
+    \State $prompt \gets \textsc{IntentPrompt}(H_{text}) + Q$
+    \State $response \gets \textsc{LLM.Generate}(prompt)$
+    \State $tokens \gets (response.\text{prompt\_tokens}, response.\text{candidates\_tokens})$
+    \State $data \gets \textsc{ParseLLMJSON}(response.\text{text})$
+    \State Build \texttt{ExtractedSlots} from $data$:
+    \Statex \quad\quad \texttt{category}, \texttt{color}, \texttt{fabric}, \texttt{fit},
+    \Statex \quad\quad \texttt{construction}, \texttt{aesthetic},
+    \Statex \quad\quad \texttt{selected\_numbers} $\gets \textsc{ParseInts}(data.\text{selected\_numbers})$
+    \State \Return $(data.\text{intent}, data.\text{confidence}, data.\text{filters}, data.\text{refined\_query}, slots, tokens)$
+\EndFunction
+\State \textbf{On parse failure:} return \texttt{("text\_search", 0.5, $\emptyset$, $Q$, ExtractedSlots(), tokens)}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Short-Term Memory (TTLCache)}
+\label{subsec:ttlcache}
+
+To support multi-turn conversations without re-sending the entire history on every request, the orchestrator pins four \texttt{cachetools.TTLCache} maps in-process, all keyed by \texttt{session\_id}:
+
+\begin{itemize}
+\item \texttt{\_session\_accumulated\_slots} (TTL $=$ 1800\,s, capacity 100): the merged six-slot \texttt{ExtractedSlots} carried across turns.
+\item \texttt{\_session\_ranked\_slots} (TTL $=$ 1800\,s, capacity 100): the four-slot ranked-readiness view used by the clarification gate.
+\item \texttt{\_session\_last\_results} (TTL $=$ 1800\,s, capacity 1000): the most recent product list shown to the user, keyed by \texttt{path\_mode} so PATH~1 and PATH~2 results do not collide.
+\item \texttt{\_session\_pending\_selection} (TTL $=$ 300\,s, capacity 1000): a short-lived staging area for items waiting on the user's yes/no confirmation.
+\end{itemize}
+
+When a new turn arrives, the orchestrator merges the freshly extracted slots into the accumulated map. If the new query carries a \emph{different} \texttt{category} value than the cached one, the slot map is reset on the assumption that the user is starting a new search topic; otherwise the new non-empty values overwrite the old ones field-by-field.
+
+\begin{algorithm}[H]
+\caption{Short-Term Memory Management via TTLCache}\label{alg:ttlcache_memory}
+\textit{Source: \texttt{agent/slot\_completeness.py:merge\_slots}}
+\begin{algorithmic}[1]
+\Require Session id $sid$, new extracted slots $E_{new}$
+\Require Cache $\mathcal{C}=$ \texttt{\_session\_accumulated\_slots} (TTL $=$ 1800\,s)
+\Ensure Updated slots $E_{merged}$
+\Function{MergeSessionSlots}{$sid, E_{new}$}
+    \State $E_{cached} \gets \mathcal{C}[sid]$ \textbf{or} new \texttt{ExtractedSlots}
+    \If{$E_{cached}.\text{category}$ and $E_{new}.\text{category}$ differ}
+        \State $E_{cached} \gets$ new \texttt{ExtractedSlots} \Comment{topic change reset}
+    \EndIf
+    \For{each field $f \in \{\text{category, color, fabric, fit, construction, aesthetic}\}$}
+        \If{$E_{new}.f$ is non-empty}
+            \State $E_{cached}.f \gets E_{new}.f$
+        \EndIf
+    \EndFor
+    \State $\mathcal{C}[sid] \gets E_{cached}$
+    \State \Return $E_{cached}$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Slot Readiness and the Clarification Gate}
+\label{subsec:slot_readiness}
+
+Step~2 of the pipeline answers a single question: ``do we have enough context to retrieve, or should we ask a clarifying question first?'' The decision uses a \emph{ranked} four-slot view of the session state that reduces the six-slot extraction down to the four signals most predictive of retrieval quality.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Slot} & \textbf{Weight} & \textbf{Requirement}\\
+\midrule
+Category & 4 & Required for \texttt{text\_search}\\
+Color    & 3 & Required for \texttt{text\_search}\\
+Occasion & 3 & Required for \texttt{outfit\_request}\\
+Style    & 2 & Secondary signal\\
+\bottomrule
+\end{tabular}
+\caption{Ranked slot weights for readiness scoring}
+\label{tab:slot_weights}
+\end{table}
+
+\begin{algorithm}[H]
+\caption{Slot Readiness Evaluation}\label{alg:slot_readiness}
+\textit{Source: \texttt{agent/fashion\_agent.py:\_is\_query\_ready}}
+\begin{algorithmic}[1]
+\Require Intent $I$, ranked-slot map $S$
+\Require Weights $W=\{\text{category}{:}4,\;\text{color}{:}3,\;\text{style}{:}2,\;\text{occasion}{:}3\}$
+\Require Search-confidence threshold $\tau = 0.75$ (env-overridable via \texttt{SEARCH\_CONFIDENCE\_THRESHOLD})
+\Ensure $(\textsc{IsReady}, missing)$
+\Function{IsQueryReady}{$I, S$}
+    \State $missing \gets \textsc{ReadinessMissingSlots}(I, S)$
+    \If{$missing \neq \emptyset$}\State \Return $(\text{false}, missing)$\EndIf
+    \State $score \gets \sum_{slot \in W} W[slot] \cdot \mathbf{1}[S[slot] \neq \text{empty}]$
+    \State $min\_score \gets \begin{cases}7 & I = \text{text\_search}\\5 & I = \text{outfit\_request}\\2 & I = \text{follow\_up}\end{cases}$
+    \If{$score \ge min\_score$}\State \Return $(\text{true}, [])$\EndIf
+    \State \Return $(\text{false}, [\text{``one\_of\_four''}])$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+The intent-classifier confidence is also enforced as a hard gate: if \texttt{intent\_result.confidence} falls below $\tau$, the system falls into clarification regardless of slot completeness, so that ``noisy'' classifications never reach the search engine. Only when the confidence gate \emph{and} the ranked-slot readiness both pass does the orchestrator proceed to retrieval. This dual gating is the key reason most clarifications return without an additional LLM call.
+
+\paragraph{Six-slot extraction vs.\ four-slot readiness.}
+The two slot mechanisms above describe \emph{different concerns} and must not be conflated. The six-slot \texttt{ExtractedSlots} record is the output side of the LLM step in Algorithm~\ref{alg:intent_class}; it captures every attribute the LLM was able to identify in the user's message, including caption-shaped fields like \texttt{fabric} and \texttt{construction} that do not participate in retrieval gating. The four-slot ranked view in Table~\ref{tab:slot_weights} is the input side of the readiness gate; it answers a narrower question --- ``is the query specific enough to retrieve?'' --- and its weights are tuned to that decision. Both states coexist in the same TTLCache layer described in Section~\ref{subsec:ttlcache}: the six-slot record is preserved for synthesis-time prompt construction, while the ranked record is consumed by Algorithm~\ref{alg:slot_readiness}.
+
+\subsection{Deterministic Clarification Templates}
+
+When a gate fails, the orchestrator generates a clarification question by template selection rather than by another LLM call. The template branch chooses one of three behaviors based on which slots are missing and the language detected in the user's message.
+
+\begin{algorithm}[H]
+\caption{Build Clarification Question (deterministic template branch)}\label{alg:build_clarification}
+\textit{Source: \texttt{agent/slot\_completeness.py:build\_template\_question}}
+\begin{algorithmic}[1]
+\Require Missing slot list $M$, accumulated slots $S$, original query $Q$
+\Ensure Multilingual clarification text $C$
+\Function{BuildClarification}{$M, S, Q$}
+    \State $lang \gets \textsc{DetectLanguage}(Q)$ \Comment{en, vi, or es}
+    \State $tpl \gets \textsc{LookupComboTemplate}(\textsc{frozenset}(M), lang)$
+    \If{$tpl$ is non-empty}
+        \State \Return $tpl.\textsc{format}$ with safe defaults from $S.\text{category}$ and $S.\text{color}$
+    \EndIf
+    \State $C \gets$ language-specific opener (e.g.\ ``Could you tell me a bit more?'')
+    \For{each $slot \in M$}
+        \State Append a bullet describing that slot in $lang$ to $C$
+    \EndFor
+    \State \Return $C$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+The system supports three languages (English, Vietnamese, Spanish) with detection driven by the user's most recent message; the full template tables live under \texttt{agent/prompts.py} and are deferred to the appendix to keep this section concise. The multilingual coverage matters because the deterministic branch must preserve the user's working language without paying for a translation call.
+
+\subsection{Long-Term Memory (PostgreSQL JSONB)}
+
+Beyond the TTLCache layer, the agent maintains two JSONB columns on \texttt{user\_sessions} that survive process restarts and let the synthesis step inject soft personalization hints. \texttt{query\_history} is an append-only log used to extract preferred colors and categories; \texttt{liked\_items} is a deduplicated set of \texttt{image\_id}s that the user has explicitly endorsed. Both are maintained by the algorithms below.
+
+\begin{algorithm}[H]
+\caption{Append a Query Entry to Session History}\label{alg:log_query_history}
+\textit{Source: \texttt{agent/memory.py:log\_query}}
+\begin{algorithmic}[1]
+\Require Session id $sid$, query $Q$, intent $I$, filters $F$
+\Ensure JSONB column \texttt{user\_sessions.query\_history} is updated, capped at 100 entries
+\Function{LogQueryHistory}{$sid, Q, I, F$}
+    \State $entry \gets \{\,\text{query}{:}Q,\;\text{intent}{:}I,\;\text{filters}{:}F,\;\text{timestamp}{:}\textsc{Now}()\,\}$
+    \State Open Postgres connection
+    \State Append $entry$ to \texttt{query\_history} via JSONB concatenation
+    \State Re-aggregate the array, keep the 100 most recent entries by \texttt{timestamp}
+    \State Update \texttt{updated\_at}; commit
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Add a Liked Item Without Duplicates}\label{alg:add_liked_item}
+\textit{Source: \texttt{agent/memory.py:add\_liked\_item}}
+\begin{algorithmic}[1]
+\Require Session id $sid$, image id $iid$
+\Ensure JSONB column \texttt{liked\_items} contains $iid$ exactly once
+\Function{AddLikedItem}{$sid, iid$}
+    \State Open Postgres connection
+    \State Execute UPDATE that appends $iid$ to \texttt{liked\_items} only when the array does not already contain $iid$ (JSONB containment check)
+    \State Update \texttt{updated\_at}; commit
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Derive Soft Preferences from Query History}\label{alg:get_preferences}
+\textit{Source: \texttt{agent/memory.py:get\_preferences}}
+\begin{algorithmic}[1]
+\Require Session id $sid$
+\Ensure Preference dict $P$ with at most three top values per axis
+\Function{GetPreferences}{$sid$}
+    \State Read \texttt{query\_history} for $sid$
+    \State Initialize empty counters $C_{color}, C_{cat}, C_{style}$
+    \For{each entry $e$ in history}
+        \State Increment $C_{color}$ by $e.\text{filters.color}$ when present
+        \State Increment $C_{cat}$ by $e.\text{filters.category}$ when present
+        \State Increment $C_{style}$ by $e.\text{filters.style}$ when present
+    \EndFor
+    \State $P \gets \{\,\text{preferred\_colors}{:}\textsc{Top3}(C_{color}),\;\text{preferred\_categories}{:}\textsc{Top3}(C_{cat}),\;\text{preferred\_styles}{:}\textsc{Top3}(C_{style})\,\}$
+    \State \Return $P$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
 
 \section{Multi-Modal Retrieval Pipelines}
 
+The agent exposes two retrieval pathways with deliberately different goals and failure modes. PATH~1 (Section~\ref{subsec:path1}) accepts natural language and runs the seven-stage hybrid search that Section~3.3 gates traffic into. PATH~2 (Section~\ref{subsec:path2}) accepts an uploaded image and performs a single-stage visual lookup with no LLM in the loop. Both share the same FashionSigLIP encoder and the same Qdrant collection, which keeps the embedding space mathematically consistent between modalities.
+
 \subsection{Text-to-Image Pipeline}
+\label{subsec:path1}
+
+The motivation for cross-modal retrieval is simple: the user types a sentence about clothing and expects to see images, but the catalog is indexed as photos. FashionSigLIP resolves this by mapping both modalities into the same 768-dimensional vector space, so an image embedding and a text embedding of the same product are nearby under cosine similarity. PATH~1 then layers on a lexical channel (BM25) that anchors short queries with explicit category or color tokens, and a cross-encoder rerank that re-scores the fused top-k against the full caption.
+
+The encoder used by PATH~1 is the same \textsc{EncodeImage}/\textsc{EncodeText} pair documented in Algorithm~\ref{alg:fashionsiglip} (Section~\ref{subsec:vector_index}); cosine similarity between query and stored vectors is the matching primitive defined next.
+
+\begin{algorithm}[H]
+\caption{Cosine Similarity for Cross-Modal Matching}\label{alg:cosine_sim}
+\textit{Source: \texttt{indexing/build\_index.py:FashionEmbedder} (vectors are L2-normalized)}
+\begin{algorithmic}[1]
+\Require Vectors $v_A, v_B \in \mathbb{R}^{768}$
+\Ensure Similarity $S \in [-1, 1]$
+\Function{CosineSimilarity}{$v_A, v_B$}
+    \State \Return $\dfrac{\sum_{i=1}^{768} v_A[i]\,v_B[i]}{\sqrt{\sum_i v_A[i]^2}\,\sqrt{\sum_i v_B[i]^2}}$
+\EndFunction
+\State Because FashionSigLIP outputs are L2-normalized, this reduces to $v_A \cdot v_B$.
+\end{algorithmic}
+\end{algorithm}
+
+The fusion stage combines BM25 and dual-vector retrieval results using Reciprocal Rank Fusion as defined in Equation~(\ref{eq:rrf}):
+
+\begin{equation}
+\label{eq:rrf}
+\text{score}(d) \;=\; \sum_{r \in R} \frac{w_r}{k + \text{rank}_r(d) + 1}
+\end{equation}
+
+\begin{algorithm}[H]
+\caption{Reciprocal Rank Fusion (RRF) for Hybrid Retrieval}\label{alg:rrf}
+\textit{Source: \texttt{search/fusion.py:reciprocal\_rank\_fusion}}
+\begin{algorithmic}[1]
+\Require Ranked lists $L_{bm25}, L_{img}, L_{text}$; constant $k=60$
+\Require Weights $W_{bm25}=2.5,\; W_{img}=1.0,\; W_{text}=1.5$
+\Ensure Merged list $L_{merged}$ sorted by RRF score
+\Procedure{ApplyRRF}{$L, w$}
+    \For{rank $r = 0$ to $|L|-1$}
+        \State $id \gets L[r].\text{image\_id}$
+        \State $scores[id] \gets scores[id] + \dfrac{w}{k + r + 1}$
+        \If{$id \notin nodes$}\State $nodes[id] \gets L[r]$\EndIf
+    \EndFor
+\EndProcedure
+\State \Call{ApplyRRF}{$L_{bm25}, W_{bm25}$}
+\State \Call{ApplyRRF}{$L_{img}, W_{img}$}
+\State \Call{ApplyRRF}{$L_{text}, W_{text}$}
+\State Sort $\{nodes[id]\}$ by $scores[id]$ descending and \Return result
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Query Expansion with Short-Query Gate}\label{alg:expand_query}
+\textit{Source: \texttt{search/query\_expansion.py}}
+\begin{algorithmic}[1]
+\Require Query $Q$, max expansions $M$ (default 3), short-query threshold $\theta_{w}=6$
+\Ensure List of queries $\{Q_1, Q_2, \ldots\}$ that always contains $Q$
+\Function{ExpandQuery}{$Q, M$}
+    \If{$\textsc{WordCount}(Q) \ge \theta_w$}\State \Return $[Q]$\EndIf
+    \State $prompt \gets \textsc{ExpansionPrompt}(M, Q)$
+    \State $resp \gets \textsc{LLM.Generate}(prompt)$
+    \State $arr \gets \textsc{RegexExtractJSONArray}(resp.\text{text})$
+    \If{extraction or JSON parse fails}\State \Return $[Q]$\EndIf
+    \If{$Q \notin arr$}\State Insert $Q$ at position 0 of $arr$\EndIf
+    \State \Return $arr[0\!:\!M]$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{BGE Cross-Encoder Rerank with RRF Score Blending}\label{alg:rerank_blend}
+\textit{Source: \texttt{search/reranker.py:BGEReranker.rerank}}
+\begin{algorithmic}[1]
+\Require Query $Q$, candidate list $L$ (each item carries an RRF score), top-k cap $K$
+\Require Cross-encoder \texttt{BAAI/bge-reranker-v2-m3}, max input $M=20$
+\Ensure Re-ordered top-$K$ list with blended scores
+\Function{BGERerankBlend}{$Q, L, K$}
+    \State $C \gets L[0\!:\!M]$;\; record $orig[id] \gets$ RRF score for each $id \in C$
+    \State Build (query, doc-text) pairs from each $c \in C$ where doc-text is the concatenation of \texttt{label}, \texttt{color}, and \texttt{caption}
+    \State $r \gets$ cross-encoder logits over the pairs
+    \State Min-max normalize $r$ to $[0,1]$ giving $\tilde r$
+    \For{each $c \in C$ with normalized score $\tilde r_c$}
+        \State $c.\text{score} \gets 0.7 \cdot \tilde r_c + 0.3 \cdot orig[c.\text{id}]$
+    \EndFor
+    \State Sort $C$ by score descending and \Return $C[0\!:\!K]$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{HybridSearch --- Seven-Stage Pipeline (PATH 1)}\label{alg:hybrid_search}
+\textit{Source: \texttt{search/search\_engine.py:search}}
+\begin{algorithmic}[1]
+\Require Query $Q$, top-k $K{=}6$, optional intent filters $F$
+\Require Constants \texttt{MIN\_SCORE\_THRESHOLD} $= 0.25$, \texttt{min\_results} $= 1$
+\Require RRF weights $W_{bm25}{=}2.5,\, W_{img}{=}1.0,\, W_{text}{=}1.5$ and constant $k{=}60$
+\Ensure Final list of up to $K$ products sorted by relevance
+\State \textbf{Stage 0 --- Query Expansion.} $\mathcal{Q} \gets \textsc{ExpandQuery}(Q)$ when the short-query gate fires; otherwise $[Q]$.
+\State \textbf{Stages 1--3 --- Multi-channel retrieval.} For each $q \in \mathcal{Q}$ collect:
+\Statex \quad\quad $L_{bm25}^{q} \gets \textsc{BM25Retrieve}(q, \text{top-20})$
+\Statex \quad\quad $L_{img}^{q} \gets \textsc{ImageVectorANN}(q, \text{top-20})$
+\Statex \quad\quad $L_{text}^{q} \gets \textsc{TextVectorANN}(q, \text{top-20})$
+\State \textbf{Stage 4 --- Dedup-merge.} Reduce each per-channel union by \texttt{image\_id}, keeping the highest score.
+\State \textbf{Stage 5 --- Three-way RRF Fusion.} $L_{fused} \gets \textsc{ApplyRRF}(L_{bm25}, L_{img}, L_{text})$ with the constants above (Algorithm~\ref{alg:rrf}).
+\State \textbf{Stage 6 --- Filter-aware scoring.} If $F$ is provided, multiply each item's score by a filter relevance value (RapidFuzz match on \texttt{label} and \texttt{color}); otherwise apply the soft-relevance filter (RapidFuzz threshold $60$ on label / color / caption prefix), keeping the unfiltered list when the filter would empty it.
+\State \textbf{Stage 7 --- BGE rerank with score blending.} $L_{ranked} \gets \textsc{BGERerankBlend}(Q, L_{fused}, K)$ using the $0.7\,/\,0.3$ blend (Algorithm~\ref{alg:rerank_blend}).
+\State \textbf{Final guard.} Drop items whose blended score is below \texttt{MIN\_SCORE\_THRESHOLD} unless this would leave fewer than \texttt{min\_results} items, in which case keep the top \texttt{min\_results} regardless.
+\State \Return the surviving list, capped at $K$.
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Precision/coverage trade-off.}
+The \texttt{min\_results} floor is a deliberate coverage guarantee: when no item clears the score threshold, the system still returns its single best candidate rather than an empty list. This trades a small amount of precision (occasional ``best of a bad lot'' results) for the operational property that the chat UI never has to render an empty result page; the synthesis step in Section~3.5 then takes responsibility for hedging language when scores are weak.
 
 \subsection{Image-to-Image Pipeline}
+\label{subsec:path2}
+
+PATH~2 short-circuits the entire reasoning engine for users who already have a visual reference in hand. The pipeline accepts a PNG upload, validates it, encodes it once with the same FashionSigLIP model used for indexing, and runs a direct nearest-neighbor query against the \texttt{image} named vector space in Qdrant.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=1.5cm and 1cm,
+    input/.style={rectangle, draw=blue, fill=blue!10, rounded corners, text width=3cm, text centered, minimum height=1cm},
+    process/.style={rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    model/.style={rectangle, draw=red!80!black, fill=red!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    db/.style={cylinder, draw=orange, fill=orange!20, shape border rotate=90, aspect=0.25, text width=2.5cm, text centered, minimum height=1.5cm},
+    arrow/.style={thick,->,>=stealth}
+]
+\node[input] (upload) {User Uploads Image};
+\node[process, below=of upload] (validate) {Validate File\\(PNG only, $<$10\,MB)};
+\node[model, below=of validate] (encode) {FashionSigLIP\\Image Encoder};
+\node[db, below=of encode] (qdrant) {Qdrant VectorDB\\(image space)};
+\node[process, below=of qdrant] (search) {Cosine Similarity\\Top-K Retrieval};
+\node[input, below=of search] (output) {Return Results\\(products with scores)};
+\draw[arrow] (upload) -- (validate);
+\draw[arrow] (validate) -- (encode);
+\draw[arrow] (encode) -- node[right] {768-d vector} (qdrant);
+\draw[arrow] (qdrant) -- (search);
+\draw[arrow] (search) -- (output);
+\end{tikzpicture}
+\caption{PATH 2 image-to-image search pipeline}
+\label{fig:path2_flow}
+\end{figure}
+
+\begin{algorithm}[H]
+\caption{Encode Query Image for Visual Search}\label{alg:encode_query_image}
+\textit{Source: \texttt{search/image\_query\_engine.py:\_encode\_query\_image}}
+\begin{algorithmic}[1]
+\Require Raw image bytes $B$
+\Ensure Normalized 768-d feature vector $\hat v$
+\Function{EncodeQueryImage}{$B$}
+    \State $E \gets$ shared FashionSigLIP embedder
+    \State $img \gets \textsc{Decode}(B)$ converted to RGB
+    \State $t \gets E.\textsc{PreprocessVal}(img)$
+    \State $v \gets E.\textsc{model.encode\_image}(t)$
+    \State \Return $\hat v \gets v / \|v\|_2$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Search by Image Bytes}\label{alg:path2_search}
+\textit{Source: \texttt{search/image\_query\_engine.py:search\_by\_image\_bytes}}
+\begin{algorithmic}[1]
+\Require Raw image bytes $B$, top-k $K$
+\Ensure List of $K$ visually similar products with cosine similarity scores
+\Function{SearchByImageBytes}{$B, K$}
+    \State $\hat v \gets \textsc{EncodeQueryImage}(B)$
+    \State $client \gets \textsc{ConnectToQdrant}()$
+    \State $hits \gets client.\textsc{QueryPoints}(\text{collection}{=}\text{``fashion\_products''},\, query{=}\hat v,\, using{=}\text{``image''},\, limit{=}K,\, with\_payload{=}\text{true})$
+    \State $products \gets []$
+    \For{each $hit \in hits$}
+        \State Append $\{$\texttt{image\_id}, \texttt{image\_path}, \texttt{label}, \texttt{color}, \texttt{caption}, \texttt{score}$\}$ to $products$
+    \EndFor
+    \State \Return $products$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Validate PNG Upload}\label{alg:validate_png}
+\textit{Source: \texttt{api/main.py:\_validate\_path2\_png\_upload}}
+\begin{algorithmic}[1]
+\Require Uploaded file metadata $f$, raw bytes $B$, max bytes $M$
+\Ensure Reject the upload before encoding when validation fails
+\Function{ValidatePNGUpload}{$f, B, M$}
+    \If{$f.\text{filename}$ is empty} \textbf{reject 400} \EndIf
+    \If{$f.\text{filename}$ does not end with ``.png''} \textbf{reject 415} \EndIf
+    \If{$f.\text{content\_type}$ is set and not in $\{\text{``image/png''}, \text{``application/octet-stream''}\}$} \textbf{reject 415} \EndIf
+    \If{$|B| = 0$} \textbf{reject 400} \EndIf
+    \If{$|B| > M$} \textbf{reject 413} \EndIf
+    \State Open $B$ with PIL
+    \If{the decoded format is not PNG} \textbf{reject 415} \EndIf
+    \State Call PIL \textsc{Verify}() to detect truncated or corrupted streams \Comment{rejects 400 on failure}
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{3.6cm}p{1.6cm}p{4.0cm}p{4.5cm}}
+\toprule
+\textbf{Path} & \textbf{Method} & \textbf{Request} & \textbf{Response}\\
+\midrule
+\texttt{/api/path2/image-search} & POST & multipart: \texttt{image} (PNG), \texttt{session\_id?}, \texttt{top\_k?} (1--20) & JSON: \texttt{mode}=``path2'', \texttt{session\_id}, \texttt{products[]}, \texttt{count}\\
+\texttt{/api/sessions/\{sid\}/selections} & POST & JSON: \texttt{image\_id}, \texttt{label}, \texttt{image\_path}, \texttt{path\_mode}=``path2'' & JSON: \texttt{ok}, \texttt{inserted}\\
+\bottomrule
+\end{tabular}
+\caption{PATH 2 endpoint contract}
+\label{tab:path2_endpoints}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{2cm}p{4.7cm}p{4.7cm}}
+\toprule
+\textbf{Aspect} & \textbf{PATH 1 (Text-to-Image)} & \textbf{PATH 2 (Image-to-Image)}\\
+\midrule
+\textbf{Input}    & Natural language (text)                       & Visual file (PNG)\\
+\textbf{Parsing}  & Intent classification, query expansion        & File validation only\\
+\textbf{Encoding} & Text tokens $\rightarrow$ 768-d vector        & Image pixels $\rightarrow$ 768-d vector\\
+\textbf{Search}   & BM25 (keyword) + dual vector + RRF fusion     & Pure vector (cosine similarity only)\\
+\textbf{Reranking}& BGE Reranker v2-m3 with $0.7/0.3$ score blend & No reranking (direct top-K)\\
+\textbf{Speed}    & 500\,ms -- 2\,s (multi-stage)                 & $\sim$100\,ms (single stage)\\
+\textbf{Use case} & ``Find a red shirt for men''                  & ``Show me something like this''\\
+\textbf{Isolation}& Shared with PATH 1 agent loop                  & Fully isolated endpoint\\
+\bottomrule
+\end{tabular}
+\caption{Technical comparison between PATH 1 and PATH 2}
+\label{tab:path_comparison}
+\end{table}
+
+PATH~2 is feature-flagged: the endpoint and its tests are gated by the \texttt{ENABLE\_PATH2\_IMAGE\_SEARCH} environment variable, which must be set explicitly before any image-upload route accepts traffic.
 
 \section{Tool-Augmented Execution and Deterministic Logic}
 
+Step~4 of the pipeline is the place where the orchestrator commits to an action. Once intent classification (Section~\ref{subsec:intent_classification}) and the clarification gate (Section~\ref{subsec:slot_readiness}) have produced either a refined search query or a clarification message, this section's algorithms translate that decision into deterministic Python control flow --- no ReAct loop, no recursive planning, and no additional LLM call until synthesis. The streaming variant additionally yields \texttt{ThinkingEvent} objects so the user can watch the pipeline progress.
+
+\begin{algorithm}[H]
+\caption{Direct Routing Orchestration (Streaming)}\label{alg:routing}
+\textit{Source: \texttt{agent/fashion\_agent.py:\_orchestrate\_stream}}
+\begin{algorithmic}[1]
+\Require User query $Q$, optional session id $sid$
+\Ensure A stream of \texttt{ThinkingEvent} objects followed by an \texttt{OrchestrateResult}
+\Procedure{OrchestrateStream}{$Q, sid$}
+    \State \textbf{Yield} \texttt{ThinkingEvent("start")}
+    \State Ensure $sid$ exists; load session model and conversation history
+    \State Append $Q$ as a user message
+    \If{a pending product selection is staged for $sid$}
+        \State Resolve via confirm / reject / ambiguous handlers and \Return
+    \EndIf
+    \State \textbf{Yield} \texttt{ThinkingEvent("classify")}
+    \State $r \gets \textsc{ClassifyIntent}(Q, history)$ \Comment{Algorithm~\ref{alg:intent_class}}
+    \State \textbf{Yield} \texttt{ThinkingEvent("classify\_done", tokens)}
+    \If{$r.\text{intent} = \text{out\_of\_scope}$}
+        \State Reply with the multilingual refusal template and \Return
+    \ElsIf{$r.\text{intent} = \text{product\_select}$}
+        \State Delegate to \textsc{HandleProductSelect} using cached results and \Return
+    \ElsIf{$r.\text{intent} = \text{view\_selections}$}
+        \State Delegate to \textsc{HandleViewSelections} and \Return
+    \EndIf
+    \State $(query, clarify, slots) \gets \textsc{ResolveSearchQuery}(r.\text{intent}, r, sid, history, Q)$
+    \If{$clarify \neq \text{empty}$}
+        \State \textbf{Yield} \texttt{OrchestrateResult(clarification=$clarify$)} and \Return
+    \EndIf
+    \State $\textsc{LogQueryHistory}(sid, Q, r.\text{intent}, r.\text{filters})$ \Comment{Algorithm~\ref{alg:log_query_history}}
+    \State $prefs \gets \textsc{GetPreferences}(sid)$ \Comment{Algorithm~\ref{alg:get_preferences}}
+    \State \textbf{Yield} \texttt{ThinkingEvent("search")}
+    \State $(products, reasoning) \gets \textsc{RouteAndExecute}(r.\text{intent}, query, sid, r.\text{filters}, prefs)$
+    \State \textbf{Yield} \texttt{ThinkingEvent("search\_done")}
+    \State Cache $products$ in \texttt{\_session\_last\_results}
+    \State \textbf{Yield} \texttt{OrchestrateResult(products, reasoning, \ldots)}
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{3.0cm}p{2.3cm}p{8.5cm}}
+\toprule
+\textbf{Intent} & \textbf{LLM calls} & \textbf{Branch}\\
+\midrule
+\texttt{out\_of\_scope}   & 0 & Return the localized refusal template; close the stream.\\
+\texttt{product\_select}  & 0 & Resolve numbers against \texttt{\_session\_last\_results} and stage a \texttt{PendingSelection}.\\
+\texttt{view\_selections} & 0 & Read saved items and render them.\\
+\texttt{text\_search} \emph{or} \texttt{outfit\_request} \emph{or} \texttt{follow\_up} & 0 in routing, 1 in synthesis & Run \textsc{HybridSearch} (Algorithm~\ref{alg:hybrid_search}); \texttt{follow\_up} additionally turns on query expansion.\\
+$\text{confidence} < 0.6$ \emph{or} \texttt{unclear} & 1 (clarifier) & Fall back to \textsc{CheckClarification} (LLM-driven) when no template covers the case.\\
+\bottomrule
+\end{tabular}
+\caption{Routing decisions made by \textsc{OrchestrateStream}}
+\label{tab:routing_decisions}
+\end{table}
+
+\begin{algorithm}[H]
+\caption{Resolve the Search Query (Pre-Search Gating)}\label{alg:resolve_search_query}
+\textit{Source: \texttt{agent/fashion\_agent.py:\_resolve\_search\_query}}
+\begin{algorithmic}[1]
+\Require Intent $I$, classified result $r$, session id $sid$, history $H$, raw query $Q$
+\Ensure Triple $(query, clarification, accumulated\_slots)$ where exactly one of $query$ and $clarification$ is non-empty for search-like intents
+\Function{ResolveSearchQuery}{$I, r, sid, H, Q$}
+    \If{$I \in \{\text{text\_search}, \text{follow\_up}, \text{outfit\_request}\}$}
+        \State Merge $r.\text{extracted\_slots}$ into the accumulated six-slot record (with topic-change reset on \texttt{category} switch)
+        \State Project the accumulated record into the four-slot ranked view $S$
+        \If{$S.\text{category}$ is set and not in \texttt{SUPPORTED\_CATEGORIES}}
+            \State \Return $(\text{empty}, \textsc{UnsupportedCategoryMessage}(S.\text{category}, suggestions, lang), \text{accum})$
+        \EndIf
+        \If{$r.\text{confidence} < 0.75$}
+            \State \Return $(\text{empty}, \textsc{BuildRankedClarification}(I, Q, missing, low\_confidence{=}\text{true}), \text{accum})$
+        \EndIf
+        \State $(ready, missing) \gets \textsc{IsQueryReady}(I, S)$ \Comment{Algorithm~\ref{alg:slot_readiness}}
+        \If{not $ready$}
+            \State \Return $(\text{empty}, \textsc{BuildRankedClarification}(I, Q, missing), \text{accum})$
+        \EndIf
+        \State $query \gets$ join non-empty $S.\text{color}, S.\text{style}, S.\text{occasion}, S.\text{category}$ in that order
+        \If{$query$ is empty}\State $query \gets \textsc{ComposeRefinedQuery}(\text{accum})$\EndIf
+        \If{$query$ is empty}\State $query \gets r.\text{refined\_query}$ or $Q$\EndIf
+        \State \Return $(query, \text{empty}, \text{accum})$
+    \EndIf
+    \If{$r.\text{confidence} < 0.6$ or $I = \text{unclear}$}
+        \State $c \gets \textsc{CheckClarification}(r.\text{refined\_query}, H)$
+        \If{$c.\text{needs\_clarification}$}\State \Return $(\text{empty}, c.\text{question}, \text{empty slots})$\EndIf
+    \EndIf
+    \State \Return $(r.\text{refined\_query}\,\textbf{or}\,Q, \text{empty}, \text{empty slots})$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Filter Products by Recorded Session Gender}\label{alg:filter_gender}
+\textit{Source: \texttt{agent/fashion\_agent.py:\_filter\_by\_gender}}
+\begin{algorithmic}[1]
+\Require Product list $P$, session id $sid$
+\Require Disjoint label sets $\mathcal{M}$ (menswear) and $\mathcal{F}$ (womenswear)
+\Ensure Filtered list $P'$ that respects the user's recorded gender, with a non-empty safety net
+\Function{FilterByGender}{$P, sid$}
+    \If{$sid$ is empty}\State \Return $P$\EndIf
+    \State $(gender, hint\_enabled) \gets \textsc{GetSessionGender}(sid)$
+    \If{not $hint\_enabled$ or $gender$ is unknown}\State \Return $P$\EndIf
+    \If{$gender = \text{male}$}\State $P' \gets [p \in P : p.\text{label} \notin \mathcal{F}]$
+    \ElsIf{$gender = \text{female}$}\State $P' \gets [p \in P : p.\text{label} \notin \mathcal{M}]$
+    \Else\State \Return $P$
+    \EndIf
+    \If{$P' = []$}\State \Return $P$ \Comment{never strand the user with an empty page}\EndIf
+    \State \Return $P'$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Synthesize the Final Response (Step 5)}\label{alg:synthesize_response}
+\textit{Source: \texttt{agent/fashion\_agent.py:\_synthesize\_response}}
+\begin{algorithmic}[1]
+\Require Query $Q$, products $P$, history $H$, intent $I$, LLM client, optional preferences $prefs$, session id $sid$
+\Ensure Tuple $(answer, styling\_suggestion)$
+\Function{SynthesizeResponse}{$Q, P, H, I, client, prefs, sid$}
+    \State $ctx \gets \textsc{BuildSynthesisContext}(Q, P, H, prefs, sid)$
+    \Statex \quad inject preferred colors / categories from $prefs$
+    \Statex \quad inject \texttt{gender\_context} when the session has \texttt{gender\_hint\_enabled}
+    \Statex \quad detect language and select the matching CTA suffix
+    \State $prompt \gets \textsc{SynthesisPrompt}.\textsc{Format}(\text{query}{=}Q, ctx)$
+    \State $resp \gets client.\textsc{Generate}(prompt)$
+    \State \textbf{try} parse $resp$ as JSON and \Return $(data.\text{answer}, data.\text{styling\_suggestion})$
+    \State \textbf{except} \Return $(\textsc{FallbackTextResponse}(P), \text{empty})$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
 \section{Evaluation Framework and Experimental Setup}
+
+This section defines the \emph{protocol} by which the system in Sections 3.2--3.5 is evaluated. It deliberately reports no empirical numbers --- observed values are presented in the Results chapter, after the data collection window has closed. What follows fixes the metric definitions, the boundaries of the evaluation cohort, the validity checks that decide whether collected data is trustworthy, and the factor matrix under which experiments are run.
+
+\subsection{Metric Definitions}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{2.8cm}p{4.5cm}p{6.4cm}}
+\toprule
+\textbf{Metric} & \textbf{Meaning} & \textbf{Definition}\\
+\midrule
+Recall@5     & Top-5 retrieval coverage  & Proportion of labelled queries with at least one relevant item in the top 5.\\
+MRR          & Mean reciprocal rank      & $\frac{1}{N_{query}}\sum_{i} \frac{1}{\text{rank}_i}$ over the position of the first relevant retrieved item.\\
+Hit Rate@5   & Hit-rate threshold        & Same numerator as Recall@5; reported separately to highlight the binary form of success.\\
+Latency P95  & Response-time tail        & 95th percentile of end-to-end response time over the cohort, in milliseconds.\\
+Faithfulness & Synthesis trust           & Fraction of synthesis utterances that make no factual claims unsupported by the retrieved products.\\
+Token Cost   & Operational cost          & Sum of input and output tokens reported by the orchestrator and synthesizer for the cohort.\\
+\bottomrule
+\end{tabular}
+\caption{Methodology metric definitions (no observed values reported here)}
+\label{tab:metric_definitions}
+\end{table}
+
+\textbf{Token aggregation.}
+For a cohort $\mathcal{S}$ of sessions with at least one valid synthesis record,
+\begin{equation}
+T_{in}=\sum_{s\in\mathcal{S}}\text{input\_tokens}_s,\quad
+T_{out}=\sum_{s\in\mathcal{S}}\text{output\_tokens}_s,\quad
+T_{total}=T_{in}+T_{out}.
+\end{equation}
+When agentic orchestration is enabled, the orchestrator's input and output tokens are reported on a separate row of \texttt{mode\_cost\_summary} so that combined-mode totals do not hide the orchestrator's contribution.
+
+\textbf{Behavior-funnel metrics.}
+Let $I$ = impressions, $C$ = clicks, $A$ = cart-add selections, $W$ = ``will-buy'' intent events, and $O$ = orders. Then
+\begin{equation}
+\text{CartAddRate}=\frac{A}{I},\quad
+\text{WillBuyRate}=\frac{W}{A},\quad
+\text{ConversionRate}=\frac{O}{|\mathcal{S}|}.
+\end{equation}
+
+\subsection{Cohort, Inclusion, and Exclusion Rules}
+
+All aggregates above SHALL follow the same boundary policy:
+\begin{enumerate}
+    \item Include only sessions inside the declared collection window $[t_{start}, t_{end}]$.
+    \item Exclude sessions with missing key fields for the target metric (e.g.\ missing token columns for token analysis).
+    \item Exclude duplicate interaction rows when the same session-event key appears multiple times due to retries.
+    \item Report both the original cohort size and the post-filter cohort size to make the impact of exclusion explicit.
+\end{enumerate}
+
+\subsection{Data Validity Checks}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{4.0cm}p{4.7cm}p{5.0cm}}
+\toprule
+\textbf{Check} & \textbf{Validation Rule} & \textbf{Interpretation if Failed}\\
+\midrule
+Missingness      & Required fields are non-null (session id, event timestamp, metric-specific columns). & Report as undercount risk; do not claim strong support from the affected metric.\\
+Consistency      & Event semantics are stable (e.g.\ a cart-add event is always a row in \texttt{selected\_items}). & Re-map metric definitions before comparing across sections.\\
+Duplicate events & No duplicated session-event records survive deduplication. & Treat inflated rates as invalid until corrected.\\
+Sample balance   & Cohort is not dominated by one orchestration mode or user subgroup. & Downgrade claim strength to ``partially supported'' or ``inconclusive''.\\
+\bottomrule
+\end{tabular}
+\caption{Validity gates applied before reporting an aggregate metric}
+\label{tab:validity_checks}
+\end{table}
+
+\subsection{Experimental Matrix}
+
+The experiments span three orthogonal factors. Cells that are not populated in the present collection window are flagged as \emph{deferred to future work} so that absent results are visible rather than implicit.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{3.5cm}p{4.5cm}p{4.5cm}}
+\toprule
+\textbf{Factor} & \textbf{Levels} & \textbf{Rationale}\\
+\midrule
+Query clarity      & clear / partial / ambiguous                                & Stresses the readiness gate (Algorithm~\ref{alg:slot_readiness}) at all three regimes.\\
+Query type         & text-search / outfit-request / follow-up / image-upload    & Exercises every routing branch in Table~\ref{tab:routing_decisions} and both retrieval pipelines.\\
+Orchestration mode & direct / agentic                                           & Compares the live default (Section~3.5) against the scaffolded tool-calling path; agentic cells are deferred until that path is wired in production.\\
+\bottomrule
+\end{tabular}
+\caption{Experimental factor matrix; cells with no available data are deferred to future work}
+\label{tab:experimental_matrix}
+\end{table}
+
+The matrix is evaluated independently per metric in Table~\ref{tab:metric_definitions}, with the cohort and validity rules from the preceding two subsections applied uniformly. No specific numeric values are quoted in this chapter; the Results chapter reports observed values together with the corresponding $N_{query}$ and validity-check outcomes.
