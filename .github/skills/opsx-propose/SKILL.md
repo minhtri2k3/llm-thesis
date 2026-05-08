@@ -1,5 +1,5 @@
 ---
-name: opsx-propose
+nam
 description: Propose a new OpenSpec change and generate required artifacts in one step.
 category: workflow
 tags: [workflow, artifacts, experimental]
