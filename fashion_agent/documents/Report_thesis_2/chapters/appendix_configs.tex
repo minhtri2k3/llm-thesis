@@ -1,0 +1,22 @@
+\section{PostgreSQL Initialization Script}
+
+This appendix contains a sample SQL initialization script that may be used to bootstrap a fresh PostgreSQL instance for the Fashion Agent. See Table~\ref{tab:envvars} for the required environment variables.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Variable} & \textbf{Description}\\
+\midrule
+\texttt{PGHOST}            & PostgreSQL host (e.g., \texttt{postgres} in Docker network)\\
+\texttt{PGPORT}            & PostgreSQL port (default: 5432)\\
+\texttt{PGDATABASE}        & Database name (\texttt{fashion\_rag})\\
+\texttt{PGUSER}            & Database user (\texttt{fashion\_user})\\
+\texttt{PGPASSWORD}        & Database password\\
+\texttt{GEMINI\_API\_KEY}  & Google Gemini API key\\
+\texttt{QDRANT\_HOST}      & Qdrant host (e.g., \texttt{qdrant})\\
+\bottomrule
+\end{tabular}
+\caption{Required environment variables for deployment}
+\label{tab:envvars}
+\end{table}

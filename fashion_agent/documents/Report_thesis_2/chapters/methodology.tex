@@ -1,0 +1,80 @@
+The central question motivating this work is whether an agentic retrieval-augmented generation framework can dynamically resolve intent ambiguity to provide accurate product recommendations from indeterminate or "unclear" user messages. Answering this question requires three methodological decisions: designing a reasoning engine capable of iterative intent disambiguation, developing a tool-augmented RAG pipeline to ensure deterministic and grounded product retrieval, and establishing an experimental protocol that evaluates the system’s performance across varying levels of query clarity.
+
+This chapter proceeds in that order. Section 3.1 outlines the high-level system architecture of the proposed Clothie framework. Sections 3.2 through 3.6 specify the individual pipeline components, including the agentic planner, the tool-calling orchestration, and the vector-based retrieval strategy. Section 3.7 describes the dataset and knowledge base construction, while Section 3.8 defines the evaluation metrics and experimental matrix used to validate the system’s efficacy in supporting dynamic consumer decisions.
+
+\section{Research Design and Proposal System Architecture}
+\subsection{Research Design and Technical Evolution}
+The design of the Clothie framework was driven by the necessity to bridge the gap between advanced AI capabilities and the practical needs of the fashion industry. The research followed an iterative design process, shaped by three primary technical challenges:
+
+\textbf{1. Business Accessibility for Non-AI Specialized Enterprises.} A primary goal of this research is to make advanced AI accessible to businesses that lack technical expertise. For these stakeholders, the priority is to drive sales through automated product sorting and user-friendly search tools. The Clothie framework acts as an "intelligent bridge": the business simply provides their product catalog, while the system automatically handles the complex tasks of understanding user intent and matching visual styles.
+
+\textbf{2. Multimodal Retrieval via FashionSigLIP.} A critical requirement identified was the ability to search across both text and image modalities simultaneously. Traditional models often struggle to align linguistic "vibes" with visual attributes. To optimize this search, the research utilized \textbf{FashionSigLIP}, a model specifically pre-trained to map fashion-specific text and imagery into a shared 512-dimensional latent space. This choice ensures that both "unclear" text queries and reference images can be retrieved with high semantic alignment.
+
+\textbf{3. The Transition from Static RAG to Agentic RAG.} The development of the reasoning architecture faced significant hurdles. Initial experiments using standard Retrieval-Augmented Generation (RAG) and simple reranking models proved insufficient for resolving ambiguous user intents. These static pipelines often failed to recognize when a query lacked the necessary "slots" (e.g., size, color, occasion) to produce a valid suggestion. This difficulty led to the proposal of the. \textbf{Agentic RAG} framework. By introducing a reasoning agent, the system can now evaluate query clarity, utilize deterministic tools, and decide whether to retrieve data or initiate a clarification dialogue.
+\subsection{Proposal System Architecture}
+The framework is architected around an  \textbf{Orchestrator + Direct Routing} paradigm. To ensure operational reliability and minimize computational latency, the design eschews unconstrained iterative loops in favor of a structured execution path managed by Gemini 2.5 Flash. Functioning as the central Orchestrator, the model performs intent classification, semantic slot resolution, and the invocation of deterministic retrieval pathways. This streamlined workflow facilitates the synthesis of personalized recommendations within one to two inference cycles, ensuring a high degree of system predictability  
+
+\noindent \textbf{The 5-step processing flow:} \\
+\textbf{1. Intent Classification} --- Classify user intent \\
+\textbf{2. Clarification Gate} --- Ask for clarification if ambiguous \\
+\textbf{3. Memory Agent} --- Load user preferences from PostgreSQL \\
+\textbf{4. Route \& Execute} --- Deterministic routing to the correct search path (0 LLM calls) \\
+\textbf{5. LLM Synthesis} --- Generate a natural language response
+
+\begin{figure}[H]
+\centering
+\resizebox{0.55\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm and 1.5cm,
+    process/.style={rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners, text width=3.5cm, text centered, minimum height=1.2cm},
+    decision/.style={diamond, draw=red!80!black, fill=red!10, text width=2.2cm, text centered, inner sep=0pt},
+    db/.style={cylinder, draw=orange, fill=orange!20, shape border rotate=90, aspect=0.25, text width=2.5cm, text centered, minimum height=1.5cm},
+    input/.style={rectangle, draw=blue, fill=blue!10, rounded corners, text width=3cm, text centered, minimum height=1cm},
+    arrow/.style={thick,->,>=stealth}
+]
+
+% Nodes
+\node[input] (query) {User Query};
+\node[process, below=of query] (intent) {Step 1: Intent Classification (LLM)};
+\node[db, right=of intent] (ttl) {TTLCache\\(Ranked Slots)};
+
+\node[decision, below=of intent] (gate) {Step 2: Gate\\Score $\geq$ 0.75?};
+\node[input, right=2.5cm of gate] (clarify) {Clarification Question (0 LLM calls)};
+
+\node[process, below=of gate] (memory) {Step 3: Memory Agent};
+\node[db, right=of memory] (pg) {PostgreSQL\\(User DB)};
+
+\node[process, below=of memory] (route) {Step 4: Route \& Execute Search (Hybrid)};
+\node[process, below=of route] (synth) {Step 5: LLM Synthesis};
+\node[input, below=of synth] (output) {Final Response};
+
+% Arrows
+\draw[arrow] (query) -- (intent);
+\draw[arrow, <->, dashed] (intent) -- (ttl) node[midway, above, text width=2cm, align=center, font=\scriptsize] {Merge slots};
+\draw[arrow] (intent) -- (gate);
+\draw[arrow] (gate) -- node[above] {No} (clarify);
+\draw[arrow] (gate) -- node[right] {Yes} (memory);
+\draw[arrow, <->, dashed] (memory) -- (pg) node[midway, above, font=\scriptsize] {Load ctx};
+\draw[arrow] (memory) -- (route);
+\draw[arrow] (route) -- (synth);
+\draw[arrow] (synth) -- (output);
+
+\end{tikzpicture}
+}% end resizebox
+\caption{End-to-End Workflow Diagram of Fashion Agent v2.0}
+\label{fig:workflow_v2}
+\end{figure}
+
+\section{Data Acquisition and Knowledge Base Construction}
+
+\section{The Agentic Reasoning Engine}
+
+\section{Multi-Modal Retrieval Pipelines}
+
+\subsection{Text-to-Image Pipeline}
+
+\subsection{Image-to-Image Pipeline}
+
+\section{Tool-Augmented Execution and Deterministic Logic}
+
+\section{Evaluation Framework and Experimental Setup}

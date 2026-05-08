@@ -1,0 +1,33 @@
+\section{Problem Statement}
+In the contemporary landscape of Artificial Intelligence, the democratization of Large Language Models (LLMs) has sparked a paradigm shift in how businesses interact with consumers. However, as these models transition from experimental research to commercial production, a new economic reality has emerged: the "token-based economy." Every inference call represents a fiscal cost, and for a modern enterprise, the indiscriminate use of LLMs can lead to prohibitive operational expenses. 
+
+The challenge no longer lies solely in the capability of a model to generate text, but in the intelligent orchestration of these models to provide high-value output—such as personalized fashion recommendations—while maintaining computational and fiscal efficiency. This research explores the frontier of "Clothie," an intelligent fashion assistant designed to operate under strict data constraints, utilizing only product labels and images, to bridge the gap between sophisticated user intent and cost-effective system execution.
+
+\section{Proposed Approach}
+
+This thesis proposes an optimized Agentic workflow designed to minimize unnecessary LLM overhead through an intelligent "Clarification Gate." The system architecture is bifurcated into two primary retrieval trajectories:
+
+\begin{itemize}
+    \item \textbf{PATH 1: Semantic Text-to-Image Search:} A multi-stage workflow where the Agent analyzes natural language queries, identifies missing attributes (color, occasion, material), and engages the user in a dialogue to refine the search space before executing a database query.
+    \item \textbf{PATH 2: Visual Image-to-Image Search:} A computer vision-driven path that utilizes the \textit{Marqo-FashionSigLIP} model to extract stylistic features from user-uploaded references, providing similar products accompanied by AI-generated styling rationale.
+\end{itemize}
+
+By utilizing a "Reason-then-Act" (ReAct) loop, the system acts as a fiscal orchestrator, ensuring that LLM calls are only made when the confidence interval of the user's intent is sufficiently high.
+
+\section{Research Objectives}
+To address the aforementioned challenges, this research pursues the following three primary objectives:
+
+
+Develop a scalable fashion retrieval system capable of high-precision search using restricted data inputs (images and labels only), making it viable for small-to-medium enterprise (SME) adoption. \\
+Architect an Agentic orchestrator that optimizes token consumption through intelligent tool-calling and intent classification, reducing the cost-per-session compared to standard RAG implementations.
+
+
+
+\section{Summary of Contributions}
+
+The primary contributions of this thesis include the development of the Clothie Agent Framework, which represents a novel integration of a ReAct-based Agent with a Hybrid RAG pipeline specifically tuned for the fashion domain. Additionally, this work provides a comprehensive empirical dataset measuring the relationship between user behavior, query complexity, and the resulting token expenditure across different model architectures. Finally, the research delivers a production-ready pipeline featuring PostgreSQL persistence, BGE reranking, and a proactive clarification mechanism that handles user ambiguity gracefully.
+
+\section{Thesis Organization}
+% ===========================================================================
+% CHAPTER 2: DATA PRE-PROCESSING
+% ===========================================================================

@@ -1,0 +1,65 @@
+\section{Scenario: Finding an Outfit for a Company Meeting}
+
+\subsection{Turn 1 --- Initial Query}
+
+\begin{tcolorbox}[title=Turn 1 Walkthrough]
+\textbf{User:} ``I want to find an outfit for a company meeting''
+
+\textbf{[Step 1 --- Intent Classification]}
+\begin{itemize}
+    \item Classified intent: \texttt{outfit\_request}
+    \item Confidence: 0.72 $\geq$ 0.6 $\rightarrow$ sufficient to proceed
+    \item Extracted filters: \{occasion: ``office''\}
+\end{itemize}
+
+\textbf{[Step 2 --- Memory Lookup (PostgreSQL)]}
+\begin{itemize}
+    \item New session $\rightarrow$ no stored preferences
+\end{itemize}
+
+\textbf{[Step 3 --- Orchestrator Planning]}\\
+Gemini creates plan:
+\texttt{[\{``tool'': ``outfit\_hints'', ``occasion'': ``office''\}, \{``tool'': ``search'', ``query'': ``formal shirt office meeting''\}]}
+
+\textbf{[ReAct Loop --- Iterations 1--2]}\\
+Action: \texttt{outfit\_hints(occasion=``office'')} $\rightarrow$ categories = [Shirt, Pants, Shoes]\\
+Action: \texttt{search(``formal shirt office meeting'')} $\rightarrow$ 8 results after RRF + reranker
+
+\textbf{[LLM Synthesis --- Gemini]}\\
+Agent responds: ``For a company meeting, I suggest a smart-casual outfit: (1) A slim-fit cotton dress shirt --- elegant and professional; (2) Grey or navy chino trousers; (3) Clean leather or loafer shoes.''
+\end{tcolorbox}
+
+\subsection{Turn 2 --- Follow-up with Additional Details}
+
+\begin{tcolorbox}[title=Turn 2 Walkthrough]
+\textbf{User:} ``Give me a white shirt and navy trousers''
+
+\textbf{[Step 1]}: Intent: \texttt{follow\_up}, Confidence: 0.88\\
+Filters: \{category: ``Shirt'', color: ``White''\}
+
+\textbf{[Step 2]}: Memory Agent loads session context: office occasion
+
+\textbf{[ReAct Loop]}:\\
+BM25 exact match: ``Shirt White'' $\rightarrow$ highest rank\\
+FashionSigLIP semantic match: ``slim fit woven cotton formal shirt''
+
+\textbf{[Result]}:\\
+Agent responds + 6-image gallery: ``Here are my suggestions: (1) White slim-fit cotton shirt [SP1, SP2, SP3] (2) Navy blue chino trousers [SP4, SP5]. The white + navy combination is a classic for corporate environments.''
+\end{tcolorbox}
+
+\subsection{Refusal Scenario --- Product Not in Database}
+
+\begin{tcolorbox}[title=Handling No Results Found]
+\textbf{User:} ``Find me a Gucci shirt''
+
+\textbf{[Intent]}: \texttt{text\_search}, confidence 0.91\\
+\textbf{[ReAct Loop]}: search ``Gucci luxury fashion'' $\rightarrow$ 0 results with relevance $\geq 0.3$\\
+\textbf{[Fallback]}: Lower threshold $\rightarrow$ still not sufficient
+
+\textbf{Agent politely refuses:}\\
+``Sorry, the current collection does not include Gucci brand products. However, I can find items with a similar style (luxury, minimalist, formal). Would you like me to try that instead?''
+\end{tcolorbox}
+
+% ===========================================================================
+% CHAPTER 8: INTERFACE AND DEPLOYMENT
+% ===========================================================================

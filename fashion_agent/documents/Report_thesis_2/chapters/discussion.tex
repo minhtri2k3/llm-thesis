@@ -1,0 +1,32 @@
+% Chapter 7: DISCUSSION
+% Content from: evaluation_conclusion.tex (lines 114-142)
+
+\section{Design Strengths}
+\begin{enumerate}
+    \item \textbf{Intent-first}: The agent classifies intent before acting --- prevents incorrect searches.
+    \item \textbf{Clarification gate}: For ambiguous queries, asks instead of guessing --- improves quality.
+    \item \textbf{Graceful degradation}: Politely refuses when no product is found, with alternative suggestions.
+    \item \textbf{Hybrid retrieval}: BM25 + FashionSigLIP + RRF leverages the strengths of both approaches.
+    \item \textbf{PostgreSQL}: Persistent, scalable, supports concurrent access better than CSV.
+    \item \textbf{Semantic token (caption)}: LLM-generated descriptions enable deeper embedding understanding beyond short labels.
+    \item \textbf{Query Expansion}: Gemini-powered synonym queries increase recall for short queries.
+    \item \textbf{Cross-encoder Reranker}: BGE v2-m3 reranks results for higher precision.
+\end{enumerate}
+
+\section{Risks and Mitigation}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Risk} & \textbf{Severity} & \textbf{Mitigation}\\
+\midrule
+High latency (multiple Gemini calls) & High   & Parallel tool calls, cached expansion\\
+LLM hallucination                    & High   & RAGAS faithfulness $\geq$0.87, fallback templates\\
+BM25 rebuild on restart              & Low    & Serialize BM25 index to disk\\
+PostgreSQL cold start                & Low    & Connection pooling\\
+Gemini API rate limit                & Medium & Batch processing, exponential backoff\\
+\bottomrule
+\end{tabular}
+\caption{Risk matrix and corresponding mitigation strategies}
+\end{table}
