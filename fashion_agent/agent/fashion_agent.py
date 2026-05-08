@@ -806,7 +806,9 @@ def _orchestrate_stream(
 
     # Step 1: Intent classification (1 LLM call)
     yield ThinkingEvent("classify", "Classifying intent...")
+    _intent_t0 = time.perf_counter()
     intent_result = classify_intent(query, history=history)
+    _intent_latency_ms = int((time.perf_counter() - _intent_t0) * 1000)
     intent = intent_result.intent
 
     slots_detail = ""
@@ -845,6 +847,7 @@ def _orchestrate_stream(
             model_name=client.model_name,
             input_tokens=intent_tokens.input_tokens,
             output_tokens=intent_tokens.output_tokens,
+            intent_latency_ms=_intent_latency_ms,
         )
     except Exception as _tok_err:
         logger.debug("Token logging failed (intent): %s", _tok_err)
@@ -1537,6 +1540,7 @@ def chat_stream(
     orchestrator_in_tokens = 0
     orchestrator_out_tokens = 0
 
+    _synth_t0 = time.perf_counter()
     if orch_mode == "direct":
         # Direct mode: regular stream synthesis
         client = get_client(preferred_model)
@@ -1560,6 +1564,8 @@ def chat_stream(
                 full_text_parts.append(str(chunk))
                 yield _sse("token", {"text": str(chunk)})
 
+    _synth_latency_ms = int((time.perf_counter() - _synth_t0) * 1000)
+    _total_latency_ms = int((time.time() - orchestrate_start) * 1000)
 
     full_text = "".join(full_text_parts)
     styling = _extract_styling_from_text(full_text)
@@ -1580,6 +1586,8 @@ def chat_stream(
             tool_calls_json=tool_calls_for_log,
             orchestrator_input_tokens=orchestrator_in_tokens,
             orchestrator_output_tokens=orchestrator_out_tokens,
+            latency_ms=_total_latency_ms,
+            synthesis_latency_ms=_synth_latency_ms,
         )
     except Exception as _tok_err:
         logger.debug("Token logging failed (synthesis): %s", _tok_err)

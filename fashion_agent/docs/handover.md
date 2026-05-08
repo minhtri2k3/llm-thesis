@@ -196,6 +196,29 @@ docker compose up -d --build fashion-api
 
 ---
 
+## 🧪 Cohort LLM Evaluation Study (4-Gemini)
+
+The cohort study compares Indigo (gemini-2.5-flash) / Crimson (gemini-2.5-pro) /
+Emerald (gemini-3.1-flash-lite) / Amber (gemini-3.1-pro-preview) across testers.
+
+**Toggle**: set `ENABLE_COHORT_STUDY=true` in `.env`, then `docker compose restart fashion-api`.
+Default is `false` — when off, the system behaves identically to the pre-cohort version.
+
+**Data preservation**: schema changes are *additive only* — `ALTER TABLE … ADD COLUMN
+IF NOT EXISTS …`. Pre-cohort sessions and rows stay queryable; new columns
+(`study_group`, `agent_codename`, `latency_ms`, `intent_latency_ms`,
+`synthesis_latency_ms`) default to NULL/0 on legacy rows. **No DROP COLUMN is
+performed by this change.**
+
+**Admin dashboard**: `GET /api/analytics/cohort` (requires `X-Admin-Key`) returns the
+4-cell summary plus the codename↔model mapping. The Flutter Professor View shows
+this as the "Cohort LLM Evaluation" card. Returns HTTP 503 when the flag is off.
+
+**Filter analyses**: cohort-only data is `WHERE study_group IS NOT NULL` on
+`user_sessions`. Pre-study legacy data is `WHERE study_group IS NULL`.
+
+---
+
 ## 🔧 Xử lý sự cố
 
 ### Lỗi: `PG_PASSWORD is required`

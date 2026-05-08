@@ -9,8 +9,13 @@ import 'package:clothie_web/screens/professor_dashboard_page.dart';
 class ChatRouteArgs {
   final String sessionId;
   final String userName;
+  final String? agentCodename; // cohort-only — null in non-cohort sessions
 
-  ChatRouteArgs({required this.sessionId, required this.userName});
+  ChatRouteArgs({
+    required this.sessionId,
+    required this.userName,
+    this.agentCodename,
+  });
 }
 
 /// Route arguments for ProfessorDashboardPage
@@ -46,7 +51,11 @@ final appRouter = GoRouter(
           // Fallback to register if no args provided
           return const RegisterScreen();
         }
-        return ChatScreen(sessionId: args.sessionId, userName: args.userName);
+        return ChatScreen(
+          sessionId: args.sessionId,
+          userName: args.userName,
+          agentCodename: args.agentCodename,
+        );
       },
     ),
     // Professor Dashboard Screen

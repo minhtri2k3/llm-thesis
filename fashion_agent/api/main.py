@@ -49,6 +49,43 @@ PATH2_DEFAULT_TOP_K = int(os.getenv("PATH2_DEFAULT_TOP_K", "6"))
 # FastAPI App
 # ---------------------------------------------------------------------------
 
+# Module-level set of cohort codenames that failed the startup smoke test.
+# Mutated only during lifespan startup. Read by assign_cohort_session().
+_UNREACHABLE_CODENAMES: set[str] = set()
+
+
+def _smoke_test_cohort_models() -> None:
+    """Ping each cohort Gemini model with a 1-token request.
+
+    Failed cells are recorded in `_UNREACHABLE_CODENAMES`. The function never
+    raises — it logs at ERROR level and lets the API start. Cohort assignment
+    later skips unreachable cells from rotation.
+    """
+    import logging
+    log = logging.getLogger("cohort_smoke")
+    from agent.cohort import COHORT_CODENAMES, CODENAME_TO_MODEL
+    from shared.llm import GeminiClient
+
+    _UNREACHABLE_CODENAMES.clear()
+    for codename in COHORT_CODENAMES:
+        model_id = CODENAME_TO_MODEL[codename]
+        try:
+            GeminiClient(model_id).generate("ping")
+            print(f"[cohort smoke] {codename} ({model_id}): OK")
+        except Exception as exc:
+            _UNREACHABLE_CODENAMES.add(codename)
+            log.error(
+                "[cohort smoke] %s (%s) UNREACHABLE — %s: %s",
+                codename, model_id, type(exc).__name__, str(exc)[:200],
+            )
+
+    if len(_UNREACHABLE_CODENAMES) == len(COHORT_CODENAMES):
+        log.error(
+            "[cohort smoke] FATAL — all 4 cohort models unreachable. "
+            "Cohort assignments will fail with 500 until resolved."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """App lifespan: initialize resources on startup."""
@@ -57,6 +94,12 @@ async def lifespan(app: FastAPI):
         print("Memory tables initialized.")
     except Exception as exc:
         print(f"Warning: Could not initialize memory tables: {exc}")
+    if _is_cohort_study_enabled():
+        try:
+            _smoke_test_cohort_models()
+        except Exception as exc:
+            # Should never happen — _smoke_test catches everything internally.
+            print(f"Warning: cohort smoke test crashed unexpectedly: {exc}")
     yield
 
 
@@ -120,15 +163,30 @@ class CreateSessionRequest(BaseModel):
                 )
         if self.gender is not None and self.gender not in ("male", "female"):
             raise ValueError('gender must be "male" or "female"')
-        if self.preferred_model != "gemini-2.5-flash":
+
+        # Gemini-2.5-flash is always allowed (legacy default).
+        # When ENABLE_COHORT_STUDY=true, also accept the 3 cohort models.
+        # NOTE: This validator runs before the API endpoint reads the env,
+        # so we read the flag inline here (cheap; same pattern as PATH 2).
+        allowed = {"gemini-2.5-flash"}
+        if os.getenv("ENABLE_COHORT_STUDY", "false").strip().lower() in (
+            "1", "true", "yes", "on",
+        ):
+            from agent.cohort import COHORT_MODELS
+            allowed.update(COHORT_MODELS)
+        if self.preferred_model not in allowed:
             raise ValueError(
-                'preferred_model must be "gemini-2.5-flash". '
-                "Deprecated values: gpt-4o, claude-3-7-sonnet-latest."
+                f'preferred_model must be one of {sorted(allowed)}. '
+                f"Got: {self.preferred_model!r}"
             )
 
 
 class CreateSessionResponse(BaseModel):
     session_id: str
+    agent_codename: Optional[str] = None
+    study_group: Optional[str] = None
+    session_index: Optional[int] = None
+    cohort_active: bool = False
 
 
 class RatingRequest(BaseModel):
@@ -198,6 +256,16 @@ def _is_path2_enabled() -> bool:
     )
 
 
+def _is_cohort_study_enabled() -> bool:
+    """Return True when the 4-Gemini cohort LLM study is active."""
+    return os.getenv("ENABLE_COHORT_STUDY", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def _normalize_path_mode(raw: str | None, default: str = "path1") -> str:
     value = (raw or default).strip().lower()
     if value not in ("path1", "path2"):
@@ -243,8 +311,45 @@ def _run_path2_image_search(raw: bytes, top_k: int) -> list[dict]:
 
 @app.post("/api/sessions", response_model=CreateSessionResponse)
 async def create_session_endpoint(req: CreateSessionRequest):
-    """Create a new chat session. Stores the user name and demographics for evaluation tracking."""
-    from agent.memory import create_session
+    """Create a new chat session. Stores the user name and demographics for evaluation tracking.
+
+    When `ENABLE_COHORT_STUDY=true`, the request's `preferred_model` is ignored
+    and the server assigns a model via the Latin-square cohort scheduler. The
+    response also includes `agent_codename`, `study_group`, `session_index`.
+    """
+    from agent.memory import create_session, assign_cohort_session
+    from agent.cohort import CohortStudyExhausted
+
+    if _is_cohort_study_enabled() and req.user_name.strip():
+        try:
+            group, codename, model_id, session_index = assign_cohort_session(
+                user_name=req.user_name,
+                unreachable_codenames=_UNREACHABLE_CODENAMES,
+            )
+        except CohortStudyExhausted as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"cohort assignment failed: {exc}")
+        try:
+            session_id = create_session(
+                user_name=req.user_name,
+                year_of_birth=req.year_of_birth,
+                gender=req.gender,
+                preferred_model=model_id,
+                study_group=group,
+                agent_codename=codename,
+            )
+            return CreateSessionResponse(
+                session_id=session_id,
+                agent_codename=codename,
+                study_group=group,
+                session_index=session_index,
+                cohort_active=True,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    # Non-cohort path: legacy behaviour preserved exactly
     try:
         session_id = create_session(
             user_name=req.user_name,
@@ -252,7 +357,7 @@ async def create_session_endpoint(req: CreateSessionRequest):
             gender=req.gender,
             preferred_model=req.preferred_model,
         )
-        return CreateSessionResponse(session_id=session_id)
+        return CreateSessionResponse(session_id=session_id, cohort_active=False)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -623,11 +728,12 @@ async def get_token_usage_analytics(request: Request):
 # Thesis evaluation analytics (token costs, accuracy, gender A/B)
 # ---------------------------------------------------------------------------
 
-from api.analytics import get_token_costs, get_accuracy, get_gender_ab
+from api.analytics import get_token_costs, get_accuracy, get_gender_ab, get_cohort_summary
 
 app.add_api_route("/api/analytics/token-costs", get_token_costs, methods=["GET"])
 app.add_api_route("/api/analytics/accuracy",    get_accuracy,    methods=["GET"])
 app.add_api_route("/api/analytics/gender-ab",    get_gender_ab,   methods=["GET"])
+app.add_api_route("/api/analytics/cohort",      get_cohort_summary, methods=["GET"])
 
 
 # ---------------------------------------------------------------------------

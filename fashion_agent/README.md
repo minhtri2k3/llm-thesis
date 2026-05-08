@@ -276,6 +276,42 @@ Xem chi tiết tại 👉 [docs/development.md](docs/development.md)
 
 ---
 
+## 🧪 Cohort LLM Evaluation Study
+
+A single-blind controlled study comparing 4 Gemini models on user behaviour. Toggle with `ENABLE_COHORT_STUDY=true` in `.env`.
+
+| Codename | Model                          | Generation | Tier  |
+|----------|--------------------------------|------------|-------|
+| Indigo   | `gemini-2.5-flash`             | 2.5        | Flash |
+| Crimson  | `gemini-2.5-pro`               | 2.5        | Pro   |
+| Emerald  | `gemini-3.1-flash-lite`        | 3.1        | Flash |
+| Amber    | `gemini-3.1-pro-preview`       | 3.1        | Pro   |
+
+**Design**: within-subject crossover, Latin-square ordering (4 groups × 4 sessions). Each tester is blinded to the model identity (sees codename only) and completes 4 sessions; the 5th attempt for the same user_name returns HTTP 409.
+
+**Run the study**:
+1. Set `ENABLE_COHORT_STUDY=true` in `.env`, restart `fashion-api`.
+2. Recruit 10–20 testers; each registers and completes 4 sessions in their assigned codename order.
+3. After collection, view the dashboard at `Professor View → Cohort LLM Evaluation` (admin-only).
+
+**Inspect raw data**:
+```sql
+-- Per-codename token + latency rollup
+SELECT s.agent_codename, COUNT(*) AS turns,
+       AVG(ltu.input_tokens + ltu.output_tokens) AS avg_tokens,
+       AVG(ltu.latency_ms) AS avg_latency_ms
+FROM user_sessions s
+JOIN llm_token_usage ltu USING (session_id)
+WHERE s.study_group IS NOT NULL
+GROUP BY s.agent_codename;
+```
+
+**Data preservation**: schema changes are additive only. Flipping the flag back to `false` restores legacy behaviour byte-for-byte; pre-cohort data remains untouched.
+
+See [`openspec/changes/cohort-llm-evaluation/`](openspec/changes/cohort-llm-evaluation/) for the proposal, design, tasks, and spec.
+
+---
+
 ## 📝 License
 
 Dự án phục vụ mục đích nghiên cứu và học tập.

@@ -79,6 +79,8 @@ services:
       ENABLE_PATH2_IMAGE_SEARCH: ${ENABLE_PATH2_IMAGE_SEARCH:-false}
       PATH2_MAX_UPLOAD_BYTES: ${PATH2_MAX_UPLOAD_BYTES:-5242880}
       PATH2_MAX_TOP_K: ${PATH2_MAX_TOP_K:-20}
+      # Cohort LLM evaluation study (4-Gemini A/B/C/D)
+      ENABLE_COHORT_STUDY: ${ENABLE_COHORT_STUDY:-false}
       # HuggingFace cache
       HF_HOME: /app/models
       TRANSFORMERS_CACHE: /app/models

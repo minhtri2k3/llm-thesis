@@ -17,11 +17,13 @@ import 'package:clothie_web/models/product.dart';
 class ChatScreen extends StatefulWidget {
   final String sessionId;
   final String userName;
+  final String? agentCodename; // cohort study only — null otherwise
 
   const ChatScreen({
     super.key,
     required this.sessionId,
     required this.userName,
+    this.agentCodename,
   });
 
   @override
@@ -332,6 +334,25 @@ class _ChatScreenState extends State<ChatScreen> {
                   color: Theme.of(context).colorScheme.primary,
                 ),
               ),
+              if (widget.agentCodename != null && widget.agentCodename!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Agent: ${widget.agentCodename}',
+                      style: GoogleFonts.outfit(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ],

@@ -4,7 +4,14 @@
       "Read(//Users/tringuyen/.copilot/**)",
       "Read(//Users/tringuyen/.claude/**)",
       "Read(//Users/tringuyen/**)",
-      "Bash(claude mcp *)"
+      "Bash(claude mcp *)",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(python -c \"import google.generativeai; print\\(google.generativeai.__version__\\)\")",
+      "Bash(python3 -c \"import google.generativeai; print\\('genai version:', google.generativeai.__version__\\)\")",
+      "Bash(openspec status *)",
+      "Bash(openspec instructions *)",
+      "Bash(python3 -m pytest tests/test_cohort_module.py -v)",
+      "Bash(python3 *)"
     ]
   }
 }

@@ -258,6 +258,22 @@ def init_memory_tables() -> None:
     ALTER TABLE llm_token_usage
         ADD COLUMN IF NOT EXISTS orchestrator_output_tokens INT NOT NULL DEFAULT 0;
 
+    -- ── Cohort study: 4-Gemini single-blind controlled experiment ────
+    -- Additive only; legacy rows keep NULL/0 and are filterable via
+    -- `WHERE study_group IS NOT NULL` for cohort-only analyses.
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS study_group TEXT;
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS agent_codename TEXT;
+
+    -- Per-turn latency capture (intent + synthesis + total wall-clock)
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS latency_ms INT NOT NULL DEFAULT 0;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS intent_latency_ms INT NOT NULL DEFAULT 0;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS synthesis_latency_ms INT NOT NULL DEFAULT 0;
+
     -- Ensure path_mode exists on existing databases
     ALTER TABLE product_impressions
         ADD COLUMN IF NOT EXISTS path_mode TEXT NOT NULL DEFAULT 'path1';
@@ -452,6 +468,8 @@ def create_session(
     gender: str | None = None,
     preferred_model: str = "gemini-2.5-flash",
     gender_hint_enabled: bool | None = None,
+    study_group: str | None = None,
+    agent_codename: str | None = None,
 ) -> str:
     """Create a new session and return its ID.
 
@@ -461,6 +479,8 @@ def create_session(
         gender: Optional gender ('male' | 'female') for demographic research.
         preferred_model: LLM chosen for the session.
         gender_hint_enabled: A/B control flag. If None, set True when gender is provided, False otherwise.
+        study_group: Cohort study group ('Group1'..'Group4'), or None for legacy/non-cohort.
+        agent_codename: Cohort codename ('Indigo'|'Crimson'|'Emerald'|'Amber'), or None.
     """
     session_id = str(uuid.uuid4())
     # Always enable gender filter when user declared a gender
@@ -471,13 +491,98 @@ def create_session(
             cur.execute(
                 """
                 INSERT INTO user_sessions
-                    (session_id, user_name, year_of_birth, gender, preferred_model, gender_hint_enabled)
-                VALUES (%s, %s, %s, %s, %s, %s);
+                    (session_id, user_name, year_of_birth, gender, preferred_model,
+                     gender_hint_enabled, study_group, agent_codename)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
                 """,
-                (session_id, user_name, year_of_birth, gender, preferred_model, gender_hint_enabled),
+                (
+                    session_id, user_name, year_of_birth, gender, preferred_model,
+                    gender_hint_enabled, study_group, agent_codename,
+                ),
             )
         conn.commit()
     return session_id
+
+
+def assign_cohort_session(
+    user_name: str,
+    unreachable_codenames: set[str] | None = None,
+) -> tuple[str, str, str, int]:
+    """Resolve the next cohort assignment for a user_name.
+
+    Returns:
+        (study_group, codename, model_id, session_index)
+
+    Behaviour:
+      - First call for a user_name: round-robin assigns Group1..Group4 based
+        on the count of distinct cohort user_names so far.
+      - Subsequent calls: increment session_index for that user.
+      - 5th call: raises CohortStudyExhausted.
+      - If the assigned codename is in `unreachable_codenames`, we skip
+        forward in the user's Latin-square row to the next reachable cell.
+        If none reachable, raises CohortStudyExhausted with a clear message.
+    """
+    from agent.cohort import (
+        assign_codename_for_session,
+        assign_group_round_robin,
+        CODENAME_TO_MODEL,
+        SESSIONS_PER_USER,
+        CohortStudyExhausted,
+        LATIN_SQUARE,
+        GROUP_NAMES,
+    )
+
+    unreachable = unreachable_codenames or set()
+    user_name = (user_name or "").strip()
+    if not user_name:
+        raise ValueError("user_name is required for cohort assignment")
+
+    with _db_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            # Find existing study_group + count of completed sessions for this user_name.
+            cur.execute(
+                """
+                SELECT study_group, COUNT(*) AS n_sessions
+                FROM user_sessions
+                WHERE user_name = %s AND study_group IS NOT NULL
+                GROUP BY study_group;
+                """,
+                (user_name,),
+            )
+            rows = cur.fetchall()
+
+            if rows:
+                # User has prior cohort sessions. Use their existing group.
+                row = rows[0]
+                group = row["study_group"]
+                session_index = int(row["n_sessions"])
+            else:
+                # New cohort tester. Round-robin assignment based on
+                # number of distinct user_names already in the cohort.
+                cur.execute(
+                    "SELECT COUNT(DISTINCT user_name) FROM user_sessions WHERE study_group IS NOT NULL;"
+                )
+                num_users = int(cur.fetchone()[0])
+                group = assign_group_round_robin(num_users)
+                session_index = 0
+
+    if session_index >= SESSIONS_PER_USER:
+        raise CohortStudyExhausted(
+            f"user {user_name!r} has already completed {SESSIONS_PER_USER} cohort sessions"
+        )
+
+    # Walk the row from session_index forward, skipping unreachable codenames.
+    # If we land outside the row, the study is exhausted for this user.
+    row_codenames = LATIN_SQUARE[GROUP_NAMES.index(group)]
+    while session_index < SESSIONS_PER_USER and row_codenames[session_index] in unreachable:
+        session_index += 1
+    if session_index >= SESSIONS_PER_USER:
+        raise CohortStudyExhausted(
+            f"user {user_name!r} has no remaining reachable cohort cells"
+        )
+    codename = assign_codename_for_session(group, session_index)
+    model_id = CODENAME_TO_MODEL[codename]
+    return (group, codename, model_id, session_index)
 
 
 def get_session_model(session_id: str) -> str:
@@ -805,6 +910,9 @@ def log_token_usage(
     tool_calls_json: list | None = None,
     orchestrator_input_tokens: int = 0,
     orchestrator_output_tokens: int = 0,
+    latency_ms: int = 0,
+    intent_latency_ms: int = 0,
+    synthesis_latency_ms: int = 0,
 ) -> None:
     """Persist one LLM call's token counts + orchestration metadata to the database.
 
@@ -818,6 +926,9 @@ def log_token_usage(
         tool_calls_json: List of tool call dicts [{tool, args, result_count, duration_ms}].
         orchestrator_input_tokens: Token count for orchestrator calls (Modes B/C).
         orchestrator_output_tokens: Token count for orchestrator calls (Modes B/C).
+        latency_ms: Total turn wall-clock (orchestration → final yield), if available.
+        intent_latency_ms: Wall-clock of `classify_intent()` for this turn.
+        synthesis_latency_ms: Wall-clock of synthesis stream consumption.
     """
     import json as _json
     tool_calls_str = _json.dumps(tool_calls_json or [])
@@ -828,13 +939,15 @@ def log_token_usage(
                 INSERT INTO llm_token_usage
                     (session_id, call_name, model_name, input_tokens, output_tokens,
                      orchestration_mode, orchestrator_model, synthesizer_model,
-                     tool_calls_json, orchestrator_input_tokens, orchestrator_output_tokens)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s);
+                     tool_calls_json, orchestrator_input_tokens, orchestrator_output_tokens,
+                     latency_ms, intent_latency_ms, synthesis_latency_ms)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s);
                 """,
                 (
                     session_id, call_name, model_name, input_tokens, output_tokens,
                     orchestration_mode, orchestrator_model, synthesizer_model or model_name,
                     tool_calls_str, orchestrator_input_tokens, orchestrator_output_tokens,
+                    int(latency_ms or 0), int(intent_latency_ms or 0), int(synthesis_latency_ms or 0),
                 ),
             )
         conn.commit()

@@ -13,6 +13,32 @@ class SseEvent {
   const SseEvent({required this.type, required this.data});
 }
 
+/// Outcome of a session-creation request, including cohort-study fields
+/// (only populated when the backend has `ENABLE_COHORT_STUDY=true`).
+class SessionCreated {
+  final String sessionId;
+  final String? agentCodename; // e.g., "Indigo" — null in non-cohort mode
+  final String? studyGroup;    // e.g., "Group1" — null in non-cohort mode
+  final int? sessionIndex;     // 0..3 — null in non-cohort mode
+  final bool cohortActive;
+
+  const SessionCreated({
+    required this.sessionId,
+    this.agentCodename,
+    this.studyGroup,
+    this.sessionIndex,
+    this.cohortActive = false,
+  });
+
+  factory SessionCreated.fromJson(Map<String, dynamic> j) => SessionCreated(
+        sessionId: j['session_id'] as String,
+        agentCodename: j['agent_codename'] as String?,
+        studyGroup: j['study_group'] as String?,
+        sessionIndex: j['session_index'] as int?,
+        cohortActive: (j['cohort_active'] as bool?) ?? false,
+      );
+}
+
 class ApiService {
   final http.Client _client;
 
@@ -23,6 +49,20 @@ class ApiService {
   /// [userName] is the display name entered at registration.
   /// [yearOfBirth] and [gender] are demographic fields for thesis research.
   Future<String> createSession(
+    String userName,
+    int yearOfBirth,
+    String gender,
+    String preferredModel,
+  ) async {
+    final result = await createSessionFull(
+      userName, yearOfBirth, gender, preferredModel,
+    );
+    return result.sessionId;
+  }
+
+  /// Like [createSession] but returns the full response including any
+  /// cohort-study assignment. Use this when you need the codename.
+  Future<SessionCreated> createSessionFull(
     String userName,
     int yearOfBirth,
     String gender,
@@ -39,11 +79,39 @@ class ApiService {
         'preferred_model': preferredModel,
       }),
     );
+    if (response.statusCode == 409) {
+      throw Exception(
+        'Cohort study already completed for this name. '
+        'Please use a different name to start a new tester.',
+      );
+    }
     if (response.statusCode != 200) {
       throw Exception('Failed to create session: ${response.body}');
     }
     final json = jsonDecode(response.body) as Map<String, dynamic>;
-    return json['session_id'] as String;
+    return SessionCreated.fromJson(json);
+  }
+
+  /// Fetches the cohort study 4-cell dashboard summary.
+  ///
+  /// Returns a map with keys `mapping`, `cohort_active`, `cells`.
+  /// Throws on 503 (study not enabled) or 403 (auth fail).
+  Future<Map<String, dynamic>> getCohortAnalytics(String secretKey) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/analytics/cohort');
+    final response = await _client.get(
+      uri,
+      headers: {'X-Admin-Key': secretKey},
+    );
+    if (response.statusCode == 403) {
+      throw Exception('403: Incorrect access code');
+    }
+    if (response.statusCode == 503) {
+      throw Exception('503: cohort study not enabled');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load cohort analytics: ${response.body}');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   /// Streams SSE events from the chat endpoint.

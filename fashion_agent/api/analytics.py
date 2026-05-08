@@ -296,3 +296,201 @@ async def get_gender_ab(request: Request) -> dict[str, Any]:
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4. GET /api/analytics/cohort  — cohort-llm-evaluation 4-cell dashboard
+# ═══════════════════════════════════════════════════════════════════════════
+
+async def get_cohort_summary(request: Request) -> dict[str, Any]:
+    """Cohort study 4-cell dashboard (Indigo / Crimson / Emerald / Amber).
+
+    Returns one cell per agent_codename, aggregating:
+      - n_sessions, n_turns
+      - tokens (avg input/output per turn, total per session)
+      - latency p50/p95 (total + intent + synthesis)
+      - behaviour: click-through rate, cart adds/session, avg rating,
+        clarification rate
+
+    Filtered to `study_group IS NOT NULL` so legacy (pre-cohort) sessions
+    are excluded automatically.
+
+    Returns 503 if `ENABLE_COHORT_STUDY` is not enabled.
+
+    Response shape:
+        {
+          "mapping": { "Indigo": "gemini-2.5-flash", ... },
+          "cohort_active": true,
+          "cells": [ { codename, model, n_sessions, ... }, ... ]
+        }
+    """
+    _require_admin(request)
+
+    if os.getenv("ENABLE_COHORT_STUDY", "false").strip().lower() not in (
+        "1", "true", "yes", "on",
+    ):
+        raise HTTPException(status_code=503, detail="cohort study not enabled")
+
+    # Lazy import so the analytics module doesn't depend on agent.cohort at
+    # process-load time (keeps test isolation simple).
+    from agent.cohort import CODENAME_TO_MODEL, COHORT_CODENAMES
+
+    try:
+        conn = _db_conn()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Per-codename aggregate. Latency percentiles use percentile_cont.
+            cur.execute(
+                """
+                WITH cohort_turns AS (
+                    SELECT
+                        s.agent_codename                                AS codename,
+                        s.session_id,
+                        ltu.call_name,
+                        ltu.input_tokens,
+                        ltu.output_tokens,
+                        ltu.latency_ms,
+                        ltu.intent_latency_ms,
+                        ltu.synthesis_latency_ms
+                    FROM user_sessions s
+                    JOIN llm_token_usage ltu USING (session_id)
+                    WHERE s.study_group IS NOT NULL
+                      AND s.agent_codename IS NOT NULL
+                ),
+                tokens AS (
+                    SELECT
+                        codename,
+                        COUNT(DISTINCT session_id)                       AS n_sessions,
+                        COUNT(*)                                         AS n_turns,
+                        ROUND(AVG(input_tokens))::INT                    AS avg_input_tokens_per_turn,
+                        ROUND(AVG(output_tokens))::INT                   AS avg_output_tokens_per_turn,
+                        ROUND(SUM(input_tokens + output_tokens)::numeric
+                              / NULLIF(COUNT(DISTINCT session_id), 0))::INT
+                                                                         AS total_tokens_per_session
+                    FROM cohort_turns
+                    GROUP BY codename
+                ),
+                latency AS (
+                    SELECT
+                        codename,
+                        ROUND(percentile_cont(0.5)
+                              WITHIN GROUP (ORDER BY latency_ms))::INT   AS total_p50_ms,
+                        ROUND(percentile_cont(0.95)
+                              WITHIN GROUP (ORDER BY latency_ms))::INT   AS total_p95_ms,
+                        ROUND(percentile_cont(0.5) WITHIN GROUP (
+                              ORDER BY intent_latency_ms))::INT          AS intent_p50_ms,
+                        ROUND(percentile_cont(0.5) WITHIN GROUP (
+                              ORDER BY synthesis_latency_ms))::INT       AS synthesis_p50_ms
+                    FROM cohort_turns
+                    WHERE latency_ms > 0  -- only include turns where we logged total latency
+                    GROUP BY codename
+                ),
+                impressions AS (
+                    SELECT s.agent_codename AS codename, COUNT(*) AS n_imps
+                    FROM user_sessions s
+                    JOIN product_impressions p USING (session_id)
+                    WHERE s.study_group IS NOT NULL
+                    GROUP BY s.agent_codename
+                ),
+                clicks AS (
+                    SELECT s.agent_codename AS codename, COUNT(*) AS n_clicks
+                    FROM user_sessions s
+                    JOIN product_clicks p USING (session_id)
+                    WHERE s.study_group IS NOT NULL
+                    GROUP BY s.agent_codename
+                ),
+                carts AS (
+                    SELECT s.agent_codename AS codename,
+                           COUNT(*)::numeric / NULLIF(COUNT(DISTINCT s.session_id), 0) AS adds_per_session
+                    FROM user_sessions s
+                    JOIN selected_items si USING (session_id)
+                    WHERE s.study_group IS NOT NULL
+                    GROUP BY s.agent_codename
+                ),
+                ratings AS (
+                    SELECT s.agent_codename AS codename,
+                           ROUND(AVG(r.rating_overall)::numeric, 2)        AS avg_rating_overall,
+                           ROUND(AVG(r.rating_suggestions)::numeric, 2)    AS avg_rating_suggestions,
+                           ROUND(AVG(r.rating_conversation)::numeric, 2)   AS avg_rating_conversation
+                    FROM user_sessions s
+                    JOIN user_ratings r USING (session_id)
+                    WHERE s.study_group IS NOT NULL
+                    GROUP BY s.agent_codename
+                )
+                SELECT
+                    t.codename,
+                    t.n_sessions,
+                    t.n_turns,
+                    t.avg_input_tokens_per_turn,
+                    t.avg_output_tokens_per_turn,
+                    t.total_tokens_per_session,
+                    l.total_p50_ms,
+                    l.total_p95_ms,
+                    l.intent_p50_ms,
+                    l.synthesis_p50_ms,
+                    COALESCE(i.n_imps, 0)                                                   AS impressions,
+                    COALESCE(c.n_clicks, 0)                                                 AS clicks,
+                    CASE WHEN COALESCE(i.n_imps, 0) > 0
+                         THEN ROUND(c.n_clicks::numeric / i.n_imps, 4)
+                         ELSE 0
+                    END                                                                     AS click_through_rate,
+                    COALESCE(carts.adds_per_session, 0)                                     AS cart_adds_per_session,
+                    ratings.avg_rating_overall,
+                    ratings.avg_rating_suggestions,
+                    ratings.avg_rating_conversation
+                FROM tokens t
+                LEFT JOIN latency     l       ON l.codename = t.codename
+                LEFT JOIN impressions i       ON i.codename = t.codename
+                LEFT JOIN clicks      c       ON c.codename = t.codename
+                LEFT JOIN carts               ON carts.codename = t.codename
+                LEFT JOIN ratings             ON ratings.codename = t.codename
+                ORDER BY t.codename;
+                """
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+
+        # Decimal → float for clean JSON
+        for row in rows:
+            for k, v in row.items():
+                if v is not None and hasattr(v, "as_tuple"):
+                    row[k] = float(v)
+            row["model"] = CODENAME_TO_MODEL.get(row.get("codename") or "", "")
+
+        # Surface every codename even if no data yet (so the FE can render a
+        # fully populated 4-column table with zeros).
+        present = {r.get("codename") for r in rows}
+        for cn in COHORT_CODENAMES:
+            if cn not in present:
+                rows.append({
+                    "codename": cn,
+                    "model": CODENAME_TO_MODEL[cn],
+                    "n_sessions": 0,
+                    "n_turns": 0,
+                    "avg_input_tokens_per_turn": 0,
+                    "avg_output_tokens_per_turn": 0,
+                    "total_tokens_per_session": 0,
+                    "total_p50_ms": 0,
+                    "total_p95_ms": 0,
+                    "intent_p50_ms": 0,
+                    "synthesis_p50_ms": 0,
+                    "impressions": 0,
+                    "clicks": 0,
+                    "click_through_rate": 0,
+                    "cart_adds_per_session": 0,
+                    "avg_rating_overall": None,
+                    "avg_rating_suggestions": None,
+                    "avg_rating_conversation": None,
+                })
+        # Re-order in canonical Indigo/Crimson/Emerald/Amber order
+        order = {cn: i for i, cn in enumerate(COHORT_CODENAMES)}
+        rows.sort(key=lambda r: order.get(r["codename"], 999))
+
+        return {
+            "mapping": dict(CODENAME_TO_MODEL),
+            "cohort_active": True,
+            "cells": rows,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

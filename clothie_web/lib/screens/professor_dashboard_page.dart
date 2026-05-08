@@ -24,6 +24,7 @@ class _ProfessorDashboardPageState extends State<ProfessorDashboardPage> {
   late final bool _ownsApi;
 
   ProfessorAnalyticsViewModel? _viewModel;
+  Map<String, dynamic>? _cohortData; // null when study disabled (503) or load failed
   bool _loading = true;
   bool _unauthorized = false;
   String? _error;
@@ -58,6 +59,15 @@ class _ProfessorDashboardPageState extends State<ProfessorDashboardPage> {
       final tokenSessions = await _api.getTokenAnalytics(widget.secretKey);
       final demographics = await _api.getDemographics(widget.secretKey);
 
+      // Cohort analytics is best-effort: when ENABLE_COHORT_STUDY=false the
+      // backend returns 503 — we just hide the cohort card.
+      Map<String, dynamic>? cohort;
+      try {
+        cohort = await _api.getCohortAnalytics(widget.secretKey);
+      } catch (_) {
+        cohort = null;
+      }
+
       if (!mounted) return;
       setState(() {
         _viewModel = ProfessorAnalyticsViewModel.fromPayloads(
@@ -65,6 +75,7 @@ class _ProfessorDashboardPageState extends State<ProfessorDashboardPage> {
           tokenSessions: tokenSessions,
           demographics: demographics,
         );
+        _cohortData = cohort;
       });
     } catch (e) {
       if (!mounted) return;
@@ -195,12 +206,147 @@ class _ProfessorDashboardPageState extends State<ProfessorDashboardPage> {
                     const SizedBox(height: 16),
                     _buildDemographicsCard(vm),
                   ],
+                  if (_cohortData != null) ...[
+                    const SizedBox(height: 16),
+                    _buildCohortCard(_cohortData!),
+                  ],
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // Cohort Study card (4-Gemini A/B/C/D)
+  // ────────────────────────────────────────────────────────────────────
+
+  Widget _buildCohortCard(Map<String, dynamic> data) {
+    final mapping = (data['mapping'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final cells = (data['cells'] as List? ?? [])
+        .whereType<Map>()
+        .map((m) => m.cast<String, dynamic>())
+        .toList();
+
+    final theme = Theme.of(context);
+    final headers = const [
+      'Indigo', 'Crimson', 'Emerald', 'Amber',
+    ];
+    final cellByName = {for (final c in cells) (c['codename'] ?? '').toString(): c};
+
+    String fmt(num? v, {int decimals = 0, String? suffix}) {
+      if (v == null) return '—';
+      final s = decimals == 0 ? v.toInt().toString() : v.toStringAsFixed(decimals);
+      return suffix == null ? s : '$s$suffix';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.secondary.withOpacity(0.15),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('🧪', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Text(
+                'Cohort LLM Evaluation (4-Gemini)',
+                style: GoogleFonts.outfit(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Codename → Model mapping strip (admin-only reveal)
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            children: headers.map((codename) {
+              final model = mapping[codename] ?? '';
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '$codename = $model',
+                  style: GoogleFonts.firaCode(
+                    fontSize: 11,
+                    color: theme.colorScheme.secondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columnSpacing: 18,
+              columns: const [
+                DataColumn(label: Text('Metric')),
+                DataColumn(label: Text('Indigo')),
+                DataColumn(label: Text('Crimson')),
+                DataColumn(label: Text('Emerald')),
+                DataColumn(label: Text('Amber')),
+              ],
+              rows: [
+                _cohortRow('Sessions', headers, cellByName, 'n_sessions', fmt),
+                _cohortRow('Turns',    headers, cellByName, 'n_turns',    fmt),
+                _cohortRow('Avg input tokens / turn',  headers, cellByName, 'avg_input_tokens_per_turn',  fmt),
+                _cohortRow('Avg output tokens / turn', headers, cellByName, 'avg_output_tokens_per_turn', fmt),
+                _cohortRow('Total tokens / session',   headers, cellByName, 'total_tokens_per_session',   fmt),
+                _cohortRow('Total latency p50 (ms)',   headers, cellByName, 'total_p50_ms', fmt),
+                _cohortRow('Total latency p95 (ms)',   headers, cellByName, 'total_p95_ms', fmt),
+                _cohortRow('Intent latency p50 (ms)',  headers, cellByName, 'intent_p50_ms', fmt),
+                _cohortRow('Synthesis latency p50 (ms)', headers, cellByName, 'synthesis_p50_ms', fmt),
+                _cohortRow('Click-through rate', headers, cellByName, 'click_through_rate',
+                    (v, {int decimals = 0, String? suffix}) =>
+                        v == null ? '—' : '${(v * 100).toStringAsFixed(1)}%'),
+                _cohortRow('Cart adds / session', headers, cellByName, 'cart_adds_per_session',
+                    (v, {int decimals = 0, String? suffix}) =>
+                        v == null ? '—' : v.toStringAsFixed(2)),
+                _cohortRow('Avg rating (overall, 1-5)', headers, cellByName, 'avg_rating_overall',
+                    (v, {int decimals = 0, String? suffix}) =>
+                        v == null ? '—' : v.toStringAsFixed(2)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  DataRow _cohortRow(
+    String label,
+    List<String> codenames,
+    Map<String, Map<String, dynamic>> byName,
+    String key,
+    String Function(num? v, {int decimals, String? suffix}) fmt,
+  ) {
+    return DataRow(
+      cells: [
+        DataCell(Text(label, style: GoogleFonts.outfit(fontWeight: FontWeight.w500))),
+        for (final cn in codenames)
+          DataCell(Text(
+            fmt((byName[cn] ?? const {})[key] as num?),
+            style: GoogleFonts.firaCode(fontSize: 12),
+          )),
+      ],
     );
   }
 

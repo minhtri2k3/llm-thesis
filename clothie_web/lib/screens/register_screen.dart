@@ -57,7 +57,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      final sessionId = await _api.createSession(
+      final result = await _api.createSessionFull(
         name,
         yearInt,
         _selectedGender!,
@@ -66,14 +66,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (mounted) {
         context.goNamed(
           'chat',
-          extra: ChatRouteArgs(sessionId: sessionId, userName: name),
+          extra: ChatRouteArgs(
+            sessionId: result.sessionId,
+            userName: name,
+            agentCodename: result.cohortActive ? result.agentCodename : null,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _error = 'Failed to start session. Please try again.';
+          _error = e.toString().contains('Cohort study already completed')
+              ? 'You have already completed all 4 cohort sessions for this name. '
+                'Please use a different name.'
+              : 'Failed to start session. Please try again.';
         });
       }
     }
