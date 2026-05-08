@@ -116,29 +116,29 @@ The Clothie reference deployment is a single Docker Compose stack on a 16\,GB Ap
 \centering
 \caption{Runtime components in the Clothie deployment.}
 \label{tab:impl_stack_components}
-\small
-\begin{tabular}{p{3.4cm} p{3.6cm} p{6.6cm}}
+\footnotesize
+\begin{tabular}{>{\raggedright\arraybackslash}p{4.0cm} >{\raggedright\arraybackslash}p{3.0cm} >{\raggedright\arraybackslash}p{7.0cm}}
 \toprule
-\textbf{Component} & \textbf{Version (pinned / image)} & \textbf{Role} \\
+\textbf{Component} & \textbf{Version / image} & \textbf{Role} \\
 \midrule
-Python runtime & 3.11 (slim base image) & Hosts the FastAPI process, the agent, the search engine, and the model loaders. \\
+Python runtime & 3.11-slim & Hosts the FastAPI process, the agent, the search engine, and the model loaders. \\
 FastAPI & $\geq 0.104$ & HTTP server exposing \texttt{/api/chat}, \texttt{/api/chat/stream}, sessions, products, images, and analytics. \\
-Uvicorn (\texttt{[standard]}) & $\geq 0.24$ & ASGI worker driving FastAPI under the same process as Gradio. \\
+Uvicorn \texttt{[standard]} & $\geq 0.24$ & ASGI worker driving FastAPI under the same process as Gradio. \\
 Gradio & $\geq 4.0$ & Fallback chat UI mounted at \texttt{/} for development sanity checks. \\
 Pydantic & $\geq 2.0$ & Request / response validation for every API route. \\
-PostgreSQL & 16-alpine (\texttt{postgres:16-alpine}) & Source of truth for sessions, conversation history, selections, ratings, token usage, impressions, clicks, intents, orders. \\
-Qdrant & \texttt{qdrant/qdrant:latest} & Vector store for image and text embeddings; collection \texttt{fashion\_products}. \\
+PostgreSQL & \texttt{postgres:}\newline\texttt{16-alpine} & Source of truth for sessions, conversation history, selections, ratings, token usage, impressions, clicks, intents, orders. \\
+Qdrant & \texttt{qdrant/}\newline\texttt{qdrant:latest} & Vector store for image and text embeddings; collection \texttt{fashion\_products}. \\
 \texttt{psycopg2-binary} & $\geq 2.9.9$ & Sole Postgres driver; used through a module-level \texttt{SimpleConnectionPool}. \\
 \texttt{qdrant-client} & $\geq 1.7$ & HTTP client to Qdrant, prefer-gRPC disabled for local container reach. \\
 \texttt{rank-bm25} & $\geq 0.2.2$ & In-memory BM25 lexical retriever rebuilt on API startup (Algorithm~\ref{alg:bm25_composition}). \\
 \texttt{rapidfuzz} & $\geq 3.5$ & Soft post-fusion filter on tokenised captions / labels. \\
-\texttt{open-clip-torch} + Marqo-FashionSigLIP & $\geq 2.24$ / 768-d & Cross-modal encoder used by Algorithm~\ref{alg:fashionsiglip} to project images and queries into a shared cosine space. \\
-\texttt{transformers} + BGE Reranker v2-m3 & $\geq 4.36$ / 568\,M params & Cross-encoder used by Algorithm~\ref{alg:rerank_blend} to score the fused candidate set. \\
+\texttt{open-clip-torch}\newline + Marqo-FashionSigLIP & $\geq 2.24$ / 768-d & Cross-modal encoder used by Algorithm~\ref{alg:fashionsiglip} to project images and queries into a shared cosine space. \\
+\texttt{transformers}\newline + BGE Reranker v2-m3 & $\geq 4.36$ & Cross-encoder used by Algorithm~\ref{alg:rerank_blend} to score the fused candidate set. \\
 \texttt{torch} & $\geq 2.1$ & Tensor backend for both encoders; chooses the device at first use. \\
-Gemini 2.5 Flash via \texttt{google-generativeai} & $\geq 0.3$ & The single LLM client wired into intent classification (Algorithm~\ref{alg:intent_class}), query expansion (Algorithm~\ref{alg:expand_query}), and synthesis (Algorithm~\ref{alg:synthesize_response}). \\
+Gemini 2.5 Flash\newline(\texttt{google-generativeai}) & $\geq 0.3$ & The single LLM client wired into intent classification (Algorithm~\ref{alg:intent_class}), query expansion (Algorithm~\ref{alg:expand_query}), and synthesis (Algorithm~\ref{alg:synthesize_response}). \\
 Flutter (web) & 3.x stable & Cross-platform shell compiled to JS, served from a Nginx container on port 3000. \\
 Docker Compose & v2 plugin & Orchestrates the five services described in Section~\ref{sec:impl_deploy}. \\
-ngrok agent & \texttt{ngrok/ngrok:latest} & Public-URL tunnel; binds a reserved \texttt{*.ngrok-free.app} subdomain to \texttt{clothie-web:80}. \\
+ngrok agent & \texttt{ngrok/ngrok:}\newline\texttt{latest} & Public-URL tunnel; binds a reserved \texttt{*.ngrok-free.app} subdomain to \texttt{clothie-web:80}. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -170,23 +170,129 @@ Section~\ref{sec:impl_prompts} documents the prompt artefacts that drive intent 
 
 \subsection{Prompt Artefact Inventory}
 
-Every prompt template lives in a single Python module (\texttt{agent/prompts.py}); inlining prompts elsewhere is forbidden by an in-file warning so that every template remains reviewable in one place. Table~\ref{tab:impl_prompt_artefacts} lists the artefacts and the JSON shape each call is expected to return.
+Every prompt template lives in a single Python module (\texttt{agent/prompts.py}); inlining prompts elsewhere is forbidden by an in-file warning so that every template remains reviewable in one place. The body of the central template, \texttt{INTENT\_PROMPT}, is reproduced verbatim below; Table~\ref{tab:impl_prompt_artefacts} then catalogues every prompt artefact and its parse contract.
+
+\begin{tcolorbox}[
+    breakable,
+    enhanced,
+    colback=gray!5,
+    colframe=black!55,
+    arc=2pt,
+    boxrule=0.4pt,
+    left=4pt, right=4pt, top=4pt, bottom=4pt,
+    fontupper=\ttfamily\scriptsize,
+    title=\textnormal{\normalfont\bfseries\small \texttt{INTENT\_PROMPT} body --- \texttt{fashion\_agent/agent/prompts.py}},
+    colbacktitle=gray!25,
+    coltitle=black,
+]
+You are operating within a multilingual fashion recommendation research system designed to study LLM recommendation quality and user purchase intent. You serve Vietnamese, Spanish, and English users. All your responses MUST be in the same language as the user's message.
+
+You are a fashion shopping assistant. Classify the user's message into one of these intents:
+
+1. ``text\_search'' --- User wants to find specific fashion items (e.g., ``find a white shirt'', ``show me blue dresses'')
+
+2. ``outfit\_request'' --- User wants fashion recommendations, outfit suggestions, or styling advice (e.g., ``suggest an outfit for a party'', ``what goes with a black blazer?'')
+
+3. ``follow\_up'' --- User is following up on a previous search/recommendation (e.g., ``any other colors?'', ``anything cheaper?'', ``the second one'')
+
+4. ``product\_select'' --- User wants to SELECT/CHOOSE specific products from the most recently shown search results. Signals: numbers (1-6, ``\#2''), ordinals (``first'', ``third'', ``đầu tiên''), selection verbs (``I want'', ``lấy'', ``chọn'', ``pick'', ``I'll take''), or description references (``the quilted one'', ``cái áo navy''). ONLY classify as product\_select if the conversation history shows recent search results were displayed.
+
+5. ``view\_selections'' --- User wants to view their saved/selected products (e.g., ``show my selections'', ``what did I pick?'', ``my picks'', ``xem các sản phẩm đã chọn'', ``ver mis selecciones'')
+
+6. ``out\_of\_scope'' --- User is asking about non-fashion topics (e.g., ``today's weather'', ``how to cook pasta'')
+
+7. ``unclear'' --- User's request is too vague to search or classify (e.g., ``find something nice'', ``something cool'')
+
+Also extract any mentioned filters:\\
+- category: the type of clothing (Shirt, Dress, Pants, etc.)\\
+- color: mentioned colors\\
+- style: mentioned style (formal, casual, street, etc.)\\
+- occasion: mentioned occasion (office, party, date, etc.)
+
+AND extract these 6 detailed slots from the user's query:\\
+- slot\_category: specific type of clothing (e.g., ``Shirt'', ``Dress'', ``Jacket'', ``Pants'')\\
+- slot\_color: specific color (e.g., ``white'', ``navy blue'', ``red with stripes'')\\
+- slot\_fabric: material/texture (e.g., ``cotton'', ``silk'', ``denim'', ``chiffon'', ``linen'')\\
+- slot\_fit: silhouette/fit (e.g., ``slim fit'', ``oversized'', ``A-line'', ``relaxed fit'', ``regular'')\\
+- slot\_construction: construction details (e.g., ``point collar'', ``zip closure'', ``button-down'', ``crew neck'', ``v-neck'')\\
+- slot\_aesthetic: overall style/aesthetic (e.g., ``casual'', ``formal'', ``minimalist'', ``vintage'', ``streetwear'')
+
+AND if intent is ``product\_select'', extract:\\
+- selected\_numbers: a list of integers representing which product numbers the user selected. Map ordinals to numbers (first=1, second=2, third=3, etc.). Map descriptions to the matching product number from the conversation history. Return [] if the specific product cannot be determined.
+
+Set each slot to ``'' if the user did NOT mention that information.
+
+And provide a refined search query in English that would work well for semantic search.\\
+Provide a confidence score from 0.0 to 1.0 indicating how certain you are about the classification.
+
+\#\# Few-shot examples:
+
+User: ``find a white cotton slim fit minimalist shirt''\\
+→ \{\{``intent'': ``text\_search'', ``confidence'': 0.95, ``filters'': \{\{``category'': ``Shirt'', ``color'': ``white'', ``style'': ``minimalist'', ``occasion'': ``''\}\}, ``refined\_query'': ``white cotton slim fit minimalist shirt'', ``slot\_category'': ``Shirt'', ``slot\_color'': ``white'', ``slot\_fabric'': ``cotton'', ``slot\_fit'': ``slim fit'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``minimalist'', ``selected\_numbers'': []\}\}
+
+User: ``find a white men's shirt''\\
+→ \{\{``intent'': ``text\_search'', ``confidence'': 0.95, ``filters'': \{\{``category'': ``Shirt'', ``color'': ``white'', ``style'': ``'', ``occasion'': ``''\}\}, ``refined\_query'': ``white men shirt'', ``slot\_category'': ``Shirt'', ``slot\_color'': ``white'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
+
+User: ``suggest an outfit for a weekend party''\\
+→ \{\{``intent'': ``outfit\_request'', ``confidence'': 0.9, ``filters'': \{\{``category'': ``'', ``color'': ``'', ``style'': ``party'', ``occasion'': ``weekend party''\}\}, ``refined\_query'': ``party outfit weekend'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``party'', ``selected\_numbers'': []\}\}
+
+User: ``what about blue?''\\
+→ \{\{``intent'': ``follow\_up'', ``confidence'': 0.85, ``filters'': \{\{``category'': ``'', ``color'': ``blue'', ``style'': ``'', ``occasion'': ``''\}\}, ``refined\_query'': ``blue variant'', ``slot\_category'': ``'', ``slot\_color'': ``blue'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
+
+User: ``2'' (after search results were shown)\\
+→ \{\{``intent'': ``product\_select'', ``confidence'': 0.9, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [2]\}\}
+
+User: ``I want the first and third one'' (after search results were shown)\\
+→ \{\{``intent'': ``product\_select'', ``confidence'': 0.9, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [1, 3]\}\}
+
+User: ``lấy cái áo quilted navy'' (after results show a quilted navy item at \#2)\\
+→ \{\{``intent'': ``product\_select'', ``confidence'': 0.85, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [2]\}\}
+
+User: ``show my selections''\\
+→ \{\{``intent'': ``view\_selections'', ``confidence'': 0.95, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
+
+User: ``what's the weather like today?''\\
+→ \{\{``intent'': ``out\_of\_scope'', ``confidence'': 0.95, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
+
+User: ``find something nice''\\
+→ \{\{``intent'': ``unclear'', ``confidence'': 0.4, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
+
+\#\# Conversation history (last 4 messages):\\
+\{history\_text\}
+
+Respond ONLY with valid JSON in this exact format:\\
+\{\{\\
+~~~~``intent'': ``text\_search$|$outfit\_request$|$follow\_up$|$product\_select$|$view\_selections$|$out\_of\_scope$|$unclear'',\\
+~~~~``confidence'': 0.0,\\
+~~~~``filters'': \{\{``category'': ``'', ``color'': ``'', ``style'': ``'', ``occasion'': ``''\}\},\\
+~~~~``refined\_query'': ``'',\\
+~~~~``slot\_category'': ``'',\\
+~~~~``slot\_color'': ``'',\\
+~~~~``slot\_fabric'': ``'',\\
+~~~~``slot\_fit'': ``'',\\
+~~~~``slot\_construction'': ``'',\\
+~~~~``slot\_aesthetic'': ``'',\\
+~~~~``selected\_numbers'': []\\
+\}\}
+
+User message:
+\end{tcolorbox}
 
 \begin{table}[H]
 \centering
 \caption{Prompt artefacts in \texttt{agent/prompts.py} and their parse contract.}
 \label{tab:impl_prompt_artefacts}
-\small
-\begin{tabular}{p{3.0cm} p{4.6cm} p{4.0cm} p{2.6cm}}
+\scriptsize
+\begin{tabular}{p{4.0cm} p{6.0cm} p{4.2cm}}
 \toprule
-\textbf{Name} & \textbf{Purpose} & \textbf{Expected JSON shape} & \textbf{Fallback on parse failure} \\
+\textbf{Name} & \textbf{Purpose / expected JSON shape} & \textbf{Fallback on parse failure} \\
 \midrule
-\texttt{INTENT\_PROMPT} & Single-call intent classification + six-slot extraction + selection-number extraction; few-shot, multilingual. & \texttt{intent}, \texttt{confidence}, \texttt{filters}, \texttt{refined\_query}, six \texttt{slot\_*}, \texttt{selected\_numbers}. & Treat as \texttt{unclear}, route to deterministic clarification (Algorithm~\ref{alg:build_clarification}). \\
-\texttt{SYNTHESIS\_PROMPT} & Non-streamed final answer with optional styling tip; locked to detected language. & \texttt{answer}, \texttt{styling\_suggestion}. & Use raw text as \texttt{answer}, leave \texttt{styling\_suggestion} empty. \\
-\texttt{STREAM\_SYNTHESIS\_PROMPT} & Streaming variant; emits plain text and an inline ``Styling tip:'' marker rather than JSON. & Plain text; \texttt{token} SSE events. & Plain text already; nothing to recover from. \\
-\texttt{EXPANSION\_PROMPT} & Generates short paraphrases of the user query for BM25 recall (Algorithm~\ref{alg:expand_query}). & JSON array of strings. & Use only the original query; skip expansion. \\
-\texttt{CLARIFICATION\_PROMPT} & LLM-driven clarification used only when the deterministic gate cannot construct one. & \texttt{question}. & Use the per-language \texttt{FALLBACK\_QUESTION}. \\
-\texttt{OUT\_OF\_SCOPE\_RESPONSE}, \texttt{UNSUPPORTED\_CATEGORY\_RESPONSE} & Static refusal / redirect messages keyed by language. & --- (no LLM call). & --- \\
+\texttt{INTENT\_PROMPT} & Single-call intent classification, six-slot extraction, and selection-number extraction. JSON: \texttt{intent}, \texttt{confidence}, \texttt{filters}, \texttt{refined\_query}, six \texttt{slot\_*}, \texttt{selected\_numbers}. & Treat as \texttt{unclear}; route to the deterministic clarification gate (Algorithm~\ref{alg:build_clarification}). \\
+\texttt{SYNTHESIS\_PROMPT} & Non-streamed final answer with optional styling tip; locked to the detected language. JSON: \texttt{answer}, \texttt{styling\_suggestion}. & Use raw text as \texttt{answer}; leave \texttt{styling\_suggestion} empty. \\
+\texttt{STREAM\_SYNTHESIS\_\allowbreak PROMPT} & Streaming variant; emits plain text and an inline ``Styling tip:'' marker rather than JSON. & Plain text already; no recovery needed. \\
+\texttt{EXPANSION\_PROMPT} & Short paraphrases of the user query for BM25 recall (Algorithm~\ref{alg:expand_query}); returns a JSON array of strings. & Use only the original query; skip expansion. \\
+\texttt{CLARIFICATION\_\allowbreak PROMPT} & LLM-driven clarification used only when the deterministic gate cannot construct one. JSON: \texttt{question}. & Use the per-language \texttt{FALLBACK\_QUESTION}. \\
+\texttt{OUT\_OF\_SCOPE\_\allowbreak RESPONSE}, \texttt{UNSUPPORTED\_\allowbreak CATEGORY\_RESPONSE} & Static refusal / redirect strings keyed by language; not LLM calls. & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -485,21 +591,22 @@ Every behavioural switch and every credential is supplied through the \texttt{.e
 \centering
 \caption{Environment variables consumed at runtime.}
 \label{tab:impl_env}
-\small
-\begin{tabular}{p{4.0cm} p{2.4cm} p{7.0cm}}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{>{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}p{2.2cm} >{\raggedright\arraybackslash}p{7.2cm}}
 \toprule
 \textbf{Variable} & \textbf{Consumer} & \textbf{Default / Effect when absent} \\
 \midrule
-\texttt{PG\_PASSWORD} & \texttt{postgres}, \texttt{fashion-api} & Required; Compose refuses to start without it. \\
-\texttt{PGHOST} / \texttt{PGPORT} / \texttt{PGDATABASE} / \texttt{PGUSER} & \texttt{fashion-api} & Defaults: \texttt{postgres}, \texttt{5432}, \texttt{fashion\_rag}, \texttt{fashion\_user}. \\
-\texttt{QDRANT\_HOST} / \texttt{QDRANT\_PORT} & \texttt{fashion-api} & Defaults: \texttt{qdrant}, \texttt{6333}. \\
+\texttt{PG\_PASSWORD} & \texttt{postgres},\newline\texttt{fashion-api} & Required; Compose refuses to start without it. \\
+\texttt{PGHOST} / \texttt{PGPORT} /\newline\texttt{PGDATABASE} / \texttt{PGUSER} & \texttt{fashion-api} & Defaults: \texttt{postgres}, \texttt{5432}, \texttt{fashion\_rag}, \texttt{fashion\_user}. \\
+\texttt{QDRANT\_HOST} /\newline\texttt{QDRANT\_PORT} & \texttt{fashion-api} & Defaults: \texttt{qdrant}, \texttt{6333}. \\
 \texttt{QDRANT\_API\_KEY} & \texttt{fashion-api} & Forced empty in Compose to keep the local container on plain HTTP. \\
 \texttt{GEMINI\_API\_KEY} & \texttt{fashion-api} & Required for any LLM call (intent, expansion, synthesis). \\
-\texttt{ENABLE\_PATH2\_IMAGE\_SEARCH} & \texttt{fashion-api} & Default \texttt{false}; PATH 2 endpoints return 503 until set. \\
-\texttt{PATH2\_MAX\_UPLOAD\_BYTES} / \texttt{PATH2\_MAX\_TOP\_K} & \texttt{fashion-api} & Defaults: 5\,MiB and 20; bound the PATH 2 endpoint inputs. \\
-\texttt{SEARCH\_CONFIDENCE\_THRESHOLD} & \texttt{fashion-api} & Default 0.75; threshold of the slot-readiness gate (Algorithm~\ref{alg:slot_readiness}). \\
-\texttt{DATASET\_IMAGES\_HOST\_PATH} & \texttt{fashion-api} & Bound read-only at \texttt{/app/dataset\_images}; falls back to \texttt{./images} when unset. \\
-\texttt{HF\_HOME} / \texttt{TRANSFORMERS\_CACHE} & \texttt{fashion-api} & Pinned to \texttt{/app/models} so encoder weights cache to a host-mounted directory. \\
+\texttt{ENABLE\_PATH2\_\allowbreak IMAGE\_SEARCH} & \texttt{fashion-api} & Default \texttt{false}; PATH 2 endpoints return 503 until set. \\
+\texttt{PATH2\_MAX\_\allowbreak UPLOAD\_BYTES} /\newline\texttt{PATH2\_MAX\_TOP\_K} & \texttt{fashion-api} & Defaults: 5\,MiB and 20; bound the PATH 2 endpoint inputs. \\
+\texttt{SEARCH\_CONFIDENCE\_\allowbreak THRESHOLD} & \texttt{fashion-api} & Default 0.75; threshold of the slot-readiness gate (Algorithm~\ref{alg:slot_readiness}). \\
+\texttt{DATASET\_IMAGES\_\allowbreak HOST\_PATH} & \texttt{fashion-api} & Bound read-only at \texttt{/app/dataset\_images}; falls back to \texttt{./images} when unset. \\
+\texttt{HF\_HOME} /\newline\texttt{TRANSFORMERS\_CACHE} & \texttt{fashion-api} & Pinned to \texttt{/app/models} so encoder weights cache to a host-mounted directory. \\
 \texttt{ADMIN\_SECRET\_KEY} & \texttt{fashion-api} & Gates the analytics endpoints behind the \texttt{X-Admin-Key} header. \\
 \texttt{NGROK\_AUTHTOKEN} & \texttt{ngrok-fe} & Required to start the ngrok agent; obtained from the operator's ngrok dashboard. \\
 \texttt{NGROK\_DOMAIN} & \texttt{ngrok-fe} & Reserved subdomain forwarded to \texttt{clothie-web:80} (e.g.\ \texttt{*.ngrok-free.app}). When unset, Compose falls back to the literal default hostname embedded in the service definition. \\
