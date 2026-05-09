@@ -1,6 +1,6 @@
-The central question motivating this work is whether an agentic retrieval-augmented generation framework can dynamically resolve intent ambiguity to provide accurate product recommendations from indeterminate or "unclear" user messages. Answering this question requires three methodological decisions: designing a reasoning engine capable of iterative intent disambiguation, developing a tool-augmented RAG pipeline to ensure deterministic and grounded product retrieval, and establishing an experimental protocol that evaluates the system’s performance across varying levels of query clarity.
+The central question motivating this work is whether a single-LLM, intent-first agent built on retrieval-augmented generation can dynamically resolve intent ambiguity to provide accurate product recommendations from indeterminate or "unclear" user messages. Answering this question requires three methodological decisions: designing a reasoning engine that disambiguates user intent in a single classification call, developing a tool-augmented RAG pipeline to ensure deterministic and grounded product retrieval, and establishing an experimental protocol that evaluates the system’s performance across varying levels of query clarity.
 
-This chapter proceeds in that order. Section 3.1 outlines the high-level system architecture of the proposed Clothie framework. Sections 3.2 through 3.6 specify the individual pipeline components, including the agentic planner, the tool-calling orchestration, and the vector-based retrieval strategy. Section 3.7 describes the dataset and knowledge base construction, while Section 3.8 defines the evaluation metrics and experimental matrix used to validate the system’s efficacy in supporting dynamic consumer decisions.
+This chapter proceeds in that order. Section 3.1 outlines the high-level system architecture of the proposed Clothie framework. Sections 3.2 through 3.6 specify the individual pipeline components, including the intent-first agent planner, the tool-calling orchestration, and the vector-based retrieval strategy. Section 3.7 describes the dataset and knowledge base construction, while Section 3.8 defines the evaluation metrics and experimental matrix used to validate the system’s efficacy in supporting dynamic consumer decisions.
 
 \section{Research Design and Proposal System Architecture}
 \subsection{Research Design and Technical Evolution}
@@ -341,7 +341,7 @@ The encoder used in line~7 above is described next; the BM25 corpus itself is re
 \end{algorithmic}
 \end{algorithm}
 
-\section{The Agentic Reasoning Engine}
+\section{The Agent Reasoning Engine}
 
 This section walks through the five-step pipeline introduced schematically in Section~3.1.2 (Figure~\ref{fig:workflow_v2}) and specifies the data structures, gates, and clarification logic that sit behind it. The next two sections (Section~3.4 on retrieval pipelines and Section~3.5 on tool-augmented execution) then specify the search engines that the gate routes traffic into and the deterministic logic that runs on their results.
 

@@ -15,7 +15,7 @@ This thesis proposes an optimized Agentic workflow designed to minimize unnecess
     \item \textbf{PATH 2: Visual Image-to-Image Search:} A computer vision-driven path that utilizes the \textit{Marqo-FashionSigLIP} model to extract stylistic features from user-uploaded references, providing similar products accompanied by AI-generated styling rationale.
 \end{itemize}
 
-By utilizing a "Reason-then-Act" (ReAct) loop, the system acts as a fiscal orchestrator, ensuring that LLM calls are only made when the confidence interval of the user's intent is sufficiently high.
+Rather than committing to a multi-step "Reason-then-Act" (ReAct) loop, the agent issues a single intent-classification call per turn that decides whether to ask a clarifying question or invoke the retrieval tool chain. This intent-first design turns the orchestrator into a fiscal gate: LLM calls are made only when the confidence interval of the user's intent is sufficiently high, capping the per-turn cost at one or two LLM calls.
 
 \section{Research Objectives}
 To address these challenges, this research pursues the following three primary objectives:
@@ -28,7 +28,7 @@ Ensure the system's viability for \textbf{Small-to-Medium Enterprise (SME)} adop
 
 Architect an Agentic Orchestrator that optimizes token consumption through intelligent intent classification and strategic tool-calling.
 
-Develop a reasoning logic (ReAct) that reduces the cost-per-session and API overhead compared to standard, linear Retrieval-Augmented Generation (RAG) implementations.
+Develop an intent-first reasoning logic that bounds per-turn LLM calls to one or two, reducing both cost-per-session and end-to-end latency compared with linear Retrieval-Augmented Generation (RAG) implementations and with multi-step ReAct loops.
 
 \subsection{Resolution of Semantic and Subjective Ambiguity}
 
@@ -39,9 +39,6 @@ Enable the system to proactively clarify intent and provide context-aware sugges
 
 \section{Summary of Contributions}
 
-The primary contributions of this thesis include the development of the Clothie Agent Framework, which represents a novel integration of a ReAct-based Agent with a Hybrid RAG pipeline specifically tuned for the fashion domain. Additionally, this work provides a comprehensive empirical dataset that measures the relationship among user behavior, query complexity, and the resulting token expenditure across different model architectures. Finally, the research delivers a production pipeline featuring PostgreSQL persistence, BGE reranking, and a proactive clarification mechanism that gracefully handles user ambiguity.
+The primary contributions of this thesis include the development of the Clothie Agent Framework, which represents a novel integration of a single-LLM intent-first agent with a Hybrid RAG pipeline specifically tuned for the fashion domain --- engineered to maximise retrieval accuracy while keeping per-turn token cost and response latency within tight bounds. Additionally, this work provides a comprehensive empirical dataset that measures the relationship among user behavior, query complexity, and the resulting token expenditure across different model architectures. Finally, the research delivers a production pipeline featuring PostgreSQL persistence, BGE reranking, and a proactive clarification mechanism that gracefully handles user ambiguity.
 
-\section{Thesis Organization}
-
-Chapter2 sẽ nói về những việc
- 
+Chapter 2 reviews related work on conversational product recommendation, retrieval-augmented generation in e-commerce, agentic workflows, methods for resolving query ambiguity, and tool-augmented versus direct execution, closing with a research-gap statement that defines the target this thesis addresses. Chapter 3 presents the methodology, including dataset construction, the six-slot intent classifier and clarification gate that handle user ambiguity, the seven-stage hybrid retrieval pipeline, and deterministic tool-augmented orchestration. Chapter 4 describes the implementation, covering repository layout, technology stack, prompt artefacts, the Qdrant and PostgreSQL knowledge base, and the multimodal Flutter and Gradio interface. Chapter 5 reports the empirical results that back the Chapter 3 design, anchored to PostgreSQL telemetry across cohort integrity, knowledge-base quality, LLM call discipline, implicit relevance from user behaviour, and subjective ratings. Chapter 6 discusses the design strengths of the deployed system together with the residual operational risks and their mitigations. Chapter 7 concludes the thesis by reviewing what the empirical chapter established, listing the limitations of the present work, and outlining future-work directions for scaling the platform.

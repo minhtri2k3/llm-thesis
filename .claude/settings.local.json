@@ -19,7 +19,8 @@
       "Bash(openspec change *)",
       "Bash(python3 -c ' *)",
       "Bash(docker exec fashion-postgres *)",
-      "Bash(python3 -c \"import sys, json; d = json.load\\(sys.stdin\\); p = d['progress']; print\\(f'Progress: {p[\\\\\"complete\\\\\"]}/{p[\\\\\"total\\\\\"]} tasks complete'\\); print\\(f'State: {d.get\\(\\\\\"state\\\\\", \\\\\"unknown\\\\\"\\)}'\\)\")"
+      "Bash(python3 -c \"import sys, json; d = json.load\\(sys.stdin\\); p = d['progress']; print\\(f'Progress: {p[\\\\\"complete\\\\\"]}/{p[\\\\\"total\\\\\"]} tasks complete'\\); print\\(f'State: {d.get\\(\\\\\"state\\\\\", \\\\\"unknown\\\\\"\\)}'\\)\")",
+      "WebFetch(domain:arxiv.org)"
     ]
   }
 }
