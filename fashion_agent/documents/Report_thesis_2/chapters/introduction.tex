@@ -1,7 +1,10 @@
-\section{Problem Statement}
-In the contemporary landscape of Artificial Intelligence, the democratization of Large Language Models (LLMs) has sparked a paradigm shift in how businesses interact with consumers. However, as these models transition from experimental research to commercial production, a new economic reality has emerged: the "token-based economy." Every inference call represents a fiscal cost, and for a modern enterprise, the indiscriminate use of LLMs can lead to prohibitive operational expenses. 
+Unlike electronics or books, fashion is inherently subjective. A user’s "style" is not a fixed attribute but a fluid expression influenced by occasion, mood, and personal aesthetic. Traditional search engines fail in this domain because they rely on rigid metadata; they can find a "blue shirt," but they cannot comprehend "an outfit that looks professional yet approachable for a first interview."  This gap creates a Semantic Ambiguity: user queries in fashion are often vague and context-dependent. Choosing to build Clothie as an LLM-based recommendation system is a strategic response to this challenge. By leveraging the reasoning capabilities of Large Language Models, the system can decode the ambiguity of human intent, transforming subjective desires into precise, situational product suggestions.
 
-The challenge no longer lies solely in the capability of a model to generate text, but in the intelligent orchestration of these models to provide high-value output—such as personalized fashion recommendations—while maintaining computational and fiscal efficiency. This research explores the frontier of "Clothie," an intelligent fashion assistant designed to operate under strict data constraints, utilizing only product labels and images, to bridge the gap between sophisticated user intent and cost-effective system execution.
+
+\section{Problem Statement}
+In the landscape of Artificial Intelligence, the democratization of Large Language Models (LLMs) has sparked a paradigm shift in how businesses interact with consumers. However, as these models transition from experimental research to commercial production, a new economic reality has emerged: the "token-based economy." Every inference call represents a fiscal cost, and for a modern enterprise, the indiscriminate use of LLMs can lead to prohibitive operational expenses. 
+
+The challenge no longer lies solely in text generation, but in the intelligent orchestration of models to deliver high-value output while maintaining computational and fiscal efficiency. This research explores 'Clothie,' an intelligent fashion assistant designed to transform \textbf{minimal product data} into \textbf{high-precision recommendations}. By resolving the tension between vague user intent and system performance, Clothie achieves a balance of superior accuracy, rapid response, and cost-effective execution.
 
 \section{Proposed Approach}
 
@@ -15,19 +18,30 @@ This thesis proposes an optimized Agentic workflow designed to minimize unnecess
 By utilizing a "Reason-then-Act" (ReAct) loop, the system acts as a fiscal orchestrator, ensuring that LLM calls are only made when the confidence interval of the user's intent is sufficiently high.
 
 \section{Research Objectives}
-To address the aforementioned challenges, this research pursues the following three primary objectives:
+To address these challenges, this research pursues the following three primary objectives:
+\subsection{Scalable Retrieval under Data Constraints}
+Design and implement a scalable fashion retrieval engine capable of high-precision search using restricted data inputs (primarily images and basic labels).
+
+Ensure the system's viability for \textbf{Small-to-Medium Enterprise (SME)} adoption by removing the dependency on expensive, high-quality metadata
+
+\subsection{Cost-Efficient Agentic Orchestration}
+
+Architect an Agentic Orchestrator that optimizes token consumption through intelligent intent classification and strategic tool-calling.
+
+Develop a reasoning logic (ReAct) that reduces the cost-per-session and API overhead compared to standard, linear Retrieval-Augmented Generation (RAG) implementations.
+
+\subsection{Resolution of Semantic and Subjective Ambiguity}
 
 
-Develop a scalable fashion retrieval system capable of high-precision search using restricted data inputs (images and labels only), making it viable for small-to-medium enterprise (SME) adoption. \\
-Architect an Agentic orchestrator that optimizes token consumption through intelligent tool-calling and intent classification, reducing the cost-per-session compared to standard RAG implementations.
+Leverage LLM reasoning to bridge the gap between vague user queries and precise product discovery.
 
-
+Enable the system to proactively clarify intent and provide context-aware suggestions, transforming subjective "style" requirements into accurate, image-based recommendations.
 
 \section{Summary of Contributions}
 
-The primary contributions of this thesis include the development of the Clothie Agent Framework, which represents a novel integration of a ReAct-based Agent with a Hybrid RAG pipeline specifically tuned for the fashion domain. Additionally, this work provides a comprehensive empirical dataset measuring the relationship between user behavior, query complexity, and the resulting token expenditure across different model architectures. Finally, the research delivers a production-ready pipeline featuring PostgreSQL persistence, BGE reranking, and a proactive clarification mechanism that handles user ambiguity gracefully.
+The primary contributions of this thesis include the development of the Clothie Agent Framework, which represents a novel integration of a ReAct-based Agent with a Hybrid RAG pipeline specifically tuned for the fashion domain. Additionally, this work provides a comprehensive empirical dataset that measures the relationship among user behavior, query complexity, and the resulting token expenditure across different model architectures. Finally, the research delivers a production pipeline featuring PostgreSQL persistence, BGE reranking, and a proactive clarification mechanism that gracefully handles user ambiguity.
 
 \section{Thesis Organization}
-% ===========================================================================
-% CHAPTER 2: DATA PRE-PROCESSING
-% ===========================================================================
+
+Chapter2 sẽ nói về những việc
+ 

@@ -1,51 +1,57 @@
 % Chapter 8: CONCLUSION
-% Content from: evaluation_conclusion.tex (lines 144-191)
 
 \section{Conclusion}
-This project successfully built an intelligent multimodal fashion search system following a clear two-phase roadmap. The RAG v1.0 phase established a hybrid search foundation with FashionCLIP 2.0 and BM25. Agent v2.0 then expanded into two paths: PATH 1 upgraded to a proactive architecture featuring a ReAct loop, intent classification, a clarification gate, and persistent memory via PostgreSQL, while PATH 2 added image-to-image composed search for visual product retrieval.
+This thesis has built and deployed an intelligent multimodal fashion search system in two phases. The RAG~v1.0 phase established a hybrid search foundation with FashionCLIP and BM25. The Agent~v2.0 phase refactored that foundation into a deterministically routed agent that pairs intent classification, a slot-completeness clarification gate, multi-turn session memory in PostgreSQL, and a seven-stage retrieval pipeline. A second pathway, PATH~2, was added for image-to-image visual lookup; it is feature-flagged and shares the same FashionSigLIP encoder and Qdrant collection as PATH~1.
 
+Several technical changes between the two phases are structural and verifiable from code:
 
-Version v2.0 represents significant improvements over v1.0:
 \begin{itemize}
-    \item \textbf{Embedding}: Upgraded from FashionCLIP (512-d) to Marqo-FashionSigLIP (768-d).
-    \item \textbf{Query Expansion}: Added Gemini-powered synonym expansion for short queries.
-    \item \textbf{Reranker}: Integrated BGE Reranker v2-m3 cross-encoder for improved precision.
-    \item \textbf{Deployment}: Docker Compose stack with 4 services (PostgreSQL + Qdrant + FastAPI + Cloudflare Tunnel).
+    \item \textbf{Embedding}: the encoder switched from FashionCLIP (512-d) to Marqo-FashionSigLIP (768-d), with both image and text embeddings stored as named vectors in a single Qdrant collection.
+    \item \textbf{Query expansion}: a Gemini-powered expansion step was added, gated to short queries (under six words), so that long natural-language queries reach search unmodified.
+    \item \textbf{Reranker}: a BGE Reranker v2-m3 cross-encoder was integrated, with reranker and RRF scores combined as $0.7\times R + 0.3\times \text{RRF}$.
+    \item \textbf{Deployment}: a Docker Compose stack with four services (PostgreSQL, Qdrant, FastAPI, and a Cloudflare tunnel) exposes the agent as a public chat endpoint and a Flutter web frontend.
 \end{itemize}
 
-\subsection{Evidence-Based Claim Mapping for Final Conclusion}
-\label{subsec:evidence_claim_mapping}
+These items describe what was built. The empirical statements about how the deployed system behaves are reported in Chapter~5; this chapter does not restate them and instead summarises which questions Chapter~5 answered and which it did not.
 
-Final claims are mapped to evidence strength so that conclusions remain proportional to verified data:
+\subsection{What the Empirical Chapter Established}
+\label{subsec:empirical_summary}
 
-\begin{table}[H]
-\centering
-\begin{tabular}{p{4.0cm}p{5.8cm}p{3.0cm}}
-\toprule
-\textbf{Claim} & \textbf{Primary Evidence} & \textbf{Status}\\
-\midrule
-Agent v2.0 improves retrieval quality over v1.0. & Recall@5, MRR, Hit Rate@5 (Section~\ref{sec:data_evidence_integrity} and Section~\ref{subsec:metric_definitions_boundaries}). & Supported\\
-Agent behavior is robust in multi-turn interaction. & Task completion, faithfulness, and clarification behavior logs. & Supported\\
-Operational LLM cost is explainable and monitorable. & \texttt{llm\_token\_usage}, \texttt{session\_token\_summary}, mode cost aggregation. & Partially supported\\
-User purchase tendency is improved by recommendations. & CartAddRate / WillBuyRate / ConversionRate from behavior funnel. & Inconclusive (depends on cohort size and balance)\\
-\bottomrule
-\end{tabular}
-\caption{Claim-to-evidence mapping used in the final thesis conclusion}
-\label{tab:claim_evidence_mapping}
-\end{table}
+Chapter~5 reports six blocks of evidence from the deployed PostgreSQL telemetry at the data freeze date 2026-05-09. Each block is anchored to a specific source table or view, so a reader can reproduce any number by running the same aggregation against the live database with a freeze-date filter. The chapter shows, descriptively:
 
-Therefore, the final conclusion follows three rules: (1) only claims marked \textit{Supported} are stated as confirmed findings, (2) \textit{Partially supported} claims are reported with operational caveats, and (3) \textit{Inconclusive} claims are retained as hypotheses for future data collection.
-
-\textbf{Current evidence limitations.}
 \begin{itemize}
-    \item Token-to-cost estimates depend on fixed public list prices and may vary over time.
-    \item Behavior metrics are sensitive to sample imbalance across orchestration modes and user groups.
-    \item Conversion-style claims require larger longitudinal cohorts than early-stage thesis collection windows.
+    \item the catalogue is fully enriched (5{,}096 items, 100\% caption and color coverage, mean caption length 34.9 words inside the 30--40-word target);
+    \item the deployed pipeline issues exactly one or exactly two LLM calls per turn (155 intent calls and 60 synthesis calls in the cohort, with no expansion calls recorded), confirming that no ReAct-style multi-call loop runs in production;
+    \item users actively engage with the displayed results in PATH~1 (click-through rate 31.9\%, cart-add rate 8.3\% of impressions), with cart-adds clustered near the top of the result list;
+    \item nine subjective ratings are uniformly favourable (mean overall rating 4.56 on a 1--5 scale, no scores below~4), but the sample is too small to support any statistical claim.
 \end{itemize}
 
-\textbf{Future development directions:}
-\begin{itemize}
-    \item \textbf{Phase 3}: Scale dataset to 15K--100K products, fine-tune the reranker, Redis session cache.
-    \item \textbf{Phase 4}: Virtual Try-on (IDM-VTON), fine-tune FashionSigLIP on proprietary data, A/B testing.
-    \item \textbf{PATH 2}: Image-to-Image search with Composed Search.
-\end{itemize}
+These are descriptive findings about a deployed system; none of them depend on a labelled gold set, a control group, or a stress benchmark.
+
+\subsection{Limitations and Future Work}
+\label{subsec:limitations_future_work}
+
+Six questions about the system are not answered by Chapter~5, and each is recorded here together with a concrete future-work direction.
+
+\textbf{Six-slot extraction is not persisted to PostgreSQL.}
+The intent classifier emits six slots per turn (\texttt{category}, \texttt{color}, \texttt{fabric}, \texttt{fit}, \texttt{construction}, \texttt{aesthetic}), but only three of them are saved as part of \texttt{user\_sessions.query\_history.filters} (\texttt{color}, \texttt{category}, \texttt{style}); the remaining slots live in the in-process \texttt{cachetools.TTLCache} with a 30-minute lifetime and disappear when the cache evicts them. As a consequence, no per-turn slot-fill density can be reported. The future-work hook is to add a \texttt{turn\_slots} JSONB column to \texttt{conversation\_history}, populate it from the existing classifier output, and run a fresh measurement window so that slot-fill behaviour per intent can be analysed.
+
+\textbf{No labelled retrieval gold set exists.}
+Recall@5, MRR, Hit~Rate@5, and faithfulness against a hand-labelled query set are not reported in this thesis because no such set was constructed. The implicit relevance signals reported in §5.5 are a lower-bound proxy, not a substitute for a gold-set evaluation. The future-work hook is to construct a 50--200 query gold set, with relevant \texttt{image\_id}s tagged by domain experts, and to run an ablation across the seven retrieval stages so that the marginal contribution of BM25, image vector, text vector, RRF, and the cross-encoder rerank can each be quantified.
+
+\textbf{The gender-hint mechanism has no control arm.}
+The deployed code includes a \texttt{gender\_hint\_enabled} flag and a Gender-Appropriate Selection (GAS) endpoint, but \texttt{create\_session()} sets the flag to \texttt{TRUE} for every session that declares a gender. As a result, the cohort contains essentially no sessions with a gendered user and the hint disabled, and any A/B contrast collapses. The future-work hook is to randomise \texttt{gender\_hint\_enabled} on the frontend for a fresh measurement window, balanced by gender, so that the GAS contrast between treatment and control can be computed with non-trivial power.
+
+\textbf{Per-call LLM duration is not stored in PostgreSQL.}
+The runtime measures per-turn orchestration duration and emits it as a Server-Sent-Events \texttt{thinking\_end} event for the frontend display, and per-tool-call duration is captured in \texttt{llm\_token\_usage.tool\_calls\_json} when the agentic orchestrator runs. There is no \texttt{duration\_ms} column on \texttt{llm\_token\_usage} itself, so no retrospective per-call latency aggregate can be queried from the deployed cohort. The future-work hook is to add an \texttt{INTEGER duration\_ms} column to \texttt{llm\_token\_usage} and populate it from the same wall-clock measurements that already drive the streaming UI; new cohorts will then carry latency in the database directly.
+
+\textbf{Orchestration modes B and C are not deployed.}
+The scaffolding for Mode~B (Gemini orchestrator with GPT synthesizer) and Mode~C (GPT orchestrator with Claude synthesizer) is present in \texttt{agent/agentic\_orchestrator.py}, but \texttt{\_get\_orchestration\_mode()} returns \texttt{"direct"} in the deployed configuration; no production traffic ever exercised the agentic path. As a result, the thesis cannot compare the cost or quality of agentic orchestration against the direct-routing default. The future-work hook is to wire the agentic orchestrator into the live router behind a feature flag, randomise mode assignment across new sessions, and rerun the §5.4 cost analysis split by mode.
+
+\textbf{No concurrency or stress benchmark has been run.}
+This thesis does not report system latency under load, throughput, or capacity. Such a benchmark was scoped out of the present work to keep the empirical chapter restricted to evidence the deployed PostgreSQL already contains. The future-work hook is to design and execute a locust-based bench against \texttt{POST /api/chat/stream} with a concurrency sweep at \{1, 5, 10, 20, 50\} virtual users, reconstructing per-stage latency from the existing Server-Sent-Events stream (\texttt{thinking\_start}, \texttt{thinking\_step}, \texttt{thinking\_end}, \texttt{token}, \texttt{done}). The protocol does not require a database schema change and can be executed against the deployment as it stands.
+
+\subsection{Beyond the Limitations: Longer-Horizon Directions}
+\label{subsec:longer_horizon}
+
+Independent of the six gaps above, two further directions are noted for completeness. They are not gaps in the present evidence but extensions of the system itself: scaling the catalogue from the current 5{,}096 items to a 15K--100K-item working set with a fine-tuned reranker; and adding visual try-on (for example IDM-VTON) on top of PATH~2 so that the visual lookup pipeline produces a virtual fitting rather than a similarity list. Both are out of scope for this thesis but follow naturally from the architecture documented in Chapter~3.

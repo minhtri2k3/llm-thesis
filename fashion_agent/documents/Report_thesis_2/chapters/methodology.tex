@@ -937,12 +937,10 @@ This section defines the \emph{protocol} by which the system in Sections 3.2--3.
 \toprule
 \textbf{Metric} & \textbf{Meaning} & \textbf{Definition}\\
 \midrule
-Recall@5     & Top-5 retrieval coverage  & Proportion of labelled queries with at least one relevant item in the top 5.\\
-MRR          & Mean reciprocal rank      & $\frac{1}{N_{query}}\sum_{i} \frac{1}{\text{rank}_i}$ over the position of the first relevant retrieved item.\\
-Hit Rate@5   & Hit-rate threshold        & Same numerator as Recall@5; reported separately to highlight the binary form of success.\\
-Latency P95  & Response-time tail        & 95th percentile of end-to-end response time over the cohort, in milliseconds.\\
-Faithfulness & Synthesis trust           & Fraction of synthesis utterances that make no factual claims unsupported by the retrieved products.\\
 Token Cost   & Operational cost          & Sum of input and output tokens reported by the orchestrator and synthesizer for the cohort.\\
+Cart-add rate & Implicit relevance       & $A/I$ where $A$ is the number of cart-add events (\texttt{selected\_items} rows) and $I$ is the number of impressions logged for the cohort.\\
+Will-buy rate & Stronger implicit signal & $W/A$ where $W$ is the number of \texttt{product\_intents} rows with \texttt{intent\_type='will\_buy'} and $A$ is the cart-add count.\\
+LLM-call discipline & Cost lower-bound  & Distribution of \texttt{llm\_token\_usage.call\_name} per cohort turn, validating that the deployed pipeline issues at most two LLM calls (intent and synthesis) per turn.\\
 \bottomrule
 \end{tabular}
 \caption{Methodology metric definitions (no observed values reported here)}
@@ -987,7 +985,7 @@ All aggregates above SHALL follow the same boundary policy:
 Missingness      & Required fields are non-null (session id, event timestamp, metric-specific columns). & Report as undercount risk; do not claim strong support from the affected metric.\\
 Consistency      & Event semantics are stable (e.g.\ a cart-add event is always a row in \texttt{selected\_items}). & Re-map metric definitions before comparing across sections.\\
 Duplicate events & No duplicated session-event records survive deduplication. & Treat inflated rates as invalid until corrected.\\
-Sample balance   & Cohort is not dominated by one orchestration mode or user subgroup. & Downgrade claim strength to ``partially supported'' or ``inconclusive''.\\
+Sample balance   & Cohort is not dominated by a single \texttt{path\_mode} or user subgroup. & Downgrade claim strength to ``partially supported'' or ``inconclusive''.\\
 \bottomrule
 \end{tabular}
 \caption{Validity gates applied before reporting an aggregate metric}
@@ -996,7 +994,7 @@ Sample balance   & Cohort is not dominated by one orchestration mode or user sub
 
 \subsection{Experimental Matrix}
 
-The experiments span three orthogonal factors. Cells that are not populated in the present collection window are flagged as \emph{deferred to future work} so that absent results are visible rather than implicit.
+The experiments span two orthogonal factors that the deployed default mode actually exercises. Factors which the deployed system does not exercise (for example agentic orchestration modes that were not enabled in production, or a labelled retrieval gold set that was not constructed) are explicitly out of scope here and are listed instead in the Limitations and Future Work subsection of the Conclusion.
 
 \begin{table}[H]
 \centering
@@ -1006,11 +1004,10 @@ The experiments span three orthogonal factors. Cells that are not populated in t
 \midrule
 Query clarity      & clear / partial / ambiguous                                & Stresses the readiness gate (Algorithm~\ref{alg:slot_readiness}) at all three regimes.\\
 Query type         & text-search / outfit-request / follow-up / image-upload    & Exercises every routing branch in Table~\ref{tab:routing_decisions} and both retrieval pipelines.\\
-Orchestration mode & direct / agentic                                           & Compares the live default (Section~3.5) against the scaffolded tool-calling path; agentic cells are deferred until that path is wired in production.\\
 \bottomrule
 \end{tabular}
-\caption{Experimental factor matrix; cells with no available data are deferred to future work}
+\caption{Experimental factor matrix --- only factors that the deployed default exercises}
 \label{tab:experimental_matrix}
 \end{table}
 
-The matrix is evaluated independently per metric in Table~\ref{tab:metric_definitions}, with the cohort and validity rules from the preceding two subsections applied uniformly. No specific numeric values are quoted in this chapter; the Results chapter reports observed values together with the corresponding $N_{query}$ and validity-check outcomes.
+The matrix is evaluated independently per metric in Table~\ref{tab:metric_definitions}, with the cohort and validity rules from the preceding two subsections applied uniformly. No specific numeric values are quoted in this chapter; the Results chapter reports observed values together with the corresponding cohort size and validity-check outcomes.
