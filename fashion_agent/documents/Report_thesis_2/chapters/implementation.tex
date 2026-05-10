@@ -7,11 +7,10 @@ The chapter is organized as follows: Section 4.1 outlines the project structure 
 
 Section~\ref{sec:impl_structure} maps every script and module that participates in either the offline data pipeline or the online serving pipeline back to a single repository tree. The codebase has two physical roots: \texttt{fashion\_agent/} hosts the Python backend (FastAPI app, agent, search engine, indexing, preprocessing); \texttt{clothie\_web/} hosts the Flutter web client. The two communicate exclusively across the HTTP and Server-Sent-Events surface documented in Section~\ref{sec:impl_ui}. Inside the backend root, files cluster into two functionally distinct pipelines: an \emph{offline} pipeline that prepares the knowledge base ahead of any user request, and an \emph{online} pipeline that handles each live conversation. Tables~\ref{tab:impl_offline_scripts}--\ref{tab:impl_frontend_files} catalogue the scripts in each pipeline and the responsibility of each.
 
-Imports are package-style throughout (\texttt{from agent.memory import \dots}, \texttt{from search.search\_engine import \dots}); every entry point is invoked through \texttt{python -m <module>} from the \texttt{fashion\_agent/} root rather than as a plain file, so the import paths in the tables below double as the canonical way to run the script.
 
-\subsection{Offline Pipeline}
+\subsection{Pre-processing Pipeline}
 
-The offline pipeline is run once at deployment time --- and re-run only when the dataset, the captioning prompts, or the embedding model change --- to produce the Postgres tables and the Qdrant collection that the online pipeline reads. Table~\ref{tab:impl_offline_scripts} catalogues the four scripts that form this pipeline.
+The  pipeline is run once at deployment time --- and re-run only when the dataset, the captioning prompts, or the embedding model change --- to produce the Postgres tables and the Qdrant collection that the online pipeline reads. Table~\ref{tab:impl_offline_scripts} catalogues the four scripts that form this pipeline.
 
 \begin{table}[H]
 \centering
@@ -22,8 +21,8 @@ The offline pipeline is run once at deployment time --- and re-run only when the
 \toprule
 \textbf{Script} & \textbf{Responsibility} \\
 \midrule
-\texttt{pre\_processing/processing\_data.py} & Kaggle dataset download, noise filtering (Algorithm~\ref{alg:data_filtering}), and Gemini-driven caption + dominant-color enrichment (Algorithm~\ref{alg:llm_enrichment}); writes \texttt{fashion\_items} and \texttt{fashion\_item\_enrichment} into Postgres. \\
-\texttt{pre\_processing/test\_processing\_data.py} & Smoke test on a one-row sample to validate API keys, Postgres schema, and Gemini output shape before the long batch run. \\
+\texttt{processing\_data.py} & Kaggle dataset download, noise filtering (Algorithm~\ref{alg:data_filtering}), and Gemini-driven caption + dominant-color enrichment (Algorithm~\ref{alg:llm_enrichment}); writes \texttt{fashion\_items} and \texttt{fashion\_item\_enrichment} into Postgres. \\
+\texttt{test\_processing\_data.py} & Smoke test on a one-row sample to validate API keys, Postgres schema, and Gemini output shape before the long batch run. \\
 \texttt{indexing/build\_index.py} & Reads enriched rows from Postgres, encodes both image and text with Marqo-FashionSigLIP (Algorithm~\ref{alg:fashionsiglip}), composes the BM25 surface (Algorithm~\ref{alg:bm25_composition}), and upserts every point into the Qdrant \texttt{fashion\_products} collection (Algorithm~\ref{alg:build_index}). \\
 \texttt{indexing/update\_text\_index.py} & Refreshes only the text vectors when captions change without re-encoding images; keeps the GPU pass off the critical path. \\
 \bottomrule
@@ -36,7 +35,7 @@ The online pipeline runs inside the \texttt{fashion-api} container on every chat
 
 \begin{table}[H]
 \centering
-\caption{Online agent / search / shared scripts (\texttt{fashion\_agent/agent/}, \texttt{search/}, \texttt{shared/}).}
+\caption{Online agent (\texttt{fashion\_agent/agent/}, \texttt{search/}, \texttt{shared/}).}
 \label{tab:impl_online_agent_scripts}
 \small
 \begin{tabular}{p{6.0cm} p{8.6cm}}
@@ -106,7 +105,8 @@ The Flutter web client is compiled once and served as static assets from a small
 \section{Technical Stack and Environment}
 \label{sec:impl_stack}
 
-Section~\ref{sec:impl_stack} catalogues the runtime artefacts that turn the algorithms of Chapter~\ref{chap:methodology} into a deployed service. Whereas Methodology argues \emph{why} the system processes a query in a given way, this section answers \emph{which versions, on which devices, in which directories, and under which environment variables} those algorithms actually execute. The chapter therefore avoids restating any algorithmic claim already labelled in Methodology; instead, it cross-references the relevant labels (e.g.\ Algorithm~\ref{alg:hybrid_search}, Algorithm~\ref{alg:routing}) and concentrates on engineering specifics.
+\textbf{Technical Stack and Environment} catalogues the runtime artefacts that turn the algorithms of \textbf{Methodology} into a deployed service. Whereas Methodology argues \emph{why} the system processes a query in a given way, this section answers \emph{which versions, on which devices, in which directories, and under which environment variables} those algorithms actually execute. The chapter therefore avoids restating any algorithmic claim already labelled in Methodology; instead, it cross-references the relevant labels (e.g.\ \textbf{Hybrid Search}, \textbf{Direct Routing}) and concentrates on engineering specifics.
+
 
 \subsection{Component Inventory}
 
@@ -171,112 +171,6 @@ Section~\ref{sec:impl_prompts} documents the prompt artefacts that drive intent 
 \subsection{Prompt Artefact Inventory}
 
 Every prompt template lives in a single Python module (\texttt{agent/prompts.py}); inlining prompts elsewhere is forbidden by an in-file warning so that every template remains reviewable in one place. The body of the central template, \texttt{INTENT\_PROMPT}, is reproduced verbatim below; Table~\ref{tab:impl_prompt_artefacts} then catalogues every prompt artefact and its parse contract.
-
-\begin{tcolorbox}[
-    breakable,
-    enhanced,
-    colback=gray!5,
-    colframe=black!55,
-    arc=2pt,
-    boxrule=0.4pt,
-    left=4pt, right=4pt, top=4pt, bottom=4pt,
-    fontupper=\ttfamily\scriptsize,
-    title=\textnormal{\normalfont\bfseries\small \texttt{INTENT\_PROMPT} body --- \texttt{fashion\_agent/agent/prompts.py}},
-    colbacktitle=gray!25,
-    coltitle=black,
-]
-You are operating within a multilingual fashion recommendation research system designed to study LLM recommendation quality and user purchase intent. You serve Vietnamese, Spanish, and English users. All your responses MUST be in the same language as the user's message.
-
-You are a fashion shopping assistant. Classify the user's message into one of these intents:
-
-1. ``text\_search'' --- User wants to find specific fashion items (e.g., ``find a white shirt'', ``show me blue dresses'')
-
-2. ``outfit\_request'' --- User wants fashion recommendations, outfit suggestions, or styling advice (e.g., ``suggest an outfit for a party'', ``what goes with a black blazer?'')
-
-3. ``follow\_up'' --- User is following up on a previous search/recommendation (e.g., ``any other colors?'', ``anything cheaper?'', ``the second one'')
-
-4. ``product\_select'' --- User wants to SELECT/CHOOSE specific products from the most recently shown search results. Signals: numbers (1-6, ``\#2''), ordinals (``first'', ``third''), selection verbs (``I want'', ``pick'', ``I'll take''), or description references (``the quilted one'', ``the navy shirt''). The deployed prompt also lists Vietnamese and Spanish equivalents of these signals so that users in those locales are routed to the same intent; the equivalents are omitted here for brevity. ONLY classify as product\_select if the conversation history shows recent search results were displayed.
-
-5. ``view\_selections'' --- User wants to view their saved/selected products (e.g., ``show my selections'', ``what did I pick?'', ``my picks''). The prompt likewise covers Vietnamese and Spanish equivalents of this phrasing.
-
-6. ``out\_of\_scope'' --- User is asking about non-fashion topics (e.g., ``today's weather'', ``how to cook pasta'')
-
-7. ``unclear'' --- User's request is too vague to search or classify (e.g., ``find something nice'', ``something cool'')
-
-Also extract any mentioned filters:\\
-- category: the type of clothing (Shirt, Dress, Pants, etc.)\\
-- color: mentioned colors\\
-- style: mentioned style (formal, casual, street, etc.)\\
-- occasion: mentioned occasion (office, party, date, etc.)
-
-AND extract these 6 detailed slots from the user's query:\\
-- slot\_category: specific type of clothing (e.g., ``Shirt'', ``Dress'', ``Jacket'', ``Pants'')\\
-- slot\_color: specific color (e.g., ``white'', ``navy blue'', ``red with stripes'')\\
-- slot\_fabric: material/texture (e.g., ``cotton'', ``silk'', ``denim'', ``chiffon'', ``linen'')\\
-- slot\_fit: silhouette/fit (e.g., ``slim fit'', ``oversized'', ``A-line'', ``relaxed fit'', ``regular'')\\
-- slot\_construction: construction details (e.g., ``point collar'', ``zip closure'', ``button-down'', ``crew neck'', ``v-neck'')\\
-- slot\_aesthetic: overall style/aesthetic (e.g., ``casual'', ``formal'', ``minimalist'', ``vintage'', ``streetwear'')
-
-AND if intent is ``product\_select'', extract:\\
-- selected\_numbers: a list of integers representing which product numbers the user selected. Map ordinals to numbers (first=1, second=2, third=3, etc.). Map descriptions to the matching product number from the conversation history. Return [] if the specific product cannot be determined.
-
-Set each slot to ``'' if the user did NOT mention that information.
-
-And provide a refined search query in English that would work well for semantic search.\\
-Provide a confidence score from 0.0 to 1.0 indicating how certain you are about the classification.
-
-\#\# Few-shot examples:
-
-User: ``find a white cotton slim fit minimalist shirt''\\
-→ \{\{``intent'': ``text\_search'', ``confidence'': 0.95, ``filters'': \{\{``category'': ``Shirt'', ``color'': ``white'', ``style'': ``minimalist'', ``occasion'': ``''\}\}, ``refined\_query'': ``white cotton slim fit minimalist shirt'', ``slot\_category'': ``Shirt'', ``slot\_color'': ``white'', ``slot\_fabric'': ``cotton'', ``slot\_fit'': ``slim fit'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``minimalist'', ``selected\_numbers'': []\}\}
-
-User: ``find a white men's shirt''\\
-→ \{\{``intent'': ``text\_search'', ``confidence'': 0.95, ``filters'': \{\{``category'': ``Shirt'', ``color'': ``white'', ``style'': ``'', ``occasion'': ``''\}\}, ``refined\_query'': ``white men shirt'', ``slot\_category'': ``Shirt'', ``slot\_color'': ``white'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
-
-User: ``suggest an outfit for a weekend party''\\
-→ \{\{``intent'': ``outfit\_request'', ``confidence'': 0.9, ``filters'': \{\{``category'': ``'', ``color'': ``'', ``style'': ``party'', ``occasion'': ``weekend party''\}\}, ``refined\_query'': ``party outfit weekend'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``party'', ``selected\_numbers'': []\}\}
-
-User: ``what about blue?''\\
-→ \{\{``intent'': ``follow\_up'', ``confidence'': 0.85, ``filters'': \{\{``category'': ``'', ``color'': ``blue'', ``style'': ``'', ``occasion'': ``''\}\}, ``refined\_query'': ``blue variant'', ``slot\_category'': ``'', ``slot\_color'': ``blue'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
-
-User: ``2'' (after search results were shown)\\
-→ \{\{``intent'': ``product\_select'', ``confidence'': 0.9, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [2]\}\}
-
-User: ``I want the first and third one'' (after search results were shown)\\
-→ \{\{``intent'': ``product\_select'', ``confidence'': 0.9, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [1, 3]\}\}
-
-User: ``take the quilted navy shirt'' (after results show a quilted navy item at \#2)\\
-→ \{\{``intent'': ``product\_select'', ``confidence'': 0.85, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [2]\}\}
-
-User: ``show my selections''\\
-→ \{\{``intent'': ``view\_selections'', ``confidence'': 0.95, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
-
-User: ``what's the weather like today?''\\
-→ \{\{``intent'': ``out\_of\_scope'', ``confidence'': 0.95, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
-
-User: ``find something nice''\\
-→ \{\{``intent'': ``unclear'', ``confidence'': 0.4, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': []\}\}
-
-\#\# Conversation history (last 4 messages):\\
-\{history\_text\}
-
-Respond ONLY with valid JSON in this exact format:\\
-\{\{\\
-~~~~``intent'': ``text\_search$|$outfit\_request$|$follow\_up$|$product\_select$|$view\_selections$|$out\_of\_scope$|$unclear'',\\
-~~~~``confidence'': 0.0,\\
-~~~~``filters'': \{\{``category'': ``'', ``color'': ``'', ``style'': ``'', ``occasion'': ``''\}\},\\
-~~~~``refined\_query'': ``'',\\
-~~~~``slot\_category'': ``'',\\
-~~~~``slot\_color'': ``'',\\
-~~~~``slot\_fabric'': ``'',\\
-~~~~``slot\_fit'': ``'',\\
-~~~~``slot\_construction'': ``'',\\
-~~~~``slot\_aesthetic'': ``'',\\
-~~~~``selected\_numbers'': []\\
-\}\}
-
-User message:
-\end{tcolorbox}
 
 \begin{table}[H]
 \centering
@@ -383,19 +277,19 @@ The Gradio panel at \texttt{http://localhost:8000/} is built from \texttt{api/ma
 
 The Flutter shell under \texttt{clothie\_web/} compiles to JavaScript and is served from a small Nginx container on port 3000; it is the surface every end user actually meets. The transport layer is a single file --- \texttt{lib/services/api\_service.dart} --- which exposes typed methods for session creation, the chat SSE stream, cart fetch, ratings, demographics, and behaviour analytics. Because Flutter Web cannot use a native \texttt{EventSource} for POST, the SSE consumer is implemented manually: \texttt{ApiService.chatStream} sends a \texttt{POST} \texttt{/api/chat/stream}, line-splits the response stream, accumulates an event-name and a data line, and yields a typed \texttt{SseEvent} on every blank-line boundary.
 
-The application's screen graph is small and intentional. The \texttt{splash} and \texttt{register} screens collect the demographic context that powers downstream A/B analysis; the main chat screen renders \texttt{ChatBubble}, \texttt{ProductCard}, and \texttt{ShimmerProductGrid} widgets driven by the SSE stream above; the \texttt{rating} screen submits a 1--5 triple plus free-text feedback at end-of-session; and the \texttt{professor\_dashboard} screen consumes the analytics endpoints behind the \texttt{X-Admin-Key} header. The reasoning indicator is rendered by the \texttt{thinking\_indicator} widget so that the SSE \texttt{thinking\_*} sub-protocol drives a single visual element.
+The application's screen graph is small and intentional. The main chat screen renders \texttt{ChatBubble}, \texttt{ProductCard}, and \texttt{ShimmerProductGrid} widgets driven by the SSE stream above; the \texttt{rating} screen submits a 1--5 triple plus free-text feedback at end-of-session; and the \texttt{professor\_dashboard} screen consumes the analytics endpoints behind the \texttt{X-Admin-Key} header. The reasoning indicator is rendered by the \texttt{thinking\_indicator} widget so that the SSE \texttt{thinking\_*} sub-protocol drives a single visual element.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{screenshot_path1_multilingual.png}
-    \caption{PATH 1 in the Flutter web client driven in Vietnamese (deterministic-template branch). The user query carries Vietnamese diacritics, \texttt{detect\_language} routes the request to the \texttt{vi} variant of \texttt{COMBO\_TEMPLATES}, and the clarification renders in Vietnamese with no LLM call --- the gate's zero-LLM path made visible.}
+    \caption{Text-to-image in the Flutter web client.
     \label{fig:impl_path1_multilingual}
 \end{figure}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{screenshot_path2_image_search.png}
-    \caption{PATH 2 image-to-image search: the user uploads a PNG via the image-attach widget, the file is validated by Algorithm~\ref{alg:validate_png}, encoded by Algorithm~\ref{alg:encode_query_image}, and the visually-similar gallery returned by Algorithm~\ref{alg:path2_search} renders alongside the original query thumbnail.}
+    \caption{PATH 2 image-to-image search: the user uploads a PNG via the image-attach widget.}
     \label{fig:impl_path2_image_search}
 \end{figure}
 
@@ -463,7 +357,7 @@ The contract is honoured by both clients: the Flutter \texttt{chatStream} method
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{screenshot_sse_streaming.png}
-    \caption{Streamed thinking events visible to the user: the collapsible ``Thought for $t$ seconds'' header carries the input / output token counter populated from the \texttt{thinking\_end} event, and the synthesis tokens stream into the bubble live as \texttt{token} events arrive.}
+    \caption{Streamed thinking events visible to the user: the collapsible ``Thought for $t$ seconds'' header carries the input/output token counter populated from the \texttt{thinking\_end} event, and the synthesis tokens stream into the bubble live as \texttt{token} events arrive.}
     \label{fig:impl_sse_streaming}
 \end{figure}
 
@@ -536,11 +430,9 @@ Figure~\ref{fig:impl_topology} visualises the topology actually deployed, includ
     \draw[arr] (ng) -- node[above,scale=0.85] {\texttt{:80}} (web);
     \draw[arr] (ng) -- node[above,scale=0.85] {\texttt{*.ngrok-free.app}} (net);
 
-    % Depends-on (dashed)
-    \draw[dep] (api) to[bend left=20] node[right,scale=0.85] {healthy} (pg);
-    \draw[dep] (api) to[bend right=20] node[left,scale=0.85] {healthy} (qd);
+
 \end{tikzpicture}
-\caption{Container topology of the Clothie deployment. Solid arrows mark live data-plane / control-plane edges; dashed arrows mark Compose \texttt{depends\_on: service\_healthy} gates. The \texttt{ngrok-fe} service exposes the Flutter front-end (port 3000 on the host, port 80 inside the Compose network) on a stable \texttt{*.ngrok-free.app} hostname without opening an inbound port on the host.}
+\caption{Container topology of the Clothie deployment} 
 \label{fig:impl_topology}
 \end{figure}
 

@@ -28,7 +28,10 @@
       "Bash(curl -sL --max-time 30 \"https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf\" -o /tmp/rrf_paper.pdf)",
       "Read(//tmp/**)",
       "WebFetch(domain:scholar.google.com)",
-      "WebFetch(domain:www.google.com)"
+      "WebFetch(domain:www.google.com)",
+      "Bash(git *)",
+      "Bash(python *)",
+      "Bash(python3 *)"
     ]
   }
 }

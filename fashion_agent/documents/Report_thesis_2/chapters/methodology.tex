@@ -12,7 +12,7 @@ The design of the Clothie framework was driven by the necessity to bridge the ga
 
 \textbf{3. The Transition from Static RAG to Agentic RAG.} The development of the reasoning architecture faced significant hurdles. Initial experiments using standard Retrieval-Augmented Generation (RAG) and simple reranking models proved insufficient for resolving ambiguous user intents. These static pipelines often failed to recognize when a query lacked the necessary "slots" (e.g., size, color, occasion) to produce a valid suggestion. This difficulty led to the proposal of the. \textbf{Agentic RAG} framework. By introducing a reasoning agent, the system can now evaluate query clarity, utilize deterministic tools, and decide whether to retrieve data or initiate a clarification dialogue.
 \subsection{Proposal System Architecture}
-The framework is architected around an  \textbf{Orchestrator + Direct Routing} paradigm. To ensure operational reliability and minimize computational latency, the design eschews unconstrained iterative loops in favor of a structured execution path managed by Gemini 2.5 Flash. Functioning as the central Orchestrator, the model performs intent classification, semantic slot resolution, and the invocation of deterministic retrieval pathways. This streamlined workflow facilitates the synthesis of personalized recommendations within one to two inference cycles, ensuring a high degree of system predictability  
+The framework is architected around an  \textbf{Orchestrator + Direct Routing} paradigm. To ensure operational reliability and minimize computational latency, the design eschews unconstrained iterative loops in favor of a structured execution path managed by Gemini 2.5 Flash. Functioning as the central Orchestrator, the model performs intent classification, semantic slot resolution, and the invocation of deterministic retrieval pathways. This streamlined workflow facilitates the synthesis of personalized recommendations within one to two inference cycles, ensuring a high degree of system predictability.
 
 \noindent \textbf{The 5-step processing flow:} \\
 \textbf{1. Intent Classification} --- Classify user intent \\
@@ -528,23 +528,6 @@ Beyond the TTLCache layer, the agent maintains long-term state across two comple
 \end{algorithm}
 
 \begin{algorithm}[H]
-\caption{Add a Liked Item Without Duplicates}\label{alg:add_liked_item}
-\textit{Source: \texttt{agent/memory.py:add\_liked\_item}}
-\begin{algorithmic}[1]
-\Require Session id $sid$, image id $iid$
-\Ensure JSONB column \texttt{liked\_items} contains $iid$ exactly once
-\Function{AddLikedItem}{$sid, iid$}
-    \State Open Postgres connection
-    \State Execute UPDATE that appends $iid$ to \texttt{liked\_items} only when the array does not already contain $iid$ (JSONB containment check)
-    \State Update \texttt{updated\_at}; commit
-\EndFunction
-\end{algorithmic}
-\end{algorithm}
-
-\paragraph{Liked-items path is scaffolded, not active.}
-The \texttt{liked\_items} column and Algorithm~\ref{alg:add_liked_item} are present in the deployed code, but the column is not populated by any HTTP endpoint or front-end interaction in the current cohort: the Flutter web client does not expose a \emph{like}/\emph{favourite} action, and \texttt{add\_liked\_item} is consequently never invoked in production. Algorithm~\ref{alg:get_preferences} below reads \texttt{query\_history} only and ignores \texttt{liked\_items}. The deployed user-endorsement signal therefore comes from Algorithm~\ref{alg:save_selected_items}, which records the items a user confirms via the \texttt{product\_select} intent.
-
-\begin{algorithm}[H]
 \caption{Save Confirmed Selections to \texttt{selected\_items}}\label{alg:save_selected_items}
 \textit{Source: \texttt{agent/memory.py:save\_selected\_items}}
 \begin{algorithmic}[1]
@@ -681,11 +664,12 @@ The fusion stage combines BM25 and dual-vector retrieval results using Reciproca
 \paragraph{End-to-end PATH 1 flow at a glance.}
 The pipeline executes deterministically once the clarification gate has cleared. The retrieval stages, in order, are: (i) optionally call the LLM expansion, but only if the query is shorter than six words --- queries longer than six words bypass expansion to save a call (Algorithm~\ref{alg:expand_query}); (ii) query the BM25 index for up to twenty candidates per expansion variant; (iii) encode the query with the SigLIP text encoder once and run two Qdrant ANN searches --- one against the named vector \texttt{image\_vector}, one against \texttt{text\_vector} --- each returning up to twenty candidates per expansion; (iv) dedup-merge inside each lane by \texttt{image\_id}, keeping the highest score per item per lane; (v) fuse the three lanes with RRF (Algorithm~\ref{alg:rrf}) using the weights $W_{bm25}{=}2.5$, $W_{img}{=}1.0$, $W_{text}{=}1.5$, so that an item appearing in multiple lanes accumulates score from each and cross-lane consensus is naturally rewarded; (vi) take the top twenty of the RRF-fused list and pass them all to the BGE Reranker v2-m3 cross-encoder, which scores every (query, candidate) pair using the concatenation of \texttt{label}, \texttt{color}, and full \texttt{caption} (Algorithm~\ref{alg:rerank_blend}); (vii) blend the min-max-normalised cross-encoder score with the original RRF score as $0.7\,\tilde r + 0.3\,\text{rrf}$ and return the top six.
 
-\paragraph{What the reranker does and does not do.}
+\paragraph{Reranker behavior and scope.}
 The reranker does \emph{not} draw a fixed quota from each source lane (for example, ``four candidates from the vector lanes plus two from BM25''). It receives the RRF-fused top twenty as an opaque candidate list --- every item already carries an RRF score that summarises which lane(s) surfaced it and how high it ranked there --- and reorders them based on cross-encoder relevance computed against the full caption text. Consequently a candidate that came purely from BM25 can be reranked above a candidate from the image-vector lane if the cross-encoder finds it a better semantic match, and the reverse is equally possible. The blending coefficients $0.7$ and $0.3$ ensure that the cross-encoder dominates the final ordering while the RRF score breaks ties and preserves cross-lane consensus information that the cross-encoder, being a pairwise scorer, cannot see on its own.
 
-\paragraph{Why heterogeneous scores can be fused: rank, not magnitude.}
-The three retrieval lanes produce numerically incompatible scores. BM25 returns an unbounded positive lexical score (typical range 5--30 in this catalogue), while the two ANN lanes return cosine similarities in $[-1,1]$ (typical range 0.15--0.70 for text-to-image queries on this index). Naively summing or averaging these would let the larger scale dominate. Reciprocal Rank Fusion, introduced by Cormack et al.~\cite{cormack2009rrf}, sidesteps the scale problem entirely by discarding the raw scores and using only the \emph{rank} that each lane assigns to each candidate; the original paper formulates the fused score as $\textsc{RRFscore}(d) = \sum_{r \in R} 1/(k + r(d))$, where $r(d)$ is the rank assigned to document $d$ by ranking $r$. The deployed pipeline extends this with per-lane weights, so a candidate $d$ that appears at zero-indexed rank $r$ in a lane $\ell$ of weight $w_\ell$ has the lane contribute $w_\ell / (k + r + 1)$ to its fused score; the constant $k=60$ flattens the curve so that the gap between rank~0 and rank~1 is small ($w_\ell / 61$ vs.\ $w_\ell / 62$), preventing a single high-ranked outlier in one lane from drowning out cross-lane consensus. The intuition for $k$ is given verbatim in the original paper: ``while highly-ranked documents are more important, the importance of lower-ranked documents does not vanish as it would were, say, an exponential function used. The constant $k$ mitigates the impact of high rankings by outlier systems''~\cite{cormack2009rrf}. The specific value $k=60$ is the same canonical default established empirically in~\cite{cormack2009rrf}: in their pilot, they swept $k$ across $\{0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 500\}$ on a 30-system fusion over TREC topics 351--400 and reported MAP scores plateauing in the range 0.2138--0.2147 for $k \in [40, 90]$, with their summary that ``$k = 60$ was near-optimal, but \dots\ the choice was not critical''~\cite{cormack2009rrf}; the present work adopts that default unchanged. A candidate that surfaces in all three lanes accumulates contributions from each, so cross-lane agreement naturally outranks single-lane stand-outs --- and crucially, this works regardless of how BM25 and cosine scales relate, because neither magnitude is ever consulted. The lane weights $W_{bm25}{=}2.5$, $W_{img}{=}1.0$, $W_{text}{=}1.5$ encode a deliberate prior added on top of the unweighted formulation in~\cite{cormack2009rrf}: a lexical hit (BM25) is the strongest signal that the user typed a token actually present in the catalogue; the caption-side text-vector lane is the next-strongest because it inherits the four caption axes; the image-vector lane is treated as the most exploratory because cross-modal text-to-image cosine matches can drift on abstract queries.
+\paragraph{Score fusion by rank.} 
+The three retrieval lanes use different score scales, so the pipeline compares them by rank instead of raw value. It uses \textbf{Reciprocal Rank Fusion~\cite{cormack2009rrf}} with lane weights, and keeps the canonical default $k=60$ because that is the standard setting recommended in the source paper. In practice, this lets items supported by multiple lanes rise to the top without one score scale dominating the others.
+
 
 \paragraph{Two normalisation steps before the reranker delivers a final order.}
 By the time the reranker runs, scores have been homogenised twice. First, the RRF fusion above collapses heterogeneous lane scores into a single fused score on a comparable scale --- the per-lane contribution $w_\ell / (k + r + 1)$ is bounded above by $w_\ell / 61$ (rank~0), and the maximum fused score for an item that ranks first in all three lanes is $(W_{bm25} + W_{img} + W_{text}) / 61 = 5.0 / 61 \approx 0.082$, with most candidates falling well below that. Second, the BGE cross-encoder produces its own raw logits $r_c$ over the (query, candidate) pairs and applies a min--max normalisation that rescales them to $[0,1]$:
@@ -710,7 +694,8 @@ BGE rerank logits     & top-20 fused list, RRF score preserved as $\text{rrf}_c$
 Min--max + blend      & $r_c$ and $\text{rrf}_c$                                  & final score $0.7\,\tilde r_c + 0.3\,\text{rrf}_c$, sort, return top-6 \\
 \bottomrule
 \end{tabular}
-\caption{Score evolution along the seven-stage retrieval pipeline. The only stage that ever directly compares raw heterogeneous scores is RRF, which deliberately throws away magnitudes and uses ranks instead; everything downstream sees scores that have been brought onto comparable bounded scales.}
+\caption{Score evolution across the seven-stage retrieval pipeline. RRF compares candidates by rank, and later stages operate on bounded, comparable scores.}
+
 \label{tab:score_evolution}
 \end{table}
 
@@ -786,6 +771,9 @@ PATH~2 short-circuits the entire reasoning engine for users who already have a v
 \end{algorithmic}
 \end{algorithm}
 
+This step converts the uploaded image into the same 768-dimensional embedding space used at indexing time. The resulting vector is then used to query the Qdrant directly.
+
+
 \begin{algorithm}[H]
 \caption{Search by Image Bytes}\label{alg:path2_search}
 \textit{Source: \texttt{search/image\_query\_engine.py:search\_by\_image\_bytes}}
@@ -805,33 +793,20 @@ PATH~2 short-circuits the entire reasoning engine for users who already have a v
 \end{algorithmic}
 \end{algorithm}
 
-\begin{algorithm}[H]
-\caption{Validate PNG Upload}\label{alg:validate_png}
-\textit{Source: \texttt{api/main.py:\_validate\_path2\_png\_upload}}
-\begin{algorithmic}[1]
-\Require Uploaded file metadata $f$, raw bytes $B$, max bytes $M$
-\Ensure Reject the upload before encoding when validation fails
-\Function{ValidatePNGUpload}{$f, B, M$}
-    \If{$f.\text{filename}$ is empty} \textbf{reject 400} \EndIf
-    \If{$f.\text{filename}$ does not end with ``.png''} \textbf{reject 415} \EndIf
-    \If{$f.\text{content\_type}$ is set and not in $\{\text{``image/png''}, \text{``application/octet-stream''}\}$} \textbf{reject 415} \EndIf
-    \If{$|B| = 0$} \textbf{reject 400} \EndIf
-    \If{$|B| > M$} \textbf{reject 413} \EndIf
-    \State Open $B$ with PIL
-    \If{the decoded format is not PNG} \textbf{reject 415} \EndIf
-    \State Call PIL \textsc{Verify}() to detect truncated or corrupted streams \Comment{rejects 400 on failure}
-\EndFunction
-\end{algorithmic}
-\end{algorithm}
+This step sends the encoded image vector to Qdrant and returns the nearest products from the image-vector space. No intent classification or reranking is used in this visual lookup path.
 
 \begin{table}[H]
 \centering
-\begin{tabular}{p{3.6cm}p{1.6cm}p{4.0cm}p{4.5cm}}
+\small
+\begin{tabular}{p{3.0cm}p{1.3cm}p{4.6cm}p{4.6cm}}
 \toprule
 \textbf{Path} & \textbf{Method} & \textbf{Request} & \textbf{Response}\\
 \midrule
-\texttt{/api/path2/image-search} & POST & multipart: \texttt{image} (PNG), \texttt{session\_id?}, \texttt{top\_k?} (1--20) & JSON: \texttt{mode}=``path2'', \texttt{session\_id}, \texttt{products[]}, \texttt{count}\\
-\texttt{/api/sessions/\{sid\}/selections} & POST & JSON: \texttt{image\_id}, \texttt{label}, \texttt{image\_path}, \texttt{path\_mode}=``path2'' & JSON: \texttt{ok}, \texttt{inserted}\\
+\texttt{/api/path2/}\\
+\texttt{image-search} & POST & multipart: \texttt{image} (PNG), \texttt{session\_id?}, \texttt{top\_k?} (1--20) & JSON: \texttt{mode}, \texttt{session\_id}, \texttt{products[]}, \texttt{count}\\
+\addlinespace
+\texttt{/api/sessions/}\\
+\texttt{\{sid\}/selections} & POST & JSON: \texttt{image\_id}, \texttt{label}, \texttt{image\_path}, \texttt{path\_mode} & JSON: \texttt{ok}, \texttt{inserted}\\
 \bottomrule
 \end{tabular}
 \caption{PATH 2 endpoint contract}
@@ -850,15 +825,14 @@ PATH~2 short-circuits the entire reasoning engine for users who already have a v
 \textbf{Search}   & BM25 (keyword) + dual vector + RRF fusion     & Pure vector (cosine similarity only)\\
 \textbf{Reranking}& BGE Reranker v2-m3 with $0.7/0.3$ score blend & No reranking (direct top-K)\\
 \textbf{Speed}    & 500\,ms -- 2\,s (multi-stage)                 & $\sim$100\,ms (single stage)\\
-\textbf{Use case} & ``Find a red shirt for men''                  & ``Show me something like this''\\
-\textbf{Isolation}& Shared with PATH 1 agent loop                  & Fully isolated endpoint\\
 \bottomrule
 \end{tabular}
 \caption{Technical comparison between PATH 1 and PATH 2}
 \label{tab:path_comparison}
 \end{table}
 
-PATH~2 is feature-flagged: the endpoint and its tests are gated by the \texttt{ENABLE\_PATH2\_IMAGE\_SEARCH} environment variable, which must be set explicitly before any image-upload route accepts traffic.
+PATH~2 is feature-flagged: the endpoint and its tests are gated by the \texttt{ENABLE\_\allowbreak PATH2\_\allowbreak IMAGE\_\allowbreak SEARCH} environment variable, which must be set explicitly before any image-upload route accepts traffic.
+
 
 \section{Tool-Augmented Execution and Deterministic Logic}
 
@@ -933,11 +907,13 @@ $\text{confidence} < 0.6$ \emph{or} \texttt{unclear} & 1 (clarifier) & Fall back
             \State \Return $(\text{empty}, \textsc{UnsupportedCategoryMessage}(S.\text{category}, suggestions, lang), \text{accum})$
         \EndIf
         \If{$r.\text{confidence} < 0.75$}
-            \State \Return $(\text{empty}, \textsc{BuildRankedClarification}(I, Q, missing, low\_confidence{=}\text{true}), \text{accum})$
+        \State $msg \gets \textsc{BuildRankedClarification}(I, Q, missing, low\_confidence{=}\text{true})$
+            \State \Return $(\text{empty}, msg, \text{accum})$
         \EndIf
         \State $(ready, missing) \gets \textsc{IsQueryReady}(I, S)$ \Comment{Algorithm~\ref{alg:slot_readiness}}
         \If{not $ready$}
-            \State \Return $(\text{empty}, \textsc{BuildRankedClarification}(I, Q, missing), \text{accum})$
+            \State $msg \gets \textsc{BuildRankedClarification}(I, Q, missing, low\_confidence{=}\text{true})$
+            \State \Return $(\text{empty}, msg, \text{accum})$
         \EndIf
         \State $query \gets$ join non-empty $S.\text{color}, S.\text{style}, S.\text{occasion}, S.\text{category}$ in that order
         \If{$query$ is empty}\State $query \gets \textsc{ComposeRefinedQuery}(\text{accum})$\EndIf
@@ -1005,7 +981,7 @@ This section defines the \emph{protocol} by which the system in Sections 3.2--3.
 \toprule
 \textbf{Metric} & \textbf{Meaning} & \textbf{Definition}\\
 \midrule
-Token Cost   & Operational cost          & Sum of input and output tokens reported by the orchestrator and synthesizer for the cohort.\\
+Token Cost   & Operational cost          & Sum of input and output tokens reported by the orchestrator.\\
 Cart-add rate & Implicit relevance       & $A/I$ where $A$ is the number of cart-add events (\texttt{selected\_items} rows) and $I$ is the number of impressions logged for the cohort.\\
 Will-buy rate & Stronger implicit signal & $W/A$ where $W$ is the number of \texttt{product\_intents} rows with \texttt{intent\_type='will\_buy'} and $A$ is the cart-add count.\\
 LLM-call discipline & Cost lower-bound  & Distribution of \texttt{llm\_token\_usage.call\_name} per cohort turn, validating that the deployed pipeline issues at most two LLM calls (intent and synthesis) per turn.\\
@@ -1032,50 +1008,4 @@ Let $I$ = impressions, $C$ = clicks, $A$ = cart-add selections, $W$ = ``will-buy
 \text{ConversionRate}=\frac{O}{|\mathcal{S}|}.
 \end{equation}
 
-\subsection{Cohort, Inclusion, and Exclusion Rules}
 
-All aggregates above SHALL follow the same boundary policy:
-\begin{enumerate}
-    \item Include only sessions inside the declared collection window $[t_{start}, t_{end}]$.
-    \item Exclude sessions with missing key fields for the target metric (e.g.\ missing token columns for token analysis).
-    \item Exclude duplicate interaction rows when the same session-event key appears multiple times due to retries.
-    \item Report both the original cohort size and the post-filter cohort size to make the impact of exclusion explicit.
-\end{enumerate}
-
-\subsection{Data Validity Checks}
-
-\begin{table}[H]
-\centering
-\begin{tabular}{p{4.0cm}p{4.7cm}p{5.0cm}}
-\toprule
-\textbf{Check} & \textbf{Validation Rule} & \textbf{Interpretation if Failed}\\
-\midrule
-Missingness      & Required fields are non-null (session id, event timestamp, metric-specific columns). & Report as undercount risk; do not claim strong support from the affected metric.\\
-Consistency      & Event semantics are stable (e.g.\ a cart-add event is always a row in \texttt{selected\_items}). & Re-map metric definitions before comparing across sections.\\
-Duplicate events & No duplicated session-event records survive deduplication. & Treat inflated rates as invalid until corrected.\\
-Sample balance   & Cohort is not dominated by a single \texttt{path\_mode} or user subgroup. & Downgrade claim strength to ``partially supported'' or ``inconclusive''.\\
-\bottomrule
-\end{tabular}
-\caption{Validity gates applied before reporting an aggregate metric}
-\label{tab:validity_checks}
-\end{table}
-
-\subsection{Experimental Matrix}
-
-The experiments span two orthogonal factors that the deployed default mode actually exercises. Factors which the deployed system does not exercise (for example agentic orchestration modes that were not enabled in production, or a labelled retrieval gold set that was not constructed) are explicitly out of scope here and are listed instead in the Limitations and Future Work subsection of the Conclusion.
-
-\begin{table}[H]
-\centering
-\begin{tabular}{p{3.5cm}p{4.5cm}p{4.5cm}}
-\toprule
-\textbf{Factor} & \textbf{Levels} & \textbf{Rationale}\\
-\midrule
-Query clarity      & clear / partial / ambiguous                                & Stresses the readiness gate (Algorithm~\ref{alg:slot_readiness}) at all three regimes.\\
-Query type         & text-search / outfit-request / follow-up / image-upload    & Exercises every routing branch in Table~\ref{tab:routing_decisions} and both retrieval pipelines.\\
-\bottomrule
-\end{tabular}
-\caption{Experimental factor matrix --- only factors that the deployed default exercises}
-\label{tab:experimental_matrix}
-\end{table}
-
-The matrix is evaluated independently per metric in Table~\ref{tab:metric_definitions}, with the cohort and validity rules from the preceding two subsections applied uniformly. No specific numeric values are quoted in this chapter; the Results chapter reports observed values together with the corresponding cohort size and validity-check outcomes.

@@ -104,3 +104,6 @@ clothie_web/android/app/release
 # fashion_agent Rules
 # ==========================================
 fashion_agent/.amazonq/
+
+# Claude Code local state
+.claude/

@@ -11,26 +11,6 @@ This chapter reports observed values from the deployed Clothie system. The frame
 
 \textbf{Reproducibility note.} Each subsection in §5.2--§5.6 names the PostgreSQL table or view from which its numbers were drawn. A reviewer can reproduce any cell of any table by running the corresponding aggregation against the live database with a freeze-date filter; cell values may shift as the deployed system continues to log new sessions.
 
-\subsection{Canonical Data Sources}
-\label{subsec:canonical_data_sources}
-
-\begin{table}[H]
-\centering
-\begin{tabular}{p{3.2cm}p{4.1cm}p{6.6cm}}
-\toprule
-\textbf{Evidence Signal} & \textbf{Source Table or View} & \textbf{Where it Appears}\\
-\midrule
-Session inventory & \texttt{user\_sessions}, \texttt{session\_path\_funnel\_summary} & §5.2 cohort and integrity\\
-Knowledge-base content & \texttt{fashion\_items}, \texttt{fashion\_item\_enrichment}, \texttt{fashion\_processing\_logs} & §5.3 knowledge-base quality\\
-LLM call accounting & \texttt{llm\_token\_usage}, \texttt{session\_token\_summary}, \texttt{mode\_cost\_summary} & §5.4 LLM call discipline\\
-User behaviour funnel & \texttt{product\_impressions}, \texttt{product\_clicks}, \texttt{selected\_items}, \texttt{cart\_removals}, \texttt{product\_intents}, \texttt{user\_orders}, \texttt{session\_path\_funnel\_summary} & §5.5 implicit relevance\\
-Subjective ratings & \texttt{user\_ratings} & §5.6 subjective quality\\
-\bottomrule
-\end{tabular}
-\caption{Canonical evidence sources used for the empirical sections}
-\label{tab:canonical_evidence_sources}
-\end{table}
-
 \subsection{Inclusion, Exclusion, and Time-Window Rules}
 \label{subsec:inclusion_exclusion_rules}
 
@@ -61,7 +41,7 @@ Sample balance & Cohort is not dominated by a single \texttt{path\_mode} or user
 \label{tab:data_validity_checks}
 \end{table}
 
-A metric is treated as trustworthy only when it passes the checks in Table~\texttt{\ref{tab:data_validity_checks}}; otherwise the surrounding prose explicitly weakens the claim. Sample-size caveats are repeated in every subsection where the post-filter cohort is small.
+A metric is treated as trustworthy only when it passes the checks in Table~\ref{tab:data_validity_checks}; otherwise the surrounding prose explicitly weakens the claim. Sample-size caveats are repeated in every subsection where the post-filter cohort is small.
 
 
 \section{Cohort and Integrity}
@@ -100,7 +80,7 @@ The active cohort (25 of 53, 47.2\%) is the most stable subset for behavioural m
 \toprule
 \textbf{path\_mode} & \textbf{Sessions} & \textbf{Notes}\\
 \midrule
-\texttt{path1} & 27 & Primary text-to-image search path; the agent reasoning loop runs for these sessions\\
+\texttt{path1} & 35 & Primary text-to-image search path; the agent reasoning loop runs for these sessions\\
 \texttt{path2} & 7  & Image upload path (single-stage cosine lookup, no agent reasoning); secondary in this chapter\\
 \bottomrule
 \end{tabular}
@@ -115,10 +95,6 @@ Some sessions span both paths (the user uploaded an image and also typed a query
 
 The function \texttt{\_evaluate\_funnel\_integrity} in \texttt{agent/memory.py} flags four logical inconsistencies per session: clicks without prior impressions, cart-adds without prior impressions, intent events without a prior cart-add, and orders without a prior cart-add. Aggregating across the active cohort, no sessions in the present window failed any of these checks; the funnel data is therefore internally consistent and the §5.5 aggregates do not need to be downgraded for integrity reasons.
 
-\subsection{Session Lifecycle}
-\label{subsec:session_lifecycle}
-
-Of the 53 raw sessions, 8 (15.1\%) ended explicitly through the simulated checkout flow (\texttt{ended\_by='order'}). The remainder either ended via rating or were never explicitly closed by the user; the schema does not distinguish ``timeout'' from ``user closed the tab'' beyond the absence of \texttt{ended\_at}. Orders are reported here only as a session-end signal --- not as a quality metric, because the simulated checkout records phone and address but does not represent a real purchase.
 
 
 \section{Knowledge-Base Quality}
@@ -194,10 +170,7 @@ Outwear    & 312  & Hoodie     & 100\\
 
 The catalogue is dominated by upper-body garments (T-Shirt, Longsleeve, Shirt, Polo) and bottoms (Pants, Shorts, Skirt). The retrieval pipeline in §3.4 is therefore exercised mostly on those categories; categories with under 100 items are present but contribute marginally to retrieval traffic.
 
-\subsection{Processing Log Coverage}
-\label{subsec:processing_log_coverage}
 
-The \texttt{fashion\_processing\_logs} table is empty in the present snapshot. This is a data-quality observation rather than a claim about enrichment success: the table is populated only when a processing pass writes step-by-step records, and the cohort window did not include such a pass. The fact that 100\% of items have non-empty captions and colors (Table~\texttt{\ref{tab:enrichment_coverage}}) indicates that enrichment has run to completion at some point before the freeze date; the per-step trace simply is not available for that historical run.
 
 
 \section{LLM Call Discipline}
@@ -223,12 +196,12 @@ This section reports the distribution of LLM calls per turn, sourced from \textt
 \label{tab:call_name_distribution}
 \end{table}
 
-Three observations follow from Table~\texttt{\ref{tab:call_name_distribution}}:
+Three observations follow from Table~\ref{tab:call_name_distribution}:
 
 \begin{enumerate}
     \item \textbf{Every turn invokes the intent classifier.} The 155 \texttt{intent} rows correspond to 155 turns, and they are the only mandatory call.
     \item \textbf{Synthesis is conditional, not mandatory.} Only 60 of the 155 turns proceeded to a synthesis call. The ratio $60/155 \approx 38.7\%$ is the fraction of user turns that produced product results worth synthesising; the remaining 61.3\% were either clarification responses (no synthesis call needed, the agent emits a templated question) or out-of-scope requests (refused without retrieval).
-    \item \textbf{The query-expansion call is never recorded.} The short-query gate at six words (Algorithm~\texttt{\ref{alg:expand_query}}) suppressed expansion in every observed turn; \texttt{call\_name='expansion'} has zero rows. In practice the deployed cohort always reached search with the user's original query.
+    \item \textbf{The query-expansion call is never recorded.} The short-query gate at six words (Algorithm~\ref{alg:expand_query}) suppressed expansion in every observed turn; \texttt{call\_name='expansion'} has zero rows. In practice the deployed cohort always reached search with the user's original query.
 \end{enumerate}
 
 The empirical per-turn LLM-call count is therefore exactly one (intent only, for clarification or out-of-scope turns) or exactly two (intent then synthesis, for product turns). No turn invoked three or more LLM calls. This rules out, by direct counting, any ReAct-style multi-call loop in the deployed cohort.
@@ -349,11 +322,6 @@ If the BGE cross-encoder rerank in §3.4 places relevant items near the top of t
 \end{table}
 
 The share of \texttt{position=0} is 19.05\%, just below the 20\% threshold beyond which the histogram would have been recomputed from the impressions join (the methodological design decision recorded in the change proposal). The distribution among positions 1--6 is tightly clustered with five cart-adds at position~1 (the modal position) and a gentle tail. This is consistent with the reranker putting useful items near the top, but the absolute counts (21 cart-adds in total) are too small to be claimed as statistically significant; the histogram is reported as suggestive evidence, not as a confirmatory test.
-
-\subsection{Cart-Removal Rate}
-\label{subsec:cart_removal_rate}
-
-The \texttt{cart\_removals} table contains zero rows in the present snapshot. The interpretation has two non-exclusive components: (a) users in the active cohort did not change their mind about any item they added; (b) the present version of the frontend may not surface a one-tap cart-removal action prominently, making the metric a UI-design proxy rather than a pure quality signal. With the data we have, no conclusion is drawn from this number; it is reported because it is part of the canonical evidence-source list in Table~\ref{tab:canonical_evidence_sources}.
 
 
 \section{Subjective Quality}
