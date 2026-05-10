@@ -195,9 +195,9 @@ You are a fashion shopping assistant. Classify the user's message into one of th
 
 3. ``follow\_up'' --- User is following up on a previous search/recommendation (e.g., ``any other colors?'', ``anything cheaper?'', ``the second one'')
 
-4. ``product\_select'' --- User wants to SELECT/CHOOSE specific products from the most recently shown search results. Signals: numbers (1-6, ``\#2''), ordinals (``first'', ``third'', ``đầu tiên''), selection verbs (``I want'', ``lấy'', ``chọn'', ``pick'', ``I'll take''), or description references (``the quilted one'', ``cái áo navy''). ONLY classify as product\_select if the conversation history shows recent search results were displayed.
+4. ``product\_select'' --- User wants to SELECT/CHOOSE specific products from the most recently shown search results. Signals: numbers (1-6, ``\#2''), ordinals (``first'', ``third''), selection verbs (``I want'', ``pick'', ``I'll take''), or description references (``the quilted one'', ``the navy shirt''). The deployed prompt also lists Vietnamese and Spanish equivalents of these signals so that users in those locales are routed to the same intent; the equivalents are omitted here for brevity. ONLY classify as product\_select if the conversation history shows recent search results were displayed.
 
-5. ``view\_selections'' --- User wants to view their saved/selected products (e.g., ``show my selections'', ``what did I pick?'', ``my picks'', ``xem các sản phẩm đã chọn'', ``ver mis selecciones'')
+5. ``view\_selections'' --- User wants to view their saved/selected products (e.g., ``show my selections'', ``what did I pick?'', ``my picks''). The prompt likewise covers Vietnamese and Spanish equivalents of this phrasing.
 
 6. ``out\_of\_scope'' --- User is asking about non-fashion topics (e.g., ``today's weather'', ``how to cook pasta'')
 
@@ -245,7 +245,7 @@ User: ``2'' (after search results were shown)\\
 User: ``I want the first and third one'' (after search results were shown)\\
 → \{\{``intent'': ``product\_select'', ``confidence'': 0.9, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [1, 3]\}\}
 
-User: ``lấy cái áo quilted navy'' (after results show a quilted navy item at \#2)\\
+User: ``take the quilted navy shirt'' (after results show a quilted navy item at \#2)\\
 → \{\{``intent'': ``product\_select'', ``confidence'': 0.85, ``filters'': \{\{\}\}, ``refined\_query'': ``'', ``slot\_category'': ``'', ``slot\_color'': ``'', ``slot\_fabric'': ``'', ``slot\_fit'': ``'', ``slot\_construction'': ``'', ``slot\_aesthetic'': ``'', ``selected\_numbers'': [2]\}\}
 
 User: ``show my selections''\\
@@ -335,28 +335,22 @@ The BM25 retriever is intentionally not persisted to disk. On every API process 
 
 Postgres exposes port 5432 on the internal network and is initialised on first startup by \texttt{init\_memory\_tables} in \texttt{agent/memory.py}. The function is idempotent: every \texttt{CREATE TABLE} uses \texttt{IF NOT EXISTS} and every column addition is gated on \texttt{ADD COLUMN IF NOT EXISTS}. New deployments therefore receive the full schema on first run; existing deployments receive only the missing pieces. Table~\ref{tab:impl_pg_tables} summarises the relations actually created.
 
-\begin{table}[H]
-\centering
-\caption{Postgres relations initialised at API startup.}
-\label{tab:impl_pg_tables}
-\small
-\begin{tabular}{p{4.4cm} p{3.0cm} p{6.6cm}}
-\toprule
-\textbf{Relation} & \textbf{Primary key} & \textbf{Role} \\
-\midrule
-\texttt{user\_sessions} & \texttt{session\_id} & Per-session demographic context (user name, year of birth, gender), preferred model, and JSONB columns \texttt{liked\_items} and \texttt{query\_history} for soft preferences (Algorithm~\ref{alg:get_preferences}). \\
-\texttt{conversation\_history} & \texttt{id} (BIGSERIAL) & Append-only message log with foreign key to \texttt{user\_sessions}; indexed on (\texttt{session\_id}, \texttt{created\_at}). \\
-\texttt{selected\_items} & \texttt{id} & Confirmed selections with \texttt{position} and \texttt{path\_mode}; uniqueness on (\texttt{session\_id}, \texttt{image\_id}, \texttt{path\_mode}). \\
-\texttt{user\_ratings} & \texttt{id} & Three 1--5 ratings (\texttt{rating\_overall}, \texttt{rating\_suggestions}, \texttt{rating\_conversation}) plus free-text feedback per session. \\
-\texttt{llm\_token\_usage} & \texttt{id} & Per-call input / output token counts per model and call name; basis for the cost dashboards in Result. \\
-\texttt{product\_impressions}, \texttt{product\_clicks}, \texttt{product\_intents} & \texttt{id} & Per-event behaviour log keyed by (\texttt{session\_id}, \texttt{image\_id}, \texttt{path\_mode}) with positions. \\
-\texttt{user\_orders} & \texttt{id} & Simulated checkout (phone, address, \texttt{path\_mode}); writing a row also stamps \texttt{ended\_at} on the parent session. \\
-\texttt{cart\_removals} & \texttt{id} & Cart-removal events, distinct from \texttt{selected\_items} so removal rate is computable. \\
-\bottomrule
-\end{tabular}
-\end{table}
+\begin{table}[H] \centering \caption{Postgres relations initialised at API startup.} 
+  \label{tab:impl_pg_tables} \small \begin{tabular}{p{4.4cm} p{3.0cm} p{6.6cm}} \toprule 
+  \textbf{Relation} & \textbf{Primary key} & \textbf{Role} \\ \midrule \texttt{user\_sessions} & 
+  \texttt{session\_id} & Stores session profile, demographic fields, preferred model, and JSONB 
+  preference history. \\ \texttt{conversation\_history} & \texttt{id} (BIGSERIAL) & Stores the ordered 
+  user--assistant message history for each session. \\ \texttt{selected\_items} & \texttt{id} & Records 
+  products explicitly selected by the user from recent recommendations. \\ \texttt{user\_ratings} & 
+  \texttt{id} & Stores post-session ratings and optional free-text feedback. \\ 
+  \texttt{llm\_token\_usage} & \texttt{id} & Logs per-call token usage by model and call type for cost 
+  analysis. \\ \texttt{product\_impressions}, \texttt{product\_clicks}, \texttt{product\_intents} & 
+  \texttt{id} & Tracks product exposure, clicks, and intent events for engagement analysis. \\ 
+  \texttt{user\_orders} & \texttt{id} & Stores simulated checkout records and marks the session as 
+  completed. \\ \texttt{cart\_removals} & \texttt{id} & Records product removals from the cart for 
+  removal-rate analysis. \\ \bottomrule \end{tabular} \end{table}
 
-Connection management is handled by a module-level \texttt{psycopg2.pool.SimpleConnectionPool} configured with \texttt{minconn=2}, \texttt{maxconn=10}, \texttt{connect\_timeout=5}, and a server-side \texttt{lock\_timeout} of 8\,s applied through \texttt{options}. A lightweight \texttt{\_db\_conn()} context manager borrows and returns a connection per logical operation, keeping all explicit \texttt{conn.close()} calls out of the request handlers. Two soft-preference columns on \texttt{user\_sessions} --- \texttt{liked\_items} and \texttt{query\_history} --- use the JSONB type with default \texttt{[]}; this is what allows Algorithm~\ref{alg:add_liked_item} and Algorithm~\ref{alg:log_query_history} to be implemented as single \texttt{UPDATE} statements with \texttt{jsonb} concatenation.
+Connection management is handled by a module-level \texttt{SimpleConnectionPool} configured with \texttt{minconn=2}, \texttt{maxconn=10}, \texttt{connect\_timeout=5}, and a server-side \texttt{lock\_timeout} of 8\,s applied through \texttt{options}. A lightweight \texttt{\_db\_conn()} context manager borrows and returns a connection per logical operation, keeping all explicit \texttt{conn.close()} calls out of the request handlers. Two soft-preference columns on \texttt{user\_sessions} --- \texttt{liked\_items} and \texttt{query\_history} --- use the JSONB type with default \texttt{[]}; this is what allows ~\texttt{add\_liked\_item} and ~\texttt{log\_query\_history} to be implemented as single \texttt{UPDATE} statements with \texttt{jsonb} concatenation.
 
 \subsection{Model Cache Layout}
 

@@ -61,7 +61,7 @@ Sample balance & Cohort is not dominated by a single \texttt{path\_mode} or user
 \label{tab:data_validity_checks}
 \end{table}
 
-A metric is treated as trustworthy only when it passes the checks in Table~\ref{tab:data_validity_checks}; otherwise the surrounding prose explicitly weakens the claim. Sample-size caveats are repeated in every subsection where the post-filter cohort is small.
+A metric is treated as trustworthy only when it passes the checks in Table~\texttt{\ref{tab:data_validity_checks}}; otherwise the surrounding prose explicitly weakens the claim. Sample-size caveats are repeated in every subsection where the post-filter cohort is small.
 
 
 \section{Cohort and Integrity}
@@ -197,7 +197,7 @@ The catalogue is dominated by upper-body garments (T-Shirt, Longsleeve, Shirt, P
 \subsection{Processing Log Coverage}
 \label{subsec:processing_log_coverage}
 
-The \texttt{fashion\_processing\_logs} table is empty in the present snapshot. This is a data-quality observation rather than a claim about enrichment success: the table is populated only when a processing pass writes step-by-step records, and the cohort window did not include such a pass. The fact that 100\% of items have non-empty captions and colors (Table~\ref{tab:enrichment_coverage}) indicates that enrichment has run to completion at some point before the freeze date; the per-step trace simply is not available for that historical run.
+The \texttt{fashion\_processing\_logs} table is empty in the present snapshot. This is a data-quality observation rather than a claim about enrichment success: the table is populated only when a processing pass writes step-by-step records, and the cohort window did not include such a pass. The fact that 100\% of items have non-empty captions and colors (Table~\texttt{\ref{tab:enrichment_coverage}}) indicates that enrichment has run to completion at some point before the freeze date; the per-step trace simply is not available for that historical run.
 
 
 \section{LLM Call Discipline}
@@ -223,12 +223,12 @@ This section reports the distribution of LLM calls per turn, sourced from \textt
 \label{tab:call_name_distribution}
 \end{table}
 
-Three observations follow from Table~\ref{tab:call_name_distribution}:
+Three observations follow from Table~\texttt{\ref{tab:call_name_distribution}}:
 
 \begin{enumerate}
     \item \textbf{Every turn invokes the intent classifier.} The 155 \texttt{intent} rows correspond to 155 turns, and they are the only mandatory call.
     \item \textbf{Synthesis is conditional, not mandatory.} Only 60 of the 155 turns proceeded to a synthesis call. The ratio $60/155 \approx 38.7\%$ is the fraction of user turns that produced product results worth synthesising; the remaining 61.3\% were either clarification responses (no synthesis call needed, the agent emits a templated question) or out-of-scope requests (refused without retrieval).
-    \item \textbf{The query-expansion call is never recorded.} The short-query gate at six words (Algorithm~\ref{alg:expand_query}) suppressed expansion in every observed turn; \texttt{call\_name='expansion'} has zero rows. In practice the deployed cohort always reached search with the user's original query.
+    \item \textbf{The query-expansion call is never recorded.} The short-query gate at six words (Algorithm~\texttt{\ref{alg:expand_query}}) suppressed expansion in every observed turn; \texttt{call\_name='expansion'} has zero rows. In practice the deployed cohort always reached search with the user's original query.
 \end{enumerate}
 
 The empirical per-turn LLM-call count is therefore exactly one (intent only, for clarification or out-of-scope turns) or exactly two (intent then synthesis, for product turns). No turn invoked three or more LLM calls. This rules out, by direct counting, any ReAct-style multi-call loop in the deployed cohort.

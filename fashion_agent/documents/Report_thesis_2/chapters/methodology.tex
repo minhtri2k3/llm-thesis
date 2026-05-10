@@ -1,6 +1,6 @@
 The central question motivating this work is whether a single-LLM, intent-first agent built on retrieval-augmented generation can dynamically resolve intent ambiguity to provide accurate product recommendations from indeterminate or "unclear" user messages. Answering this question requires three methodological decisions: designing a reasoning engine that disambiguates user intent in a single classification call, developing a tool-augmented RAG pipeline to ensure deterministic and grounded product retrieval, and establishing an experimental protocol that evaluates the system’s performance across varying levels of query clarity.
 
-This chapter proceeds in that order. Section 3.1 outlines the high-level system architecture of the proposed Clothie framework. Sections 3.2 through 3.6 specify the individual pipeline components, including the intent-first agent planner, the tool-calling orchestration, and the vector-based retrieval strategy. Section 3.7 describes the dataset and knowledge base construction, while Section 3.8 defines the evaluation metrics and experimental matrix used to validate the system’s efficacy in supporting dynamic consumer decisions.
+This chapter proceeds in that order. Section 3.1 outlines the high-level system architecture of the proposed Clothie framework. Section 3.2 describes the dataset acquisition and knowledge base construction. Sections 3.3 through 3.5 specify the individual pipeline components, including the intent-first agent planner, the multi-modal retrieval pipelines, and the tool-augmented orchestration. Section 3.6 defines the evaluation framework and experimental matrix used to validate the system’s efficacy in supporting dynamic consumer decisions.
 
 \section{Research Design and Proposal System Architecture}
 \subsection{Research Design and Technical Evolution}
@@ -369,7 +369,9 @@ unclear         & Information too vague                     & Ask for clarificat
 \label{tab:intent_table}
 \end{table}
 
-The slot payload tracks six \emph{caption-aligned} attributes plus a list of integers used by the product-selection branch. The six attributes pair the two metadata fields that BM25 indexes (\texttt{category}, \texttt{color}) with the four properties used inside the LLM-generated caption (\texttt{fabric}, \texttt{fit}, \texttt{construction}, \texttt{aesthetic}). The \texttt{selected\_numbers} field is populated only by the \texttt{product\_select} intent and carries 1-indexed item numbers referring to the most recent result list cached for the session.
+The slot payload tracks six \emph{caption-aligned} attributes plus a list of integers used by the product-selection branch. The six attributes combine the two metadata fields indexed by BM25 (\texttt{category}, \texttt{color}) with the four caption properties generated offline for retrieval (\texttt{fabric}, \texttt{fit}, \texttt{construction}, \texttt{aesthetic}). The \texttt{selected\_numbers} field is populated only by the \texttt{product\_select} intent and carries 1-indexed item numbers referring to the most recent result list cached for the session.
+
+The six-slot vocabulary matches the deployed knowledge base and keeps the intent parser aligned with the retrieval features. Any additional slot would not be represented in the BM25 index or the caption embedding, while any missing slot would leave part of the captioning signal unused. The parser was also tuned around this schema because larger payloads increased malformed JSON during prototyping without improving retrieval quality. A broader vocabulary study is therefore left to future work and is recorded in the Conclusion's Limitations.
 
 \begin{algorithm}[H]
 \caption{LLM-based Intent Classification with Six-Slot Extraction}\label{alg:intent_class}
@@ -433,7 +435,7 @@ When a new turn arrives, the orchestrator merges the freshly extracted slots int
 \subsection{Slot Readiness and the Clarification Gate}
 \label{subsec:slot_readiness}
 
-Step~2 of the pipeline answers a single question: ``do we have enough context to retrieve, or should we ask a clarifying question first?'' The decision uses a \emph{ranked} four-slot view of the session state that reduces the six-slot extraction down to the four signals most predictive of retrieval quality.
+Step~2 of the pipeline answers a single question: ``do we have enough context to retrieve, or should we ask a clarifying question first?'' The decision uses a \emph{ranked} four-slot view of the session state that reduces the six-slot extraction down to the four signals chosen as gating signals for retrieval quality.
 
 \begin{table}[H]
 \centering
@@ -470,6 +472,9 @@ Style    & 2 & Secondary signal\\
 \end{algorithmic}
 \end{algorithm}
 
+\paragraph{Design rationale for weights and thresholds.}
+The weights and thresholds in Table~\ref{tab:slot_weights} are design-based rather than learned. \textbf{Category} carries the highest weight because BM25 requires at least one head-noun to bucket the lexical index, and the image-vector ANN over the full catalogue degrades without a category constraint; the system therefore cannot execute a safe text-to-image retrieval when category is empty. \textbf{Color} and \textbf{Occasion} share weight~3: color is the second strongest visual discriminator after category and is enriched at 100\% coverage in the knowledge base (Section~3.2), while occasion narrows the candidate set by an order of magnitude through formal/casual/sport partitioning. \textbf{Style} carries the lowest weight because much of its semantics is already absorbed by the FashionSigLIP text-vector and caption embeddings, making an explicit style slot a secondary rather than a gating signal. The thresholds in Algorithm~\ref{alg:slot_readiness} are chosen so that \texttt{text\_search} requires category plus at least one strong attribute ($4{+}3{=}7$), \texttt{outfit\_request} accepts any two strong attributes ($\ge 5$), and \texttt{follow\_up} accepts a single new signal ($\ge 2$) on top of accumulated state from prior turns. An empirical ablation that learns these weights from a labelled retrieval gold set is left to future work and is listed in the Conclusion's Limitations.
+
 The intent-classifier confidence is also enforced as a hard gate: if \texttt{intent\_result.confidence} falls below $\tau$, the system falls into clarification regardless of slot completeness, so that ``noisy'' classifications never reach the search engine. Only when the confidence gate \emph{and} the ranked-slot readiness both pass does the orchestrator proceed to retrieval. This dual gating is the key reason most clarifications return without an additional LLM call.
 
 \paragraph{Six-slot extraction vs.\ four-slot readiness.}
@@ -504,7 +509,7 @@ The system supports three languages (English, Vietnamese, Spanish) with detectio
 
 \subsection{Long-Term Memory (PostgreSQL JSONB)}
 
-Beyond the TTLCache layer, the agent maintains two JSONB columns on \texttt{user\_sessions} that survive process restarts and let the synthesis step inject soft personalization hints. \texttt{query\_history} is an append-only log used to extract preferred colors and categories; \texttt{liked\_items} is a deduplicated set of \texttt{image\_id}s that the user has explicitly endorsed. Both are maintained by the algorithms below.
+Beyond the TTLCache layer, the agent maintains long-term state across two complementary structures on PostgreSQL. The first is the \texttt{user\_sessions} table, which carries two JSONB columns that survive process restarts and feed soft personalisation hints into synthesis: \texttt{query\_history} is an append-only log used to extract preferred colors and categories, while \texttt{liked\_items} is a scaffolded column reserved for a future explicit-endorsement UI. The second is a dedicated \texttt{selected\_items} table that records the products a user actually confirms by replying with their ordinal numbers (the \texttt{product\_select} intent of Section~3.3.1); this is the deployed endorsement path. The four algorithms below specify how each structure is maintained.
 
 \begin{algorithm}[H]
 \caption{Append a Query Entry to Session History}\label{alg:log_query_history}
@@ -536,6 +541,30 @@ Beyond the TTLCache layer, the agent maintains two JSONB columns on \texttt{user
 \end{algorithmic}
 \end{algorithm}
 
+\paragraph{Liked-items path is scaffolded, not active.}
+The \texttt{liked\_items} column and Algorithm~\ref{alg:add_liked_item} are present in the deployed code, but the column is not populated by any HTTP endpoint or front-end interaction in the current cohort: the Flutter web client does not expose a \emph{like}/\emph{favourite} action, and \texttt{add\_liked\_item} is consequently never invoked in production. Algorithm~\ref{alg:get_preferences} below reads \texttt{query\_history} only and ignores \texttt{liked\_items}. The deployed user-endorsement signal therefore comes from Algorithm~\ref{alg:save_selected_items}, which records the items a user confirms via the \texttt{product\_select} intent.
+
+\begin{algorithm}[H]
+\caption{Save Confirmed Selections to \texttt{selected\_items}}\label{alg:save_selected_items}
+\textit{Source: \texttt{agent/memory.py:save\_selected\_items}}
+\begin{algorithmic}[1]
+\Require Session id $sid$, item list $L$ (each carries \texttt{image\_id}, label, color, caption, image\_path, search\_query, position, path\_mode)
+\Ensure New rows added to \texttt{selected\_items}; duplicates skipped
+\Function{SaveSelectedItems}{$sid, L$}
+    \If{$L = \emptyset$}\State \Return $0$\EndIf
+    \State $n \gets 0$
+    \For{each item $\ell \in L$}
+        \State \texttt{INSERT INTO selected\_items} with the eight item fields plus \texttt{path\_mode}
+        \State \texttt{ON CONFLICT (session\_id, image\_id, path\_mode) DO NOTHING}
+        \State $n \gets n + \texttt{rowcount}$
+    \EndFor
+    \State commit; \Return $n$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+This algorithm runs from the \texttt{product\_select} branch of the orchestrator (Section~3.3.1) when the user replies with ordinal numbers referencing the most recent result list. The \texttt{path\_mode} column distinguishes PATH~1 selections (text-to-image) from PATH~2 selections (image-to-image) and combines with \texttt{(session\_id, image\_id)} into a uniqueness key, so the same product can appear in both pathways without collision.
+
 \begin{algorithm}[H]
 \caption{Derive Soft Preferences from Query History}\label{alg:get_preferences}
 \textit{Source: \texttt{agent/memory.py:get\_preferences}}
@@ -566,6 +595,9 @@ The agent exposes two retrieval pathways with deliberately different goals and f
 The motivation for cross-modal retrieval is simple: the user types a sentence about clothing and expects to see images, but the catalog is indexed as photos. FashionSigLIP resolves this by mapping both modalities into the same 768-dimensional vector space, so an image embedding and a text embedding of the same product are nearby under cosine similarity. PATH~1 then layers on a lexical channel (BM25) that anchors short queries with explicit category or color tokens, and a cross-encoder rerank that re-scores the fused top-k against the full caption.
 
 The encoder used by PATH~1 is the same \textsc{EncodeImage}/\textsc{EncodeText} pair documented in Algorithm~\ref{alg:fashionsiglip} (Section~\ref{subsec:vector_index}); cosine similarity between query and stored vectors is the matching primitive defined next.
+
+\paragraph{Why dual-vector retrieval and not a single embedding lane.}
+FashionSigLIP is contrastively pre-trained so that the image encoder and text encoder produce L2-normalised vectors in a shared 768-dimensional space; an image of a navy chambray shirt and a textual description of the same garment land near each other under cosine similarity. PATH~1 exploits this alignment in two distinct ways. The \textbf{image-vector lane} takes the user's text query, encodes it with the SigLIP text encoder, and searches the Qdrant named vector \texttt{image\_vector}, which holds the SigLIP \emph{image} embedding of every catalogue product; this is a cross-modal lookup that captures visual signal pulled directly from product pixels --- silhouette, dominant colour, texture --- without any caption in the loop. The \textbf{text-vector lane} takes the same text query and the same text-encoder output, but searches the named vector \texttt{text\_vector}, which holds the SigLIP \emph{text} embedding of the LLM-generated caption (Section~3.2); this is a text-to-text lookup that captures the semantic signal articulated through the four caption axes \texttt{fabric}, \texttt{fit}, \texttt{construction}, and \texttt{aesthetic}, including abstract context such as ``smart casual'' or ``date-night'' that pixels alone do not express. Crucially, both lanes use the same query encoder; only the catalogue-side vector being compared against differs. The two lanes can and do disagree --- an image-vector match may surface a visually similar product whose caption is off-topic, and a text-vector match may surface a caption-aligned product whose photo looks nothing like the query --- and that disagreement is precisely what the RRF fusion below resolves by promoting candidates that surface in multiple lanes. PATH~2 (image input) runs only the image-vector lane because there is no user-side caption to encode.
 
 \begin{algorithm}[H]
 \caption{Cosine Similarity for Cross-Modal Matching}\label{alg:cosine_sim}
@@ -645,6 +677,42 @@ The fusion stage combines BM25 and dual-vector retrieval results using Reciproca
 \EndFunction
 \end{algorithmic}
 \end{algorithm}
+
+\paragraph{End-to-end PATH 1 flow at a glance.}
+The pipeline executes deterministically once the clarification gate has cleared. The retrieval stages, in order, are: (i) optionally call the LLM expansion, but only if the query is shorter than six words --- queries longer than six words bypass expansion to save a call (Algorithm~\ref{alg:expand_query}); (ii) query the BM25 index for up to twenty candidates per expansion variant; (iii) encode the query with the SigLIP text encoder once and run two Qdrant ANN searches --- one against the named vector \texttt{image\_vector}, one against \texttt{text\_vector} --- each returning up to twenty candidates per expansion; (iv) dedup-merge inside each lane by \texttt{image\_id}, keeping the highest score per item per lane; (v) fuse the three lanes with RRF (Algorithm~\ref{alg:rrf}) using the weights $W_{bm25}{=}2.5$, $W_{img}{=}1.0$, $W_{text}{=}1.5$, so that an item appearing in multiple lanes accumulates score from each and cross-lane consensus is naturally rewarded; (vi) take the top twenty of the RRF-fused list and pass them all to the BGE Reranker v2-m3 cross-encoder, which scores every (query, candidate) pair using the concatenation of \texttt{label}, \texttt{color}, and full \texttt{caption} (Algorithm~\ref{alg:rerank_blend}); (vii) blend the min-max-normalised cross-encoder score with the original RRF score as $0.7\,\tilde r + 0.3\,\text{rrf}$ and return the top six.
+
+\paragraph{What the reranker does and does not do.}
+The reranker does \emph{not} draw a fixed quota from each source lane (for example, ``four candidates from the vector lanes plus two from BM25''). It receives the RRF-fused top twenty as an opaque candidate list --- every item already carries an RRF score that summarises which lane(s) surfaced it and how high it ranked there --- and reorders them based on cross-encoder relevance computed against the full caption text. Consequently a candidate that came purely from BM25 can be reranked above a candidate from the image-vector lane if the cross-encoder finds it a better semantic match, and the reverse is equally possible. The blending coefficients $0.7$ and $0.3$ ensure that the cross-encoder dominates the final ordering while the RRF score breaks ties and preserves cross-lane consensus information that the cross-encoder, being a pairwise scorer, cannot see on its own.
+
+\paragraph{Why heterogeneous scores can be fused: rank, not magnitude.}
+The three retrieval lanes produce numerically incompatible scores. BM25 returns an unbounded positive lexical score (typical range 5--30 in this catalogue), while the two ANN lanes return cosine similarities in $[-1,1]$ (typical range 0.15--0.70 for text-to-image queries on this index). Naively summing or averaging these would let the larger scale dominate. Reciprocal Rank Fusion, introduced by Cormack et al.~\cite{cormack2009rrf}, sidesteps the scale problem entirely by discarding the raw scores and using only the \emph{rank} that each lane assigns to each candidate; the original paper formulates the fused score as $\textsc{RRFscore}(d) = \sum_{r \in R} 1/(k + r(d))$, where $r(d)$ is the rank assigned to document $d$ by ranking $r$. The deployed pipeline extends this with per-lane weights, so a candidate $d$ that appears at zero-indexed rank $r$ in a lane $\ell$ of weight $w_\ell$ has the lane contribute $w_\ell / (k + r + 1)$ to its fused score; the constant $k=60$ flattens the curve so that the gap between rank~0 and rank~1 is small ($w_\ell / 61$ vs.\ $w_\ell / 62$), preventing a single high-ranked outlier in one lane from drowning out cross-lane consensus. The intuition for $k$ is given verbatim in the original paper: ``while highly-ranked documents are more important, the importance of lower-ranked documents does not vanish as it would were, say, an exponential function used. The constant $k$ mitigates the impact of high rankings by outlier systems''~\cite{cormack2009rrf}. The specific value $k=60$ is the same canonical default established empirically in~\cite{cormack2009rrf}: in their pilot, they swept $k$ across $\{0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 500\}$ on a 30-system fusion over TREC topics 351--400 and reported MAP scores plateauing in the range 0.2138--0.2147 for $k \in [40, 90]$, with their summary that ``$k = 60$ was near-optimal, but \dots\ the choice was not critical''~\cite{cormack2009rrf}; the present work adopts that default unchanged. A candidate that surfaces in all three lanes accumulates contributions from each, so cross-lane agreement naturally outranks single-lane stand-outs --- and crucially, this works regardless of how BM25 and cosine scales relate, because neither magnitude is ever consulted. The lane weights $W_{bm25}{=}2.5$, $W_{img}{=}1.0$, $W_{text}{=}1.5$ encode a deliberate prior added on top of the unweighted formulation in~\cite{cormack2009rrf}: a lexical hit (BM25) is the strongest signal that the user typed a token actually present in the catalogue; the caption-side text-vector lane is the next-strongest because it inherits the four caption axes; the image-vector lane is treated as the most exploratory because cross-modal text-to-image cosine matches can drift on abstract queries.
+
+\paragraph{Two normalisation steps before the reranker delivers a final order.}
+By the time the reranker runs, scores have been homogenised twice. First, the RRF fusion above collapses heterogeneous lane scores into a single fused score on a comparable scale --- the per-lane contribution $w_\ell / (k + r + 1)$ is bounded above by $w_\ell / 61$ (rank~0), and the maximum fused score for an item that ranks first in all three lanes is $(W_{bm25} + W_{img} + W_{text}) / 61 = 5.0 / 61 \approx 0.082$, with most candidates falling well below that. Second, the BGE cross-encoder produces its own raw logits $r_c$ over the (query, candidate) pairs and applies a min--max normalisation that rescales them to $[0,1]$:
+\begin{equation*}
+\tilde r_c \;=\; \frac{r_c - \min(r)}{\max(r) - \min(r)}.
+\end{equation*}
+The blend $0.7\,\tilde r_c + 0.3\,\text{rrf}_c$ therefore combines two values that, after their respective normalisations, sit on similar bounded ranges; it is not comparing raw BM25 scores to raw cosine similarities, because by this point both have been transformed twice. The cross-encoder dominates because $0.7 > 0.3$ and because $\tilde r$ saturates the full $[0,1]$ range while the RRF score rarely exceeds the $\sim 0.08$ bound noted above; the RRF term acts as a tie-breaker that keeps cross-lane consensus from being entirely overruled by a strong cross-encoder signal on a single noisy candidate.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{p{2.6cm}p{4.0cm}p{5.4cm}}
+\toprule
+\textbf{Stage} & \textbf{Score input} & \textbf{Score output}\\
+\midrule
+BM25 retrieve         & raw query string                                          & BM25 lexical score, $\geq 0$, unbounded \\
+Image-vector ANN      & raw query string $\to$ SigLIP text encoder                & cosine $\in [-1,1]$ vs.\ stored \texttt{image\_vector} \\
+Text-vector ANN       & raw query string $\to$ SigLIP text encoder                & cosine $\in [-1,1]$ vs.\ stored \texttt{text\_vector} \\
+Dedup-merge           & per-lane lists                                            & same scores, dedup by \texttt{image\_id} within each lane \\
+RRF fusion            & three per-lane ranked lists (\emph{ranks only})           & fused score $\in [0,\,\sim 0.082]$, rank-based, scale-agnostic \\
+BGE rerank logits     & top-20 fused list, RRF score preserved as $\text{rrf}_c$  & cross-encoder raw logit $r_c$ \\
+Min--max + blend      & $r_c$ and $\text{rrf}_c$                                  & final score $0.7\,\tilde r_c + 0.3\,\text{rrf}_c$, sort, return top-6 \\
+\bottomrule
+\end{tabular}
+\caption{Score evolution along the seven-stage retrieval pipeline. The only stage that ever directly compares raw heterogeneous scores is RRF, which deliberately throws away magnitudes and uses ranks instead; everything downstream sees scores that have been brought onto comparable bounded scales.}
+\label{tab:score_evolution}
+\end{table}
 
 \begin{algorithm}[H]
 \caption{HybridSearch --- Seven-Stage Pipeline (PATH 1)}\label{alg:hybrid_search}
