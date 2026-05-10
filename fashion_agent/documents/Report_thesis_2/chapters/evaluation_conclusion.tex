@@ -4,7 +4,7 @@
 \centering
 \begin{tabular}{llll}
 \toprule
-\textbf{Metric} & \textbf{Meaning} & \textbf{RAG v1.0} & \textbf{Agent v2.0}\\
+\textbf{Metric} & \textbf{Meaning} & \textbf{Hybrid RAG} & \textbf{Fashion Agent}\\
 \midrule
 Recall@5 (PATH 1)   & Top-5 correct category/color   & $\geq$85\% & $\geq$88\%\\
 MRR                 & Position of first correct result & $\geq$0.75 & $\geq$0.80\\
@@ -14,7 +14,7 @@ Faithfulness        & No hallucinated information     & N/A         & $\geq$0.87
 Latency P95         & Total ReAct loop time           & $<$15s      & $<$15s\\
 \bottomrule
 \end{tabular}
-\caption{System evaluation metrics comparing RAG v1.0 and Agent v2.0}
+\caption{System evaluation metrics comparing Hybrid RAG and Fashion Agent}
 \end{table}
 
 \section{Data Collection and Evidence Integrity}
@@ -142,9 +142,9 @@ Gemini API rate limit                & Medium & Batch processing, exponential ba
 \end{table}
 
 \section{Conclusion}
-This project successfully built an intelligent multimodal fashion search system following a clear two-phase roadmap. The RAG v1.0 phase established a hybrid search foundation with FashionCLIP 2.0 and BM25, while Agent v2.0 PATH 1 upgraded to a proactive architecture featuring a ReAct loop, intent classification, a clarification gate, and persistent memory via PostgreSQL.
+This project successfully built an intelligent multimodal fashion search system following a clear two-phase roadmap. The Hybrid RAG phase established a hybrid search foundation with FashionCLIP 2.0 and BM25, while the Fashion Agent PATH 1 upgraded to a proactive architecture featuring a ReAct loop, intent classification, a clarification gate, and persistent memory via PostgreSQL.
 
-Version v2.0 represents significant improvements over v1.0:
+The Fashion Agent represents significant improvements over the Hybrid RAG baseline:
 \begin{itemize}
     \item \textbf{Embedding}: Upgraded from FashionCLIP (512-d) to Marqo-FashionSigLIP (768-d).
     \item \textbf{Query Expansion}: Added Gemini-powered synonym expansion for short queries.
@@ -163,7 +163,7 @@ Final claims are mapped to evidence strength so that conclusions remain proporti
 \toprule
 \textbf{Claim} & \textbf{Primary Evidence} & \textbf{Status}\\
 \midrule
-Agent v2.0 improves retrieval quality over v1.0. & Recall@5, MRR, Hit Rate@5 (Section~\ref{sec:data_evidence_integrity} and Section~\ref{subsec:metric_definitions_boundaries}). & Supported\\
+Fashion Agent improves retrieval quality over the Hybrid RAG baseline. & Recall@5, MRR, Hit Rate@5 (Section~\ref{sec:data_evidence_integrity} and Section~\ref{subsec:metric_definitions_boundaries}). & Supported\\
 Agent behavior is robust in multi-turn interaction. & Task completion, faithfulness, and clarification behavior logs. & Supported\\
 Operational LLM cost is explainable and monitorable. & \texttt{llm\_token\_usage}, \texttt{session\_token\_summary}, mode cost aggregation. & Partially supported\\
 User purchase tendency is improved by recommendations. & CartAddRate / WillBuyRate / ConversionRate from behavior funnel. & Inconclusive (depends on cohort size and balance)\\
