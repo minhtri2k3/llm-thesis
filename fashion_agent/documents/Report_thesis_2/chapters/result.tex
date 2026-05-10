@@ -7,7 +7,7 @@
 
 This chapter reports observed values from the deployed Clothie system. The framework, validity gates, and cohort rules summarised below were defined in Chapter~3, Section~3.6; they are retained here so that every empirical block in §5.2--§5.6 inherits the same boundaries.
 
-\textbf{Data freeze.} All aggregates in §5.2--§5.6 are computed from a snapshot of the production PostgreSQL database taken at \textbf{2026-05-09}. The cohort window is open, that is, no $t_{start}$ filter is applied; sessions from the earliest deployed traffic on 2026-04-20 up to and including 2026-05-08 are eligible. Because the deployed system continues to receive traffic, any reproduction with a later freeze date will return a larger cohort whose distribution may differ; the numbers below are therefore a point-in-time observation, not a stable historical record.
+\textbf{Data freeze.} All aggregates in §5.2--§5.6 are computed from a snapshot of the production PostgreSQL database taken at \textbf{2026-05-10}. The cohort window is open, that is, no $t_{start}$ filter is applied; sessions from the earliest deployed traffic on 2026-04-20 up to and including 2026-05-10 are eligible. Because the deployed system continues to receive traffic, any reproduction with a later freeze date will return a larger cohort whose distribution may differ; the numbers below are therefore a point-in-time observation, not a stable historical record.
 
 \textbf{Reproducibility note.} Each subsection in §5.2--§5.6 names the PostgreSQL table or view from which its numbers were drawn. A reviewer can reproduce any cell of any table by running the corresponding aggregation against the live database with a freeze-date filter; cell values may shift as the deployed system continues to log new sessions.
 
@@ -47,7 +47,7 @@ A metric is treated as trustworthy only when it passes the checks in Table~\ref{
 \section{Cohort and Integrity}
 \label{sec:cohort_integrity}
 
-This section describes the population of sessions on which §5.3--§5.6 build. Every later number inherits the cohort defined here, sourced from \texttt{user\_sessions} together with the per-event tables (\texttt{product\_impressions}, \texttt{user\_ratings}) used to define the active subsets. The numbers reported below are computed at the freeze date 2026-05-09.
+This section describes the population of sessions on which §5.3--§5.6 build. Every later number inherits the cohort defined here, sourced from \texttt{user\_sessions} together with the per-event tables (\texttt{product\_impressions}, \texttt{user\_ratings}) used to define the active subsets. The numbers reported below are computed at the freeze date 2026-05-10.
 
 \subsection{Cohort Counts}
 \label{subsec:cohort_counts}
@@ -58,18 +58,18 @@ This section describes the population of sessions on which §5.3--§5.6 build. E
 \toprule
 \textbf{Cohort definition} & \textbf{Sessions} & \textbf{Inclusion filter}\\
 \midrule
-Raw cohort (open window) & 53 & all rows of \texttt{user\_sessions}\\
-Active cohort (had at least one impression) & 25 & inner join with \texttt{product\_impressions}\\
-Rated cohort (had at least one rating) & 9 & inner join with \texttt{user\_ratings}\\
-Demographic cohort (declared gender) & 50 & \texttt{gender IS NOT NULL}\\
-Order-completing cohort (\texttt{ended\_by='order'}) & 8 & \texttt{user\_sessions.ended\_by} column\\
+Raw cohort (open window) & 61 & all rows of \texttt{user\_sessions}\\
+Active cohort (had at least one impression) & 32 & inner join with \texttt{product\_impressions}\\
+Rated cohort (had at least one rating) & 13 & inner join with \texttt{user\_ratings}\\
+Demographic cohort (declared gender) & 58 & \texttt{gender IS NOT NULL}\\
+Order-completing cohort (\texttt{ended\_by='order'}) & 11 & \texttt{user\_sessions.ended\_by} column\\
 \bottomrule
 \end{tabular}
-\caption{Cohort counts at freeze date 2026-05-09 (open window, earliest session 2026-04-20)}
+\caption{Cohort counts at freeze date 2026-05-10 (open window, earliest session 2026-04-20)}
 \label{tab:cohort_counts}
 \end{table}
 
-The active cohort (25 of 53, 47.2\%) is the most stable subset for behavioural metrics: it represents sessions in which the user actually saw search results. The rated cohort (9 of 53, 17.0\%) is small in absolute terms; §5.6 therefore reports its findings as anecdotal evidence and annotates every aggregate with the sample size $N=9$.
+The active cohort (32 of 61, 52.5\%) is the most stable subset for behavioural metrics: it represents sessions in which the user actually saw search results. The rated cohort (13 of 61, 21.3\%) is small in absolute terms; §5.6 therefore reports its findings as anecdotal evidence and annotates every aggregate with the sample size $N=13$.
 
 \subsection{Path-Mode Sample Balance}
 \label{subsec:path_balance}
@@ -80,8 +80,8 @@ The active cohort (25 of 53, 47.2\%) is the most stable subset for behavioural m
 \toprule
 \textbf{path\_mode} & \textbf{Sessions} & \textbf{Notes}\\
 \midrule
-\texttt{path1} & 35 & Primary text-to-image search path; the agent reasoning loop runs for these sessions\\
-\texttt{path2} & 7  & Image upload path (single-stage cosine lookup, no agent reasoning); secondary in this chapter\\
+\texttt{path1} & 36 & Primary text-to-image search path; the agent reasoning loop runs for these sessions\\
+\texttt{path2} & 8  & Image upload path (single-stage cosine lookup, no agent reasoning); secondary in this chapter\\
 \bottomrule
 \end{tabular}
 \caption{Sessions appearing in any per-event table partitioned by \texttt{path\_mode}}
@@ -117,7 +117,7 @@ Items with non-empty \texttt{caption} & 5,096 & 100.0\%\\
 Items with non-empty \texttt{color} & 5,096 & 100.0\%\\
 \bottomrule
 \end{tabular}
-\caption{Catalogue size and enrichment coverage at freeze date 2026-05-09}
+\caption{Catalogue size and enrichment coverage at freeze date 2026-05-10}
 \label{tab:enrichment_coverage}
 \end{table}
 
@@ -187,8 +187,8 @@ This section reports the distribution of LLM calls per turn, sourced from \textt
 \toprule
 \textbf{call\_name} & \textbf{Rows} & \textbf{Avg. input tokens} & \textbf{Avg. output tokens}\\
 \midrule
-\texttt{intent}    & 155 & 1{,}998 & 120\\
-\texttt{synthesis} & 60  & 859     & 223\\
+\texttt{intent}    & 209 & 2{,}003 & 120\\
+\texttt{synthesis} & 95  & 879     & 219\\
 \texttt{expansion} & 0   & ---     & ---\\
 \bottomrule
 \end{tabular}
@@ -199,8 +199,8 @@ This section reports the distribution of LLM calls per turn, sourced from \textt
 Three observations follow from Table~\ref{tab:call_name_distribution}:
 
 \begin{enumerate}
-    \item \textbf{Every turn invokes the intent classifier.} The 155 \texttt{intent} rows correspond to 155 turns, and they are the only mandatory call.
-    \item \textbf{Synthesis is conditional, not mandatory.} Only 60 of the 155 turns proceeded to a synthesis call. The ratio $60/155 \approx 38.7\%$ is the fraction of user turns that produced product results worth synthesising; the remaining 61.3\% were either clarification responses (no synthesis call needed, the agent emits a templated question) or out-of-scope requests (refused without retrieval).
+    \item \textbf{Every turn invokes the intent classifier.} The 209 \texttt{intent} rows correspond to 209 turns, and they are the only mandatory call.
+    \item \textbf{Synthesis is conditional, not mandatory.} Only 95 of the 209 turns proceeded to a synthesis call. The ratio $95/209 \approx 45.5\%$ is the fraction of user turns that produced product results worth synthesising; the remaining 54.5\% were either clarification responses (no synthesis call needed, the agent emits a templated question) or out-of-scope requests (refused without retrieval).
     \item \textbf{The query-expansion call is never recorded.} The short-query gate at six words (Algorithm~\ref{alg:expand_query}) suppressed expansion in every observed turn; \texttt{call\_name='expansion'} has zero rows. In practice the deployed cohort always reached search with the user's original query.
 \end{enumerate}
 
@@ -215,10 +215,10 @@ The empirical per-turn LLM-call count is therefore exactly one (intent only, for
 \toprule
 \textbf{Quantity} & \textbf{Value}\\
 \midrule
-Sessions with at least one logged call & 41\\
-Average input tokens per session & 8{,}811\\
-Average output tokens per session & 778\\
-Average total tokens per session & 9{,}590\\
+Sessions with at least one logged call & 48\\
+Average input tokens per session & 10{,}458\\
+Average output tokens per session & 957\\
+Average total tokens per session & 11{,}415\\
 \bottomrule
 \end{tabular}
 \caption{Per-session token totals from \texttt{session\_token\_summary}}
@@ -234,15 +234,14 @@ Average total tokens per session & 9{,}590\\
 \toprule
 \textbf{Orchestration} & \textbf{Synthesizer} & \textbf{Sessions} & \textbf{Turns} & \textbf{Avg. USD/turn}\\
 \midrule
-\texttt{direct} & \texttt{gemini-2.5-flash} & 24 & 50 & \$0.000132\\
-\texttt{direct} & \texttt{gemini-2.5-flash} (legacy ``fixed'' label) & 6 & 10 & \$0.000129\\
+\texttt{direct} & \texttt{gemini-2.5-flash} (``fixed'' label) & 48 & 209 & \$0.000142\\
 \bottomrule
 \end{tabular}
 \caption{Estimated per-turn USD cost from \texttt{mode\_cost\_summary}}
 \label{tab:cost_per_turn}
 \end{table}
 
-A representative turn costs approximately \$0.00013, that is, on the order of \$0.13 per one thousand turns at the published Gemini~2.5~Flash list price. The cost is dominated by the intent-classifier input (large system prompt) rather than by the synthesis output. The two rows differ only in a legacy \texttt{orchestrator\_model} label (\texttt{fixed} versus \texttt{gemini-2.5-flash}) emitted by an earlier version of the agent; both rows correspond to the same direct-routing pipeline.
+A representative turn costs approximately \$0.000142, that is, on the order of \$0.14 per one thousand turns at the published Gemini~2.5~Flash list price. The cost is dominated by the intent-classifier input (large system prompt) rather than by the synthesis output. All rows in the present cohort carry the legacy \texttt{orchestrator\_model='fixed'} label emitted by the deployed agent.
 
 
 \section{Implicit Relevance from User Behaviour}
@@ -260,19 +259,19 @@ This section uses behavioural events to argue that the items returned by the ret
 \textbf{Step} & \textbf{Count} & \textbf{Conversion rate to next step}\\
 \midrule
 Sessions in funnel  & 30 & ---\\
-Impressions logged   & 254 & 8.5 impressions per funnel session (mean)\\
-Clicks               & 81 & 31.9\% of impressions (CTR)\\
-Cart-adds            & 21 & 25.9\% of clicks; 8.3\% of impressions\\
-Will-buy intents     & 2 & 9.5\% of cart-adds\\
-Not-for-me intents   & 1 & 4.8\% of cart-adds\\
-Orders (session-end) & 9 & ---\\
+Impressions logged   & 444 & 14.8 impressions per funnel session (mean)\\
+Clicks               & 93 & 20.95\% of impressions (CTR)\\
+Cart-adds            & 24 & 25.81\% of clicks; 5.41\% of impressions\\
+Will-buy intents     & 3 & 12.5\% of cart-adds\\
+Not-for-me intents   & 2 & 8.33\% of cart-adds\\
+Orders (session-end) & 12 & ---\\
 \bottomrule
 \end{tabular}
 \caption{PATH 1 behavioural funnel from \texttt{session\_path\_funnel\_summary}}
 \label{tab:path1_funnel}
 \end{table}
 
-The click-through rate of 31.9\% is the strongest signal in the funnel: roughly one in three displayed items receives an explicit user click. The cart-add rate (8.3\% of impressions) drops by a factor of four from the click rate, which is consistent with users browsing freely and committing more selectively. The will-buy intent rate is small in absolute terms (only two events from 21 cart-adds), reflecting both genuine selectivity and the small absolute cohort; it is therefore reported but not used as a primary quality signal.
+The click-through rate of 20.95\% is the strongest signal in the funnel: roughly one in five displayed items receives an explicit user click. The cart-add rate (5.41\% of impressions) drops by a factor of four from the click rate, which is consistent with users browsing freely and committing more selectively. The will-buy intent rate is small in absolute terms (only three events from 24 cart-adds), reflecting both genuine selectivity and the small absolute cohort; it is therefore reported but not used as a primary quality signal.
 
 \subsection{PATH 2 Funnel (secondary)}
 \label{subsec:path2_funnel}
@@ -283,10 +282,10 @@ The click-through rate of 31.9\% is the strongest signal in the funnel: roughly 
 \toprule
 \textbf{Step} & \textbf{Count} & \textbf{Conversion rate}\\
 \midrule
-Sessions in funnel & 7 & ---\\
-Impressions logged & 42 & ---\\
-Clicks             & 6 & 14.3\% of impressions\\
-Cart-adds          & 2 & 33.3\% of clicks; 4.8\% of impressions\\
+Sessions in funnel & 8 & ---\\
+Impressions logged & 54 & ---\\
+Clicks             & 6 & 11.11\% of impressions\\
+Cart-adds          & 2 & 33.3\% of clicks; 3.70\% of impressions\\
 Will-buy intents   & 0 & ---\\
 Orders             & 0 & ---\\
 \bottomrule
@@ -295,7 +294,7 @@ Orders             & 0 & ---\\
 \label{tab:path2_funnel}
 \end{table}
 
-PATH~2's small cohort (7 sessions) and complete absence of will-buy or order events mean the table is reported here for completeness only. PATH~2's funnel does not support any claim about agent quality, as discussed in §5.1 sample-balance.
+PATH~2's small cohort (8 sessions) and complete absence of will-buy or order events mean the table is reported here for completeness only. PATH~2's funnel does not support any claim about agent quality, as discussed in §5.1 sample-balance.
 
 \subsection{Position of Cart-Adds (Reranker Evidence)}
 \label{subsec:position_histogram}
@@ -308,26 +307,26 @@ If the BGE cross-encoder rerank in §3.4 places relevant items near the top of t
 \toprule
 \textbf{Position} & \textbf{Count} & \textbf{Notes}\\
 \midrule
-0 & 4  & 19.05\% --- cart-add via numeric selection without prior click\\
-1 & 5  & top-of-list\\
-2 & 3 & \\
+0 & 4  & 16.67\% --- cart-add via numeric selection without prior click\\
+1 & 6  & top-of-list\\
+2 & 4 & \\
 3 & 2 & \\
 4 & 2 & \\
 5 & 3 & \\
-6 & 2 & last visible position\\
+6 & 3 & last visible position\\
 \bottomrule
 \end{tabular}
 \caption{PATH 1 cart-add position distribution from \texttt{selected\_items.position}}
 \label{tab:position_histogram}
 \end{table}
 
-The share of \texttt{position=0} is 19.05\%, just below the 20\% threshold beyond which the histogram would have been recomputed from the impressions join (the methodological design decision recorded in the change proposal). The distribution among positions 1--6 is tightly clustered with five cart-adds at position~1 (the modal position) and a gentle tail. This is consistent with the reranker putting useful items near the top, but the absolute counts (21 cart-adds in total) are too small to be claimed as statistically significant; the histogram is reported as suggestive evidence, not as a confirmatory test.
+The share of \texttt{position=0} is 16.67\%, below the 20\% threshold beyond which the histogram would have been recomputed from the impressions join (the methodological design decision recorded in the change proposal). The distribution among positions 1--6 is tightly clustered with six cart-adds at position~1 (the modal position) and a gentle tail. This is consistent with the reranker putting useful items near the top, but the absolute counts (24 cart-adds in total) are too small to be claimed as statistically significant; the histogram is reported as suggestive evidence, not as a confirmatory test.
 
 
 \section{Subjective Quality}
 \label{sec:subjective_quality}
 
-This section reports on the rating signals collected from \texttt{user\_ratings}. Because $N = 9$, every aggregate below is presented as anecdotal evidence and not as a statistical claim. The intent of this section is to triangulate the implicit signals in §5.5 with explicit user feedback.
+This section reports on the rating signals collected from \texttt{user\_ratings}. Because $N = 13$, every aggregate below is presented as anecdotal evidence and not as a statistical claim. The intent of this section is to triangulate the implicit signals in §5.5 with explicit user feedback.
 
 \subsection{Rating Distributions}
 \label{subsec:rating_distributions}
@@ -338,12 +337,12 @@ This section reports on the rating signals collected from \texttt{user\_ratings}
 \toprule
 \textbf{Rating dimension} & \textbf{Mean} & \textbf{SD} & \textbf{N}\\
 \midrule
-\texttt{rating\_overall}        & 4.56 & 0.53 & 9\\
-\texttt{rating\_suggestions}    & 4.67 & 0.50 & 9\\
-\texttt{rating\_conversation}   & 4.22 & 0.83 & 9\\
+\texttt{rating\_overall}        & 4.31 & 0.95 & 13\\
+\texttt{rating\_suggestions}    & 4.38 & 0.96 & 13\\
+\texttt{rating\_conversation}   & 4.08 & 1.04 & 13\\
 \bottomrule
 \end{tabular}
-\caption{User ratings on a 1--5 scale, $N=9$, freeze date 2026-05-09}
+\caption{User ratings on a 1--5 scale, $N=13$, freeze date 2026-05-10}
 \label{tab:rating_distributions}
 \end{table}
 
@@ -354,22 +353,22 @@ This section reports on the rating signals collected from \texttt{user\_ratings}
 \textbf{rating\_overall} & \textbf{Count} & \textbf{Notes}\\
 \midrule
 1 & 0 & ---\\
-2 & 0 & ---\\
-3 & 0 & ---\\
+2 & 1 & \\
+3 & 1 & \\
 4 & 4 & \\
-5 & 5 & \\
+5 & 7 & \\
 \bottomrule
 \end{tabular}
 \caption{Distribution of \texttt{rating\_overall} among the rated cohort}
 \label{tab:rating_overall_distribution}
 \end{table}
 
-Within the rated cohort, every score for \texttt{rating\_overall} is either~4 or~5; there are no scores of~1, 2, or~3. The means for the three dimensions sit between 4.2 and 4.7, with the conversation rating slightly lower than the suggestions and overall ratings. The sample is small and self-selected: only users who chose to leave a rating appear in the table, and that subset may be biased toward more engaged or more positive users. The numbers are therefore presented as descriptive --- they are consistent with the implicit relevance signals in §5.5, but they do not establish a causal claim about agent quality.
+Within the rated cohort, scores for \texttt{rating\_overall} span 2 to 5; the mode is 5 (7 of 13), with no scores of 1. The means for the three dimensions sit between 4.08 and 4.38, with the conversation rating slightly lower than the suggestions and overall ratings. The sample is small and self-selected: only users who chose to leave a rating appear in the table, and that subset may be biased toward more engaged or more positive users. The numbers are therefore presented as descriptive --- they are consistent with the implicit relevance signals in §5.5, but they do not establish a causal claim about agent quality.
 
 \subsection{Free-Text Feedback Coverage}
 \label{subsec:feedback_coverage}
 
-Of the 9 ratings, 8 (88.9\%) include a non-empty \texttt{feedback} string. Of the 3 \texttt{product\_intents} rows in the cohort, 0 (0.0\%) include a non-empty \texttt{reason} string. A manual coding of feedback themes is therefore feasible at the rating level (with $N=8$ free-text samples) but not at the per-item intent level (no reasons recorded). Because the rating sample is so small, no thematic table is produced; representative feedback excerpts are not transcribed here to preserve respondent anonymity.
+Of the 13 ratings, 8 (61.5\%) include a non-empty \texttt{feedback} string. Of the 5 \texttt{product\_intents} rows in the cohort, 0 (0.0\%) include a non-empty \texttt{reason} string. A manual coding of feedback themes is therefore feasible at the rating level (with $N=8$ free-text samples) but not at the per-item intent level (no reasons recorded). Because the rating sample is so small, no thematic table is produced; representative feedback excerpts are not transcribed here to preserve respondent anonymity.
 
 \subsection{Limits of the Subjective Evidence}
 \label{subsec:subjective_limits}
@@ -377,9 +376,9 @@ Of the 9 ratings, 8 (88.9\%) include a non-empty \texttt{feedback} string. Of th
 Three caveats apply to every number in §5.6:
 
 \begin{enumerate}
-    \item Sample size $N=9$ falls below conventional thresholds for statistical inference; no test of mean differences is performed.
-    \item Self-selection bias: users who rated may differ systematically from users who did not; the rated cohort is 17.0\% of the raw cohort.
-    \item No paired design: there is no matched pre-deployment baseline against which to compare these scores. A mean of~4.56 on a 1--5 scale is favourable in absolute terms but cannot be argued as ``better than the previous system'' without comparable historical data.
+    \item Sample size $N=13$ falls below conventional thresholds for statistical inference; no test of mean differences is performed.
+    \item Self-selection bias: users who rated may differ systematically from users who did not; the rated cohort is 21.3\% of the raw cohort.
+    \item No paired design: there is no matched pre-deployment baseline against which to compare these scores. A mean of~4.31 on a 1--5 scale is favourable in absolute terms but cannot be argued as ``better than the previous system'' without comparable historical data.
 \end{enumerate}
 
 These caveats motivate the position taken in §5.6.1 of presenting the ratings as descriptive triangulation rather than as primary evidence.

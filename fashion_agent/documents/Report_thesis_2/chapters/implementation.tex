@@ -299,24 +299,25 @@ The Flutter--FastAPI contract is small and stable. Table~\ref{tab:impl_endpoints
 \centering
 \caption{API endpoints consumed by the front-ends.}
 \label{tab:impl_endpoints}
-\small
-\begin{tabular}{p{4.6cm} p{1.1cm} p{4.0cm} p{4.4cm}}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{>{\raggedright\arraybackslash\ttfamily}p{4.6cm} >{\raggedright\arraybackslash}p{1.6cm} >{\raggedright\arraybackslash}p{4.0cm} >{\raggedright\arraybackslash}p{4.0cm}}
 \toprule
-\textbf{Path} & \textbf{Method} & \textbf{Request} & \textbf{Response} \\
+\textbf{\normalfont Path} & \textbf{Method} & \textbf{Request} & \textbf{Response} \\
 \midrule
-\texttt{/api/sessions} & POST & \texttt{user\_name}, \texttt{year\_of\_birth}, \texttt{gender}, \texttt{preferred\_model} & \texttt{session\_id} \\
-\texttt{/api/chat} & POST & \texttt{message}, \texttt{session\_id} & Non-streamed answer + product list. \\
-\texttt{/api/chat/stream} & POST & \texttt{message}, \texttt{session\_id} & SSE stream (Table~\ref{tab:impl_sse}). \\
-\texttt{/api/products/\{image\_id\}} & GET & --- & Product row joined with enrichment. \\
-\texttt{/api/images/\{filename\}} & GET & --- & PNG / JPEG static file. \\
-\texttt{/api/path2/image-search} & POST & \texttt{image} (PNG), \texttt{session\_id}, \texttt{top\_k} & Visually-similar product list. \\
-\texttt{/api/sessions/\{sid\}/selections} & GET / POST / DELETE & --- / \texttt{image\_id}, \texttt{label}, \texttt{color}, \texttt{caption}, \texttt{image\_path}, \texttt{position}, \texttt{path\_mode} & Cart contents / insert ack / removal ack. \\
-\texttt{/api/sessions/\{sid\}/impressions} & POST & list of \texttt{image\_id}, \texttt{position}, \texttt{search\_query}, \texttt{path\_mode} & Logged-count ack. \\
-\texttt{/api/sessions/\{sid\}/clicks} & POST & \texttt{image\_id}, \texttt{position}, \texttt{search\_query}, \texttt{path\_mode} & Ack. \\
-\texttt{/api/sessions/\{sid\}/intents} & POST & \texttt{image\_id}, \texttt{intent\_type} ($\in$\{\texttt{will\_buy}, \texttt{not\_for\_me}\}), \texttt{path\_mode} & Ack. \\
-\texttt{/api/sessions/\{sid\}/orders} & POST & \texttt{phone}, \texttt{address}, \texttt{path\_mode} & \texttt{order\_id} (also stamps \texttt{ended\_at}). \\
-\texttt{/api/rating} & POST & three 1--5 ratings + \texttt{feedback} & Ack. \\
-\texttt{/health} & GET & --- & Postgres / Qdrant liveness probe. \\
+/api/sessions & POST & \texttt{user\_name}, \texttt{year\_of\_birth}, \texttt{gender}, \texttt{preferred\_model} & \texttt{session\_id} \\
+/api/chat & POST & \texttt{message}, \texttt{session\_id} & Non-streamed answer + product list. \\
+/api/chat/stream & POST & \texttt{message}, \texttt{session\_id} & SSE stream (Table~\ref{tab:impl_sse}). \\
+/api/products/\{image\_\allowbreak id\} & GET & --- & Product row joined with enrichment. \\
+/api/images/\{filename\} & GET & --- & PNG / JPEG static file. \\
+/api/path2/image-search & POST & \texttt{image} (PNG), \texttt{session\_id}, \texttt{top\_k} & Visually-similar product list. \\
+/api/sessions/\{sid\}/\allowbreak selections & GET /\newline POST /\newline DELETE & --- / \texttt{image\_id}, \texttt{label}, \texttt{color}, \texttt{caption}, \texttt{image\_path}, \texttt{position}, \texttt{path\_mode} & Cart contents / insert ack / removal ack. \\
+/api/sessions/\{sid\}/\allowbreak impressions & POST & list of \texttt{image\_id}, \texttt{position}, \texttt{search\_query}, \texttt{path\_mode} & Logged-count ack. \\
+/api/sessions/\{sid\}/\allowbreak clicks & POST & \texttt{image\_id}, \texttt{position}, \texttt{search\_query}, \texttt{path\_mode} & Ack. \\
+/api/sessions/\{sid\}/\allowbreak intents & POST & \texttt{image\_id}, \texttt{intent\_type} ($\in$\{\texttt{will\_buy}, \texttt{not\_for\_me}\}), \texttt{path\_mode} & Ack. \\
+/api/sessions/\{sid\}/\allowbreak orders & POST & \texttt{phone}, \texttt{address}, \texttt{path\_mode} & \texttt{order\_id} (also stamps \texttt{ended\_at}). \\
+/api/rating & POST & three 1--5 ratings + \texttt{feedback} & Ack. \\
+/health & GET & --- & Postgres / Qdrant liveness probe. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -334,20 +335,20 @@ The streaming endpoint \texttt{/api/chat/stream} is the production path; the non
 \toprule
 \textbf{Event} & \textbf{Data fields} \\
 \midrule
-\texttt{thinking\_start} & \texttt{text}: short label of the first thinking step (e.g.\ ``Classifying intent''). \\
-\texttt{thinking\_step} & \texttt{detail}: human-readable description of an intermediate step (intent, slot merge, search invocation). \\
-\texttt{thinking\_end} & \texttt{duration\_ms}, \texttt{input\_tokens}, \texttt{output\_tokens}: total elapsed time and token counters for the thinking phase. \\
-\texttt{model\_thinking} & \texttt{text}: an optional reasoning fragment surfaced when the model emits one. \\
-\texttt{token} & \texttt{text}: a single chunk of streamed synthesis text. \\
-\texttt{clarification} & \texttt{text}, \texttt{intent}: a clarification or refusal message and the intent label that triggered it (\texttt{unclear}, \texttt{out\_of\_scope}, \texttt{unsupported\_category}, \texttt{product\_confirm}, \texttt{offer\_declined}). \\
-\texttt{products} & \texttt{products}: list of product dicts (\texttt{image\_id}, \texttt{label}, \texttt{color}, \texttt{caption}, \texttt{image\_path}, \texttt{path\_mode}, \texttt{search\_query}). \\
-\texttt{selection\_confirm} & \texttt{text}: confirmation preview rendered before saving a selection. \\
-\texttt{selection\_saved} & \texttt{text}, \texttt{inserted}, \texttt{skipped}: confirmation message plus how many items were stored vs.\ already present. \\
-\texttt{selection\_cancelled} & \texttt{text}: the cancellation message rendered when the user declines. \\
-\texttt{selections\_list} & \texttt{text}, \texttt{count}: rendered list of all selections plus their count. \\
-\texttt{offer\_prompt} & \texttt{text}, \texttt{lang}: a styling-offer follow-up prompt at the end of a search turn. \\
-\texttt{done} & \texttt{session\_id}, \texttt{intent}, \texttt{styling}, \texttt{total\_input\_tokens}, \texttt{total\_output\_tokens}: closing event used by the client to detach. \\
-\texttt{error} & \texttt{message}: human-readable error string; followed immediately by a \texttt{done} event so the client can detach cleanly. \\
+\texttt{thinking\_start} & \texttt{text}: label of the first thinking step. \\
+\texttt{thinking\_step} & \texttt{detail}: intermediate step (intent, slot merge, search). \\
+\texttt{thinking\_end} & \texttt{duration\_ms}, \texttt{input\_tokens}, \texttt{output\_tokens}: timing and token counters. \\
+\texttt{model\_thinking} & \texttt{text}: optional reasoning fragment. \\
+\texttt{token} & \texttt{text}: one chunk of streamed synthesis text. \\
+\texttt{clarification} & \texttt{text}, \texttt{intent}: clarification/refusal message and triggering intent (\texttt{unclear}, \texttt{out\_of\_scope}, \texttt{unsupported\_category}, \texttt{product\_confirm}, \texttt{offer\_declined}). \\
+\texttt{products} & \texttt{products}: product dicts (\texttt{image\_id}, \texttt{label}, \texttt{color}, \texttt{caption}, \texttt{image\_path}, \texttt{path\_mode}, \texttt{search\_query}). \\
+\texttt{selection\_confirm} & \texttt{text}: preview before saving a selection. \\
+\texttt{selection\_saved} & \texttt{text}, \texttt{inserted}, \texttt{skipped}: counts of stored vs.\ duplicate items. \\
+\texttt{selection\_cancelled} & \texttt{text}: cancellation message. \\
+\texttt{selections\_list} & \texttt{text}, \texttt{count}: rendered selection list and its size. \\
+\texttt{offer\_prompt} & \texttt{text}, \texttt{lang}: styling follow-up prompt. \\
+\texttt{done} & \texttt{session\_id}, \texttt{intent}, \texttt{styling}, \texttt{total\_input\_tokens}, \texttt{total\_output\_tokens}: closing event; client detaches. \\
+\texttt{error} & \texttt{message}: error string; followed by \texttt{done}. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -471,7 +472,7 @@ The launcher accepts three subcommands beyond the default \texttt{up}: \texttt{-
 
 \subsection{Environment Variables}
 
-Every behavioural switch and every credential is supplied through the \texttt{.env} file consumed by Compose. Table~\ref{tab:impl_env} catalogues the ones that materially affect runtime, the service that consumes each, and the default behaviour when the variable is absent.
+All credentials and behavioural switches are read from the \texttt{.env} file at Compose start; Table~\ref{tab:impl_env} lists the ones that affect runtime.
 
 \begin{table}[H]
 \centering
@@ -481,21 +482,21 @@ Every behavioural switch and every credential is supplied through the \texttt{.e
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{>{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}p{2.2cm} >{\raggedright\arraybackslash}p{7.2cm}}
 \toprule
-\textbf{Variable} & \textbf{Consumer} & \textbf{Default / Effect when absent} \\
+\textbf{Variable} & \textbf{Consumer} & \textbf{Default / Effect} \\
 \midrule
-\texttt{PG\_PASSWORD} & \texttt{postgres},\newline\texttt{fashion-api} & Required; Compose refuses to start without it. \\
-\texttt{PGHOST} / \texttt{PGPORT} /\newline\texttt{PGDATABASE} / \texttt{PGUSER} & \texttt{fashion-api} & Defaults: \texttt{postgres}, \texttt{5432}, \texttt{fashion\_rag}, \texttt{fashion\_user}. \\
-\texttt{QDRANT\_HOST} /\newline\texttt{QDRANT\_PORT} & \texttt{fashion-api} & Defaults: \texttt{qdrant}, \texttt{6333}. \\
-\texttt{QDRANT\_API\_KEY} & \texttt{fashion-api} & Forced empty in Compose to keep the local container on plain HTTP. \\
-\texttt{GEMINI\_API\_KEY} & \texttt{fashion-api} & Required for any LLM call (intent, expansion, synthesis). \\
-\texttt{ENABLE\_PATH2\_\allowbreak IMAGE\_SEARCH} & \texttt{fashion-api} & Default \texttt{false}; PATH 2 endpoints return 503 until set. \\
-\texttt{PATH2\_MAX\_\allowbreak UPLOAD\_BYTES} /\newline\texttt{PATH2\_MAX\_TOP\_K} & \texttt{fashion-api} & Defaults: 5\,MiB and 20; bound the PATH 2 endpoint inputs. \\
-\texttt{SEARCH\_CONFIDENCE\_\allowbreak THRESHOLD} & \texttt{fashion-api} & Default 0.75; threshold of the slot-readiness gate (Algorithm~\ref{alg:slot_readiness}). \\
-\texttt{DATASET\_IMAGES\_\allowbreak HOST\_PATH} & \texttt{fashion-api} & Bound read-only at \texttt{/app/dataset\_images}; falls back to \texttt{./images} when unset. \\
-\texttt{HF\_HOME} /\newline\texttt{TRANSFORMERS\_CACHE} & \texttt{fashion-api} & Pinned to \texttt{/app/models} so encoder weights cache to a host-mounted directory. \\
-\texttt{ADMIN\_SECRET\_KEY} & \texttt{fashion-api} & Gates the analytics endpoints behind the \texttt{X-Admin-Key} header. \\
-\texttt{NGROK\_AUTHTOKEN} & \texttt{ngrok-fe} & Required to start the ngrok agent; obtained from the operator's ngrok dashboard. \\
-\texttt{NGROK\_DOMAIN} & \texttt{ngrok-fe} & Reserved subdomain forwarded to \texttt{clothie-web:80} (e.g.\ \texttt{*.ngrok-free.app}). When unset, Compose falls back to the literal default hostname embedded in the service definition. \\
+\texttt{PG\_PASSWORD} & \texttt{postgres},\newline\texttt{fashion-api} & Required. \\
+\texttt{PGHOST} / \texttt{PGPORT} /\newline\texttt{PGDATABASE} / \texttt{PGUSER} & \texttt{fashion-api} & \texttt{postgres}, \texttt{5432}, \texttt{fashion\_rag}, \texttt{fashion\_user}. \\
+\texttt{QDRANT\_HOST} /\newline\texttt{QDRANT\_PORT} & \texttt{fashion-api} & \texttt{qdrant}, \texttt{6333}. \\
+\texttt{QDRANT\_API\_KEY} & \texttt{fashion-api} & Empty (plain HTTP locally). \\
+\texttt{GEMINI\_API\_KEY} & \texttt{fashion-api} & Required for any LLM call. \\
+\texttt{ENABLE\_PATH2\_\allowbreak IMAGE\_SEARCH} & \texttt{fashion-api} & \texttt{false}; PATH 2 returns 503. \\
+\texttt{PATH2\_MAX\_\allowbreak UPLOAD\_BYTES} /\newline\texttt{PATH2\_MAX\_TOP\_K} & \texttt{fashion-api} & 5\,MiB; 20. \\
+\texttt{SEARCH\_CONFIDENCE\_\allowbreak THRESHOLD} & \texttt{fashion-api} & 0.75; slot-readiness gate (Algorithm~\ref{alg:slot_readiness}). \\
+\texttt{DATASET\_IMAGES\_\allowbreak HOST\_PATH} & \texttt{fashion-api} & Mounted read-only at \texttt{/app/dataset\_images}; else \texttt{./images}. \\
+\texttt{HF\_HOME} /\newline\texttt{TRANSFORMERS\_CACHE} & \texttt{fashion-api} & \texttt{/app/models} (encoder weight cache). \\
+\texttt{ADMIN\_SECRET\_KEY} & \texttt{fashion-api} & Gates analytics endpoints (\texttt{X-Admin-Key}). \\
+\texttt{NGROK\_AUTHTOKEN} & \texttt{ngrok-fe} & Required to start the agent. \\
+\texttt{NGROK\_DOMAIN} & \texttt{ngrok-fe} & Reserved subdomain forwarded to \texttt{clothie-web:80}; falls back to the default hostname in the service definition. \\
 \bottomrule
 \end{tabular}
 \end{table}
