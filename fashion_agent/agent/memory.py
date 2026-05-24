@@ -370,6 +370,26 @@ def init_memory_tables() -> None:
 
     CREATE INDEX IF NOT EXISTS idx_eval_results_query_mode
         ON eval_results(eval_query_id, orchestration_mode);
+
+    -- ── RAG Ablation Study: per-retrieval-mode offline results ───────────
+    -- Stores results for each retrieval variant (bm25_only, siglip_only, etc.)
+    -- independent from the pipeline orchestration comparison (eval_results).
+    CREATE TABLE IF NOT EXISTS rag_ablation_results (
+        id              BIGSERIAL PRIMARY KEY,
+        eval_query_id   INT NOT NULL REFERENCES eval_queries(id) ON DELETE CASCADE,
+        retrieval_mode  TEXT NOT NULL,
+        returned_ids    JSONB NOT NULL DEFAULT '[]'::jsonb,
+        hit_at_1        BOOL NOT NULL DEFAULT FALSE,
+        hit_at_3        BOOL NOT NULL DEFAULT FALSE,
+        hit_at_6        BOOL NOT NULL DEFAULT FALSE,
+        reciprocal_rank FLOAT NOT NULL DEFAULT 0,
+        ndcg_at_6       FLOAT NOT NULL DEFAULT 0,
+        latency_ms      FLOAT NOT NULL DEFAULT 0,
+        run_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rag_ablation_query_mode
+        ON rag_ablation_results(eval_query_id, retrieval_mode);
     """
 
     view_ddl = """
