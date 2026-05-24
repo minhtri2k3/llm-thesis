@@ -21,6 +21,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
   String? _error;
   String? _selectedGender; // 'male' or 'female'
+  String? _selectedMode;   // 'direct' or 'react'
 
   @override
   void dispose() {
@@ -50,6 +51,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = 'Please select your gender.');
       return;
     }
+    if (_selectedMode == null) {
+      setState(() => _error = 'Please select your preferred agent mode.');
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -62,6 +67,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         yearInt,
         _selectedGender!,
         'gemini-2.5-flash',
+        orchestrationMode: _selectedMode!,
       );
       if (mounted) {
         context.goNamed(
@@ -398,6 +404,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   value: 'female',
                   selected: _selectedGender == 'female',
                   onTap: () => setState(() => _selectedGender = 'female'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Pipeline selector
+          Row(
+            children: [
+              Expanded(
+                child: _SelectButton(
+                  label: '⚡ Direct',
+                  value: 'direct',
+                  selected: _selectedMode == 'direct',
+                  onTap: () => setState(() => _selectedMode = 'direct'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SelectButton(
+                  label: '🔄 ReAct',
+                  value: 'react',
+                  selected: _selectedMode == 'react',
+                  onTap: () => setState(() => _selectedMode = 'react'),
                 ),
               ),
             ],

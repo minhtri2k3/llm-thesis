@@ -1,0 +1,282 @@
+[
+  {
+    "query_text": "white slim fit shirt for men",
+    "relevant_ids": ["img_00142", "img_00891"],
+    "category": "Shirt",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "black hoodie oversized men",
+    "relevant_ids": ["img_00312", "img_00567"],
+    "category": "Hoodie",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "navy blue slim trousers men",
+    "relevant_ids": ["img_00201", "img_00445"],
+    "category": "Pants",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "red summer dress women",
+    "relevant_ids": ["img_00731", "img_00856"],
+    "category": "Dress",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "grey polo shirt men",
+    "relevant_ids": ["img_00103", "img_00289"],
+    "category": "Polo",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "black mini skirt women",
+    "relevant_ids": ["img_00634", "img_00712"],
+    "category": "Skirt",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "white blouse women",
+    "relevant_ids": ["img_00541", "img_00678"],
+    "category": "Blouse",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "dark blue denim shorts men",
+    "relevant_ids": ["img_00233", "img_00388"],
+    "category": "Shorts",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "charcoal blazer formal men",
+    "relevant_ids": ["img_00047", "img_00183"],
+    "category": "Blazer",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "pink crop top women",
+    "relevant_ids": ["img_00592", "img_00744"],
+    "category": "Top",
+    "difficulty": "easy",
+    "language": "en"
+  },
+  {
+    "query_text": "casual floral summer dress pastel color women",
+    "relevant_ids": ["img_00819", "img_00903", "img_00756"],
+    "category": "Dress",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "slim fit light blue denim shirt men casual",
+    "relevant_ids": ["img_00174", "img_00362"],
+    "category": "Shirt",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "oversized beige hoodie streetwear men",
+    "relevant_ids": ["img_00327", "img_00489", "img_00531"],
+    "category": "Hoodie",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "pleated midi skirt feminine floral women",
+    "relevant_ids": ["img_00661", "img_00784"],
+    "category": "Skirt",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "tailored grey trousers office formal men",
+    "relevant_ids": ["img_00212", "img_00396"],
+    "category": "Pants",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "elegant satin blouse cream women workwear",
+    "relevant_ids": ["img_00558", "img_00693"],
+    "category": "Blouse",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "fitted navy blazer business casual men",
+    "relevant_ids": ["img_00062", "img_00199"],
+    "category": "Blazer",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "ribbed knit bodycon dress black women evening",
+    "relevant_ids": ["img_00747", "img_00841"],
+    "category": "Dress",
+    "difficulty": "medium",
+    "language": "en"
+  },
+  {
+    "query_text": "smart casual office look for women sustainable fabrics",
+    "relevant_ids": ["img_00571", "img_00689", "img_00602"],
+    "category": "Blouse",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "complete summer beach outfit for men linen fabric",
+    "relevant_ids": ["img_00274", "img_00338", "img_00421"],
+    "category": "Shirt",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "evening cocktail party outfit women elegant minimalist",
+    "relevant_ids": ["img_00762", "img_00831", "img_00877"],
+    "category": "Dress",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "streetwear outfit men oversized layered monochrome",
+    "relevant_ids": ["img_00311", "img_00463", "img_00507"],
+    "category": "Hoodie",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "business professional attire men important meeting interview",
+    "relevant_ids": ["img_00058", "img_00196", "img_00241"],
+    "category": "Blazer",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "date night romantic outfit women feminine flirty",
+    "relevant_ids": ["img_00739", "img_00812", "img_00863"],
+    "category": "Dress",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "festival outfit women boho chic colorful layered",
+    "relevant_ids": ["img_00614", "img_00728", "img_00796"],
+    "category": "Dress",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "athleisure look men gym to street versatile",
+    "relevant_ids": ["img_00352", "img_00476", "img_00519"],
+    "category": "T-Shirt",
+    "difficulty": "hard",
+    "language": "en"
+  },
+  {
+    "query_text": "áo hoodie màu đen oversize nam",
+    "relevant_ids": ["img_00312", "img_00489"],
+    "category": "Hoodie",
+    "difficulty": "easy",
+    "language": "vi"
+  },
+  {
+    "query_text": "váy đỏ mùa hè nữ",
+    "relevant_ids": ["img_00731", "img_00819"],
+    "category": "Dress",
+    "difficulty": "easy",
+    "language": "vi"
+  },
+  {
+    "query_text": "áo sơ mi trắng slim fit nam",
+    "relevant_ids": ["img_00142", "img_00174"],
+    "category": "Shirt",
+    "difficulty": "easy",
+    "language": "vi"
+  },
+  {
+    "query_text": "quần tây đen nam đi làm",
+    "relevant_ids": ["img_00201", "img_00212"],
+    "category": "Pants",
+    "difficulty": "easy",
+    "language": "vi"
+  },
+  {
+    "query_text": "váy hoa nhí pastel dáng xòe dài midi nữ",
+    "relevant_ids": ["img_00756", "img_00784", "img_00819"],
+    "category": "Dress",
+    "difficulty": "medium",
+    "language": "vi"
+  },
+  {
+    "query_text": "áo sơ mi oversize kẻ caro phong cách streetwear nam",
+    "relevant_ids": ["img_00174", "img_00289", "img_00362"],
+    "category": "Shirt",
+    "difficulty": "medium",
+    "language": "vi"
+  },
+  {
+    "query_text": "chân váy midi xếp ly màu trung tính thanh lịch nữ",
+    "relevant_ids": ["img_00634", "img_00661", "img_00712"],
+    "category": "Skirt",
+    "difficulty": "medium",
+    "language": "vi"
+  },
+  {
+    "query_text": "blazer xanh navy dáng vừa đi làm văn phòng nam",
+    "relevant_ids": ["img_00062", "img_00183", "img_00199"],
+    "category": "Blazer",
+    "difficulty": "medium",
+    "language": "vi"
+  },
+  {
+    "query_text": "trang phục đi làm lịch sự nữ tông màu trung tính thanh lịch",
+    "relevant_ids": ["img_00558", "img_00571", "img_00602"],
+    "category": "Blouse",
+    "difficulty": "hard",
+    "language": "vi"
+  },
+  {
+    "query_text": "set đồ đi chơi cuối tuần năng động trẻ trung nữ",
+    "relevant_ids": ["img_00592", "img_00728", "img_00784"],
+    "category": "Top",
+    "difficulty": "hard",
+    "language": "vi"
+  },
+  {
+    "query_text": "outfit dự tiệc sang trọng nữ đầm tối màu",
+    "relevant_ids": ["img_00747", "img_00831", "img_00877"],
+    "category": "Dress",
+    "difficulty": "hard",
+    "language": "vi"
+  },
+  {
+    "query_text": "phong cách streetwear nam mùa đông layer áo khoác hoodie",
+    "relevant_ids": ["img_00311", "img_00327", "img_00507"],
+    "category": "Hoodie",
+    "difficulty": "hard",
+    "language": "vi"
+  },
+  {
+    "query_text": "trang phục phỏng vấn xin việc nam chuyên nghiệp lịch sự",
+    "relevant_ids": ["img_00047", "img_00058", "img_00196"],
+    "category": "Blazer",
+    "difficulty": "hard",
+    "language": "vi"
+  },
+  {
+    "query_text": "bộ đồ mặc nhà đi café cuối tuần casual thoải mái nữ",
+    "relevant_ids": ["img_00592", "img_00614", "img_00744"],
+    "category": "Top",
+    "difficulty": "hard",
+    "language": "vi"
+  }
+]

@@ -30,7 +30,8 @@ from agent.fashion_agent import (
     AgentResponse,
     cache_external_results,
 )
-from agent.memory import init_memory_tables
+from agent import react_agent
+from agent.memory import init_memory_tables, get_session_orchestration_mode
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -106,6 +107,7 @@ class CreateSessionRequest(BaseModel):
     year_of_birth: Optional[int] = None
     gender: Optional[str] = None
     preferred_model: str = "gemini-2.5-flash"
+    orchestration_mode: str = "direct"  # 'direct' | 'react'
 
     @classmethod
     def __get_validators__(cls):
@@ -125,6 +127,8 @@ class CreateSessionRequest(BaseModel):
                 'preferred_model must be "gemini-2.5-flash". '
                 "Deprecated values: gpt-4o, claude-3-7-sonnet-latest."
             )
+        if self.orchestration_mode not in ("direct", "react"):
+            raise ValueError('orchestration_mode must be "direct" or "react"')
 
 
 class CreateSessionResponse(BaseModel):
@@ -243,7 +247,7 @@ def _run_path2_image_search(raw: bytes, top_k: int) -> list[dict]:
 
 @app.post("/api/sessions", response_model=CreateSessionResponse)
 async def create_session_endpoint(req: CreateSessionRequest):
-    """Create a new chat session. Stores the user name and demographics for evaluation tracking."""
+    """Create a new chat session. Stores the user name, demographics, and pipeline mode."""
     from agent.memory import create_session
     try:
         session_id = create_session(
@@ -251,6 +255,7 @@ async def create_session_endpoint(req: CreateSessionRequest):
             year_of_birth=req.year_of_birth,
             gender=req.gender,
             preferred_model=req.preferred_model,
+            orchestration_mode=req.orchestration_mode,
         )
         return CreateSessionResponse(session_id=session_id)
     except Exception as exc:
@@ -930,15 +935,24 @@ async def get_behaviour_funnel_endpoint(request: Request):
 async def chat_stream_endpoint(req: ChatRequest):
     """Streaming chat endpoint — returns Server-Sent Events.
 
+    Dispatches to react_agent or fashion_agent based on session orchestration_mode.
+
     Event types:
     - token: text chunks as they arrive from Gemini
     - clarification: clarification question (non-streamed)
     - products: list of matching products
-    - done: final metadata (session_id, intent, styling)
+    - done: final metadata (session_id, intent, styling, orchestration_mode)
     """
     try:
+        # 1 lightweight DB read to determine which pipeline to use
+        mode = get_session_orchestration_mode(req.session_id or "")
+        if mode == "react":
+            stream_fn = react_agent.chat_stream
+        else:
+            stream_fn = agent_chat_stream
+
         return StreamingResponse(
-            agent_chat_stream(
+            stream_fn(
                 query=req.message,
                 session_id=req.session_id,
             ),
