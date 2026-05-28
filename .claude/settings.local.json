@@ -31,7 +31,21 @@
       "WebFetch(domain:www.google.com)",
       "Bash(git *)",
       "Bash(python *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "mcp__tavily__tavily_search",
+      "mcp__tavily__tavily_extract",
+      "Bash(docker compose *)",
+      "WebFetch(domain:aclanthology.org)",
+      "Bash(PGHOST=localhost PGPORT=5432 PGDATABASE=fashion_rag PGUSER=fashion_user PGPASSWORD='yydZRg#2NMNbpf#T' QDRANT_HOST=localhost QDRANT_PORT=6333 uv run python -m eval.ablation)",
+      "Bash(uv pip *)",
+      "Bash(docker exec *)",
+      "Bash(/Users/tringuyen/llm-thesis/venv/bin/python -c \"import psycopg2, qdrant_client, rank_bm25, rapidfuzz, matplotlib, torch, transformers; print\\('venv has all deps'\\)\")",
+      "Bash(/Users/tringuyen/llm-thesis/venv/bin/python -c \"import psycopg2\")",
+      "Bash(/Users/tringuyen/llm-thesis/venv/bin/python -c \"import qdrant_client\")",
+      "Bash(/Users/tringuyen/llm-thesis/venv/bin/python -c \"import torch\")",
+      "Bash(/Users/tringuyen/llm-thesis/venv/bin/python -c \"import matplotlib\")",
+      "Bash(docker cp *)",
+      "Bash(/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 /Users/tringuyen/llm-thesis/fashion_agent/eval/plot_chart.py)"
     ]
   }
 }
