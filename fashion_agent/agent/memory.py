@@ -310,6 +310,86 @@ def init_memory_tables() -> None:
                 UNIQUE (session_id, image_id, intent_type, path_mode);
         END IF;
     END $$;
+
+    -- ── ReAct pipeline comparison: session pipeline tag ───────────────
+    ALTER TABLE user_sessions
+        ADD COLUMN IF NOT EXISTS orchestration_mode TEXT NOT NULL DEFAULT 'direct'
+        CHECK (orchestration_mode IN ('direct', 'react'));
+
+    -- ── ReAct pipeline comparison: per-call efficiency metrics ────────
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS response_latency_ms FLOAT NOT NULL DEFAULT 0;
+    ALTER TABLE llm_token_usage
+        ADD COLUMN IF NOT EXISTS llm_call_count INT NOT NULL DEFAULT 1;
+
+    -- ── ReAct pipeline comparison: per-iteration tool-call traces ─────
+    CREATE TABLE IF NOT EXISTS react_traces (
+        id           BIGSERIAL PRIMARY KEY,
+        session_id   TEXT NOT NULL REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+        query_text   TEXT NOT NULL DEFAULT '',
+        iteration    INT NOT NULL DEFAULT 0,
+        tool_name    TEXT NOT NULL DEFAULT '',
+        tool_args    JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_count INT NOT NULL DEFAULT 0,
+        duration_ms  FLOAT NOT NULL DEFAULT 0,
+        traced_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_react_traces_session
+        ON react_traces(session_id, traced_at);
+
+    -- ── Offline evaluation: ground truth query set ────────────────────
+    CREATE TABLE IF NOT EXISTS eval_queries (
+        id           SERIAL PRIMARY KEY,
+        query_text   TEXT NOT NULL UNIQUE,
+        relevant_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        category     TEXT NOT NULL DEFAULT '',
+        difficulty   TEXT NOT NULL DEFAULT 'medium'
+            CHECK (difficulty IN ('easy', 'medium', 'hard')),
+        language     TEXT NOT NULL DEFAULT 'en'
+            CHECK (language IN ('en', 'vi')),
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- ── Offline evaluation: per-query per-mode results ────────────────
+    CREATE TABLE IF NOT EXISTS eval_results (
+        id                BIGSERIAL PRIMARY KEY,
+        eval_query_id     INT NOT NULL REFERENCES eval_queries(id) ON DELETE CASCADE,
+        orchestration_mode TEXT NOT NULL DEFAULT 'direct',
+        returned_ids      JSONB NOT NULL DEFAULT '[]'::jsonb,
+        hit_at_1          BOOL NOT NULL DEFAULT FALSE,
+        hit_at_3          BOOL NOT NULL DEFAULT FALSE,
+        hit_at_6          BOOL NOT NULL DEFAULT FALSE,
+        reciprocal_rank   FLOAT NOT NULL DEFAULT 0,
+        ndcg_at_6         FLOAT NOT NULL DEFAULT 0,
+        latency_ms        FLOAT NOT NULL DEFAULT 0,
+        llm_call_count    INT NOT NULL DEFAULT 0,
+        total_tokens      INT NOT NULL DEFAULT 0,
+        run_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_eval_results_query_mode
+        ON eval_results(eval_query_id, orchestration_mode);
+
+    -- ── RAG Ablation Study: per-retrieval-mode offline results ───────────
+    -- Stores results for each retrieval variant (bm25_only, siglip_only, etc.)
+    -- independent from the pipeline orchestration comparison (eval_results).
+    CREATE TABLE IF NOT EXISTS rag_ablation_results (
+        id              BIGSERIAL PRIMARY KEY,
+        eval_query_id   INT NOT NULL REFERENCES eval_queries(id) ON DELETE CASCADE,
+        retrieval_mode  TEXT NOT NULL,
+        returned_ids    JSONB NOT NULL DEFAULT '[]'::jsonb,
+        hit_at_1        BOOL NOT NULL DEFAULT FALSE,
+        hit_at_3        BOOL NOT NULL DEFAULT FALSE,
+        hit_at_6        BOOL NOT NULL DEFAULT FALSE,
+        reciprocal_rank FLOAT NOT NULL DEFAULT 0,
+        ndcg_at_6       FLOAT NOT NULL DEFAULT 0,
+        latency_ms      FLOAT NOT NULL DEFAULT 0,
+        run_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rag_ablation_query_mode
+        ON rag_ablation_results(eval_query_id, retrieval_mode);
     """
 
     view_ddl = """
@@ -452,6 +532,7 @@ def create_session(
     gender: str | None = None,
     preferred_model: str = "gemini-2.5-flash",
     gender_hint_enabled: bool | None = None,
+    orchestration_mode: str = "direct",
 ) -> str:
     """Create a new session and return its ID.
 
@@ -461,23 +542,45 @@ def create_session(
         gender: Optional gender ('male' | 'female') for demographic research.
         preferred_model: LLM chosen for the session.
         gender_hint_enabled: A/B control flag. If None, set True when gender is provided, False otherwise.
+        orchestration_mode: Pipeline mode for the session ('direct' | 'react'). Default 'direct'.
     """
     session_id = str(uuid.uuid4())
     # Always enable gender filter when user declared a gender
     if gender_hint_enabled is None:
         gender_hint_enabled = (gender is not None)
+    if orchestration_mode not in ("direct", "react"):
+        orchestration_mode = "direct"
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO user_sessions
-                    (session_id, user_name, year_of_birth, gender, preferred_model, gender_hint_enabled)
-                VALUES (%s, %s, %s, %s, %s, %s);
+                    (session_id, user_name, year_of_birth, gender, preferred_model,
+                     gender_hint_enabled, orchestration_mode)
+                VALUES (%s, %s, %s, %s, %s, %s, %s);
                 """,
-                (session_id, user_name, year_of_birth, gender, preferred_model, gender_hint_enabled),
+                (session_id, user_name, year_of_birth, gender, preferred_model,
+                 gender_hint_enabled, orchestration_mode),
             )
         conn.commit()
     return session_id
+
+
+def get_session_orchestration_mode(session_id: str) -> str:
+    """Return the orchestration_mode for a given session.
+
+    Returns 'direct' as a safe fallback for unknown or legacy sessions.
+    """
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT orchestration_mode FROM user_sessions WHERE session_id = %s;",
+                (session_id,),
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                return row[0]
+            return "direct"
 
 
 def get_session_model(session_id: str) -> str:

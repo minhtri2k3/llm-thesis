@@ -22,12 +22,14 @@ class ApiService {
   ///
   /// [userName] is the display name entered at registration.
   /// [yearOfBirth] and [gender] are demographic fields for thesis research.
+  /// [orchestrationMode] selects the agent pipeline: 'direct' (default) or 'react'.
   Future<String> createSession(
     String userName,
     int yearOfBirth,
     String gender,
-    String preferredModel,
-  ) async {
+    String preferredModel, {
+    String orchestrationMode = 'direct',
+  }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/sessions');
     final response = await _client.post(
       uri,
@@ -37,6 +39,7 @@ class ApiService {
         'year_of_birth': yearOfBirth,
         'gender': gender,
         'preferred_model': preferredModel,
+        'orchestration_mode': orchestrationMode,
       }),
     );
     if (response.statusCode != 200) {
