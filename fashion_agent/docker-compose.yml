@@ -88,6 +88,8 @@ services:
       - ${DATASET_IMAGES_HOST_PATH:-./images}:/app/dataset_images:ro
       - ./agent:/app/agent
       - ./api:/app/api
+      - ./evaluation:/app/evaluation
+      - ./tests:/app/tests
     networks:
       - internal
     ports:

@@ -55,6 +55,10 @@ class AgenticOrchestrationResult:
     # Token usage of the orchestrator (separate from synthesizer)
     orchestrator_input_tokens: int = 0
     orchestrator_output_tokens: int = 0
+    # If the orchestrator chose to ask the user a follow-up instead of searching,
+    # this holds the question text. When set, callers should emit a clarification
+    # event and skip synthesis.
+    clarification_question: Optional[str] = None
     # Error, if any
     error: Optional[str] = None
 
@@ -130,6 +134,26 @@ _TOOL_DEFINITIONS_GEMINI = [
                 "top_k": {"type": "INTEGER"},
             },
             "required": [],
+        },
+    },
+    {
+        "name": "ask_user",
+        "description": (
+            "Ask the user ONE concise follow-up question when the request is too vague "
+            "to search productively (e.g. 'I want a shirt' with no color, occasion, fit, "
+            "or material, and history does not supply it). Phrase the question in the "
+            "same language the user wrote in. Use this instead of search_fashion when "
+            "key information is missing."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "question": {
+                    "type": "STRING",
+                    "description": "The follow-up question to ask the user, in their language.",
+                },
+            },
+            "required": ["question"],
         },
     },
 ]
@@ -210,9 +234,17 @@ def orchestrate_with_gemini(
         gender_note = f"\nIMPORTANT: The user's gender is '{gender}'. Use appropriate gender filters in your searches."
 
     system_instruction = (
-        "You are a fashion search orchestrator. Your job is to call the available tools "
-        "to find the best fashion products for the user. Call search_fashion or recommend_outfit "
-        "as needed (1-3 times max). When you have enough results, stop calling tools and just say DONE.{gender_note}"
+        "You are a fashion search orchestrator with three tools: search_fashion, "
+        "recommend_outfit, and ask_user.\n\n"
+        "Decision rule: if the user's most recent request is too vague to produce "
+        "useful results (e.g. 'a shirt', 'something nice', no occasion / color / fit / "
+        "material) AND the conversation history does not supply the missing detail, "
+        "call ask_user with ONE concise follow-up question targeting the most useful "
+        "missing facet. Phrase the question in the same language the user wrote in. "
+        "Never call ask_user more than once. Never call ask_user alongside a search; "
+        "choose one or the other.\n\n"
+        "Otherwise, call search_fashion or recommend_outfit (1-3 times max). When you "
+        "have enough results, stop calling tools.{gender_note}"
     ).format(gender_note=gender_note)
 
     prompt = f"User request: {query}\n\nConversation history:\n{history_text}\n\nPlease search/recommend products for this user."
@@ -224,7 +256,7 @@ def orchestrate_with_gemini(
         }
 
         model = genai.GenerativeModel(  # type: ignore[attr-defined]
-            model_name="gemini-2.0-flash",
+            model_name="gemini-2.5-flash",
             system_instruction=system_instruction,
             tools=[tool_config],
         )
@@ -250,6 +282,22 @@ def orchestrate_with_gemini(
 
             if not fn_calls:
                 break  # Gemini decided it's done
+
+            # If the LLM wants to clarify, take that and stop — do not also run search.
+            ask_user_call = next(
+                (fc for fc in fn_calls if fc.name == "ask_user"), None
+            )
+            if ask_user_call is not None:
+                question = str(dict(ask_user_call.args).get("question", "")).strip()
+                if question:
+                    result.tool_calls.append(ToolCall(
+                        tool="ask_user",
+                        args={"question": question},
+                        result_count=0,
+                        duration_ms=0.0,
+                    ))
+                    result.clarification_question = question
+                    break
 
             # Execute each tool call
             tool_responses = []

@@ -336,6 +336,9 @@ def chat(
     if not gate_pass:
         lang = detect_language(query)
         answer = _OUT_OF_SCOPE_RESPONSES.get(lang, _OUT_OF_SCOPE_RESPONSES["en"])
+    elif orch_result is not None and orch_result.clarification_question:
+        answer = orch_result.clarification_question
+        products_list = []
     else:
         ctx = _build_synthesis_context(query, products_list, history, session_id)
         prompt = SYNTHESIS_PROMPT.format(query=query, **ctx)
@@ -360,7 +363,7 @@ def chat(
             input_tokens=0,
             output_tokens=0,
             orchestration_mode="react",
-            orchestrator_model="gemini-2.0-flash",
+            orchestrator_model="gemini-2.5-flash",
             synthesizer_model=model_name,
             tool_calls_json=tool_calls_list,
             orchestrator_input_tokens=orchestrator_in,
@@ -547,6 +550,21 @@ def chat_stream(
         })
         return
 
+    # ── Early exit when the orchestrator chose ask_user ──────────────────────
+    if orch_result is not None and orch_result.clarification_question:
+        answer = orch_result.clarification_question
+        add_message(session_id, "assistant", answer)
+        yield _sse("clarification", {"text": answer, "intent": intent})
+        yield _sse("done", {
+            "session_id": session_id,
+            "intent": intent,
+            "styling": "",
+            "orchestration_mode": "react",
+            "total_input_tokens": intent_tokens.input_tokens + orchestrator_in,
+            "total_output_tokens": intent_tokens.output_tokens + orchestrator_out,
+        })
+        return
+
     # ── Emit products ────────────────────────────────────────────────────────
     product_dicts_for_ui = [
         {
@@ -602,7 +620,7 @@ def chat_stream(
             input_tokens=synthesis_tokens.input_tokens,
             output_tokens=synthesis_tokens.output_tokens,
             orchestration_mode="react",
-            orchestrator_model="gemini-2.0-flash",
+            orchestrator_model="gemini-2.5-flash",
             synthesizer_model=model_name,
             tool_calls_json=tool_calls_list,
             orchestrator_input_tokens=orchestrator_in,
