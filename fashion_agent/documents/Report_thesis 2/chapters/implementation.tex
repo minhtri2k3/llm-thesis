@@ -52,7 +52,7 @@ The online pipeline runs inside the \texttt{fashion-api} container on every chat
 \texttt{agent/tools.py} & Tool-schema definitions consumed by the agentic orchestrator. \\
 \texttt{agent/utils.py} & Shared helpers: token accounting, language tagging, small string utilities. \\
 \texttt{search/search\_engine.py} & Seven-stage PATH 1 hybrid search (Algorithm~\ref{alg:hybrid_search}): expansion $\rightarrow$ BM25 + image-vector + text-vector $\rightarrow$ RRF $\rightarrow$ RapidFuzz $\rightarrow$ BGE rerank $\rightarrow$ top-$k$. \\
-\texttt{search/query\_expansion.py} & Short-query LLM expansion gate (Algorithm~\ref{alg:expand_query}); skipped on long queries. \\
+\texttt{search/query\_expansion.py} & Optional LLM expansion module (Algorithm~\ref{alg:expand_query}), gated by intent and query length. \\
 \texttt{search/fusion.py} & Reciprocal-Rank-Fusion implementation (Equation~\ref{eq:rrf}, Algorithm~\ref{alg:rrf}). \\
 \texttt{search/reranker.py} & BGE Reranker v2-m3 cross-encoder with the weighted blend ($0.7 \cdot \text{reranker} + 0.3 \cdot \text{RRF}$) of Algorithm~\ref{alg:rerank_blend}. \\
 \texttt{search/image\_query\_engine.py} & PATH 2 image-bytes search (Algorithm~\ref{alg:path2_search}) and PNG validation (Algorithm~\ref{alg:validate_png}). \\

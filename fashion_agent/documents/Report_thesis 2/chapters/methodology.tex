@@ -885,7 +885,7 @@ Step~4 of the pipeline is the place where the orchestrator commits to an action.
 \texttt{out\_of\_scope}   & 0 & Return the localized refusal template; close the stream.\\
 \texttt{product\_select}  & 0 & Resolve numbers against \texttt{\_session\_last\_results} and stage a \texttt{PendingSelection}.\\
 \texttt{view\_selections} & 0 & Read saved items and render them.\\
-\texttt{text\_search} \emph{or} \texttt{outfit\_request} \emph{or} \texttt{follow\_up} & 0 in routing, 1 in synthesis & Run \textsc{HybridSearch} (Algorithm~\ref{alg:hybrid_search}); \texttt{follow\_up} additionally turns on query expansion.\\
+\texttt{text\_search} \emph{or} \texttt{outfit\_request} \emph{or} \texttt{follow\_up} & 0 in routing, 1 in synthesis & Run \textsc{HybridSearch} (Algorithm~\ref{alg:hybrid_search}); \texttt{follow\_up} may enable query expansion under the short-query gate.\\
 $\text{confidence} < 0.6$ \emph{or} \texttt{unclear} & 1 (clarifier) & Fall back to \textsc{CheckClarification} (LLM-driven) when no template covers the case.\\
 \bottomrule
 \end{tabular}

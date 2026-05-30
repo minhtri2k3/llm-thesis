@@ -7,7 +7,7 @@ The structural components of the deployed system are documented in Chapter~4 and
 
 \begin{itemize}
     \item \textbf{Embedding}: the encoder is Marqo-FashionSigLIP (768-d), with both image and text embeddings stored as named vectors in a single Qdrant collection.
-    \item \textbf{Query expansion}: a Gemini-powered expansion step gated to short queries (under six words), so that long natural-language queries reach search unmodified.
+    \item \textbf{Query expansion}: an optional Gemini-driven expansion path, gated by intent and query length, that may run on short queries within follow-up turns; long queries reach search unmodified.
     \item \textbf{Reranker}: a BGE Reranker v2-m3 cross-encoder, with reranker and RRF scores combined as $0.7\times R + 0.3\times \text{RRF}$.
     \item \textbf{Deployment}: a Docker Compose stack (PostgreSQL, Qdrant, FastAPI agent, Flutter web frontend, and an ngrok public tunnel with a Cloudflare tunnel retained as a fallback) exposes the agent as a public chat endpoint.
 \end{itemize}

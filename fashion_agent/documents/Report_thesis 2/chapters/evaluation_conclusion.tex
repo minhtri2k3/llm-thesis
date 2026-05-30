@@ -119,7 +119,6 @@ This validity layer is the decision gate for ``data right or wrong'': metrics ar
     \item \textbf{Hybrid retrieval}: BM25 + FashionSigLIP + RRF leverages the strengths of both approaches.
     \item \textbf{PostgreSQL}: Persistent, scalable, supports concurrent access better than CSV.
     \item \textbf{Semantic token (caption)}: LLM-generated descriptions enable deeper embedding understanding beyond short labels.
-    \item \textbf{Query Expansion}: Gemini-powered synonym queries increase recall for short queries.
     \item \textbf{Cross-encoder Reranker}: BGE v2-m3 reranks results for higher precision.
 \end{enumerate}
 
@@ -131,7 +130,7 @@ This validity layer is the decision gate for ``data right or wrong'': metrics ar
 \toprule
 \textbf{Risk} & \textbf{Severity} & \textbf{Mitigation}\\
 \midrule
-High latency (multiple Gemini calls) & High   & Parallel tool calls, cached expansion\\
+High latency (multiple Gemini calls) & High   & Parallel tool calls\\
 LLM hallucination                    & High   & RAGAS faithfulness $\geq$0.87, fallback templates\\
 BM25 rebuild on restart              & Low    & Serialize BM25 index to disk\\
 PostgreSQL cold start                & Low    & Connection pooling\\
@@ -147,7 +146,6 @@ This project successfully built an intelligent multimodal fashion search system 
 The Fashion Agent represents significant improvements over the Hybrid RAG baseline:
 \begin{itemize}
     \item \textbf{Embedding}: Upgraded from FashionCLIP (512-d) to Marqo-FashionSigLIP (768-d).
-    \item \textbf{Query Expansion}: Added Gemini-powered synonym expansion for short queries.
     \item \textbf{Reranker}: Integrated BGE Reranker v2-m3 cross-encoder for improved precision.
     \item \textbf{Deployment}: Docker Compose stack with 4 services (PostgreSQL + Qdrant + FastAPI + Cloudflare Tunnel).
 \end{itemize}
