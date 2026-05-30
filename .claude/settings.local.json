@@ -45,7 +45,15 @@
       "Bash(/Users/tringuyen/llm-thesis/venv/bin/python -c \"import torch\")",
       "Bash(/Users/tringuyen/llm-thesis/venv/bin/python -c \"import matplotlib\")",
       "Bash(docker cp *)",
-      "Bash(/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 /Users/tringuyen/llm-thesis/fashion_agent/eval/plot_chart.py)"
+      "Bash(/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 /Users/tringuyen/llm-thesis/fashion_agent/eval/plot_chart.py)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(ps -p 12443 -o stat=,etime=)",
+      "Bash(kill 12443 12440 12437)",
+      "Bash(DOCKER_BUILDKIT=1 docker compose -f fashion_agent/docker-compose.yml build --progress=plain clothie-web)",
+      "Bash(tee /tmp/clothie-build.log)",
+      "Bash(curl -sI http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/main.dart.js)",
+      "Bash(curl -s -X POST http://localhost:8000/api/sessions -H 'Content-Type: application/json' -d '{\"orchestration_mode\":\"react\"}')"
     ]
   }
 }
