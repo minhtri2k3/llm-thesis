@@ -1,51 +1,55 @@
 % Chapter 8: CONCLUSION
-% Content from: evaluation_conclusion.tex (lines 144-191)
 
 \section{Conclusion}
-This project successfully built an intelligent multimodal fashion search system following a clear two-phase roadmap. The RAG v1.0 phase established a hybrid search foundation with FashionCLIP 2.0 and BM25. Agent v2.0 then expanded into two paths: PATH 1 upgraded to a proactive architecture featuring a ReAct loop, intent classification, a clarification gate, and persistent memory via PostgreSQL, while PATH 2 added image-to-image composed search for visual product retrieval.
+This thesis has built and deployed Clothie, a deterministically routed conversational fashion search agent. The deployed system pairs intent classification, a slot-completeness clarification gate, multi-turn session memory in PostgreSQL, and a seven-stage hybrid retrieval pipeline. A second pathway for image-to-image visual lookup is offered on top of this foundation; it is feature-flagged and shares the same FashionSigLIP encoder and Qdrant collection as the text-to-image path.
 
+The structural components of the deployed system are documented in Chapter~4 and verifiable from code:
 
-Version v2.0 represents significant improvements over v1.0:
 \begin{itemize}
-    \item \textbf{Embedding}: Upgraded from FashionCLIP (512-d) to Marqo-FashionSigLIP (768-d).
-    \item \textbf{Query Expansion}: Added Gemini-powered synonym expansion for short queries.
-    \item \textbf{Reranker}: Integrated BGE Reranker v2-m3 cross-encoder for improved precision.
-    \item \textbf{Deployment}: Docker Compose stack with 4 services (PostgreSQL + Qdrant + FastAPI + Cloudflare Tunnel).
+    \item \textbf{Embedding}: the encoder is Marqo-FashionSigLIP (768-d), with both image and text embeddings stored as named vectors in a single Qdrant collection.
+    \item \textbf{Query expansion}: an optional Gemini-driven expansion path, gated by intent and query length, that may run on short queries within follow-up turns; long queries reach search unmodified.
+    \item \textbf{Reranker}: a BGE Reranker v2-m3 cross-encoder, with reranker and RRF scores combined as $0.7\times R + 0.3\times \text{RRF}$.
+    \item \textbf{Deployment}: a Docker Compose stack (PostgreSQL, Qdrant, FastAPI agent, Flutter web frontend, and an ngrok public tunnel with a Cloudflare tunnel retained as a fallback) exposes the agent as a public chat endpoint.
 \end{itemize}
 
-\subsection{Evidence-Based Claim Mapping for Final Conclusion}
-\label{subsec:evidence_claim_mapping}
+These items describe what was built. The empirical statements about how the deployed system behaves are reported in Chapter~5; this chapter does not restate them and instead summarises which questions Chapter~5 answered and which it did not.
 
-Final claims are mapped to evidence strength so that conclusions remain proportional to verified data:
+\subsection{What the Empirical Chapter Established}
+\label{subsec:empirical_summary}
 
-\begin{table}[H]
-\centering
-\begin{tabular}{p{4.0cm}p{5.8cm}p{3.0cm}}
-\toprule
-\textbf{Claim} & \textbf{Primary Evidence} & \textbf{Status}\\
-\midrule
-Agent v2.0 improves retrieval quality over v1.0. & Recall@5, MRR, Hit Rate@5 (Section~\ref{sec:data_evidence_integrity} and Section~\ref{subsec:metric_definitions_boundaries}). & Supported\\
-Agent behavior is robust in multi-turn interaction. & Task completion, faithfulness, and clarification behavior logs. & Supported\\
-Operational LLM cost is explainable and monitorable. & \texttt{llm\_token\_usage}, \texttt{session\_token\_summary}, mode cost aggregation. & Partially supported\\
-User purchase tendency is improved by recommendations. & CartAddRate / WillBuyRate / ConversionRate from behavior funnel. & Inconclusive (depends on cohort size and balance)\\
-\bottomrule
-\end{tabular}
-\caption{Claim-to-evidence mapping used in the final thesis conclusion}
-\label{tab:claim_evidence_mapping}
-\end{table}
+Chapter~5 reports six blocks of descriptive evidence from the deployed PostgreSQL telemetry at the data freeze date 2026-05-09; each block is anchored to a specific source table so the numbers can be reproduced against the live database. In summary:
 
-Therefore, the final conclusion follows three rules: (1) only claims marked \textit{Supported} are stated as confirmed findings, (2) \textit{Partially supported} claims are reported with operational caveats, and (3) \textit{Inconclusive} claims are retained as hypotheses for future data collection.
-
-\textbf{Current evidence limitations.}
 \begin{itemize}
-    \item Token-to-cost estimates depend on fixed public list prices and may vary over time.
-    \item Behavior metrics are sensitive to sample imbalance across orchestration modes and user groups.
-    \item Conversion-style claims require larger longitudinal cohorts than early-stage thesis collection windows.
+    \item the catalogue is fully enriched (5{,}096 items, 100\% caption and color coverage);
+    \item the deployed pipeline issues one or two LLM calls per turn (no ReAct loop in production);
+    \item users engage with the text-to-image results (click-through rate 31.9\%, cart-add rate 8.3\% of impressions);
+    \item subjective ratings are uniformly favourable (mean 4.56 / 5) but the sample is too small for any inferential claim.
 \end{itemize}
 
-\textbf{Future development directions:}
+These are descriptive findings; none depend on a gold set, a control group, or a stress benchmark.
+
+\subsection{Limitations}
+\label{subsec:limitations}
+
+The deployed system leaves a number of questions that this thesis does not answer. The methodology, implementation, result, and discussion chapters give the necessary context for each.
+
 \begin{itemize}
-    \item \textbf{Phase 3}: Scale dataset to 15K--100K products, fine-tune the reranker, Redis session cache.
-    \item \textbf{Phase 4}: Virtual Try-on (IDM-VTON), fine-tune FashionSigLIP on proprietary data, A/B testing.
-    \item \textbf{PATH 2}: Image-to-Image search with Composed Search.
+    \item \textbf{Slot persistence.} Only three of the six classifier slots are persisted to \texttt{query\_history.filters}; the rest live in the in-process TTL cache (Chapter~4).
+    \item \textbf{No labelled retrieval gold set.} Recall@5, MRR, Hit-Rate@5 and faithfulness are not reported because no labelled query set was constructed (Chapter~5, §5.5).
+    \item \textbf{Heuristic slot vocabulary and weights.} The six-slot vocabulary and the ranked-slot weight schedule are design choices, not learned values (Chapter~3, §3.3).
+    \item \textbf{Compound multi-product queries fall back to a generic clarification template} rather than being decomposed into parallel sub-queries (Chapter~3, §3.3.3).
 \end{itemize}
+
+\subsection{Directions for Future Work}
+\label{subsec:future_work}
+
+\textbf{Headline direction: swap the Agent's underlying LLM for a per-model comparison.} Now that the deployment is operationally stable --- one or two LLM calls per turn, deterministic routing, and a token-usage table already aggregated by §5.4 --- the most informative next step is to swap the Agent's underlying model and measure both cost and quality side by side. The scaffolding required already exists: \texttt{shared/llm.py} exposes a single \texttt{LLMClient} Protocol, the Compose file already accepts \texttt{OPENAI\_API\_KEY} and \texttt{ANTHROPIC\_API\_KEY}, and \texttt{agent/agentic\_orchestrator.py} carries Mode~B (Gemini~$\rightarrow$~GPT) and Mode~C (GPT~$\rightarrow$~Claude) scaffolding behind a routing flag that today returns \texttt{"direct"}. Routing a fraction of new sessions through a different \texttt{LLMClient} implementation would populate the existing \texttt{llm\_token\_usage} table with model-tagged rows, after which the §5.4 cost aggregation would split by model with no schema change. A small labelled query set (on the order of 200 hand-tagged queries) added on top of this would let intent-classification and slot-extraction accuracy be reported per model alongside cost; the experimental design and metric choices are detailed in §7.4. The intent of this work is explicit: keep the deployed pipeline fixed, vary only the LLM behind \texttt{LLMClient}, and let token-cost and per-model accuracy be compared on the same retrieval substrate.
+
+The remaining future-work items are smaller in scope and largely orthogonal to the model swap above:
+
+\begin{itemize}
+    \item Learn the slot vocabulary and ranked-slot weights from the gold set rather than fixing them by inspection.
+    \item Add an \texttt{INTEGER duration\_ms} column to \texttt{llm\_token\_usage} so per-call latency joins the existing token-cost aggregation.
+    \item Add a query-segmentation pass (rule-based or LLM-driven) before intent classification, so compound multi-product queries are decomposed into parallel sub-queries instead of being routed to the generic clarification template.
+\end{itemize}
+

@@ -1,4 +1,44 @@
-% Chapter 1: INTRODUCTION
-% Content from: system_overview.tex + data_preprocessing.tex
-\input{chapters/system_overview}
-\input{chapters/data_preprocessing}
+Unlike electronics or books, fashion is inherently subjective. A user’s "style" is not a fixed attribute but a fluid expression influenced by occasion, mood, and personal aesthetic. Traditional search engines fail in this domain because they rely on rigid metadata; they can find a "blue shirt," but they cannot comprehend "an outfit that looks professional yet approachable for a first interview."  This gap creates a Semantic Ambiguity: user queries in fashion are often vague and context-dependent. Choosing to build Clothie as an LLM-based recommendation system is a strategic response to this challenge. By leveraging the reasoning capabilities of Large Language Models, the system can decode the ambiguity of human intent, transforming subjective desires into precise, situational product suggestions.
+
+
+\section{Problem Statement}
+In the landscape of Artificial Intelligence, the democratization of Large Language Models (LLMs) has sparked a paradigm shift in how businesses interact with consumers. However, as these models transition from experimental research to commercial production, a new economic reality has emerged: the "token-based economy." Every inference call represents a fiscal cost, and for a modern enterprise, the indiscriminate use of LLMs can lead to prohibitive operational expenses. 
+
+The challenge no longer lies solely in text generation, but in the intelligent orchestration of models to deliver high-value output while maintaining computational and fiscal efficiency. This research explores 'Clothie,' an intelligent fashion assistant designed to transform \textbf{minimal product data} into \textbf{high-precision recommendations}. By resolving the tension between vague user intent and system performance, Clothie achieves a balance of superior accuracy, rapid response, and cost-effective execution.
+
+\section{Proposed Approach}
+
+This thesis proposes an optimized Agentic workflow designed to minimize unnecessary LLM overhead through an intelligent "Clarification Gate." The system architecture is bifurcated into two primary retrieval trajectories:
+
+\begin{itemize}
+    \item \textbf{PATH 1: Semantic Text-to-Image Search:} A multi-stage workflow where the Agent analyzes natural language queries, identifies missing attributes (color, occasion, material), and engages the user in a dialogue to refine the search space before executing a database query.
+    \item \textbf{PATH 2: Visual Image-to-Image Search:} A computer vision-driven path that utilizes the \textit{Marqo-FashionSigLIP} model to extract stylistic features from user-uploaded references, providing similar products accompanied by AI-generated styling rationale.
+\end{itemize}
+
+Rather than committing to a multi-step "Reason-then-Act" (ReAct) loop, the agent issues a single intent-classification call per turn that decides whether to ask a clarifying question or invoke the retrieval tool chain. This intent-first design turns the orchestrator into a fiscal gate: LLM calls are made only when the confidence interval of the user's intent is sufficiently high, capping the per-turn cost at one or two LLM calls.
+
+\section{Research Objectives}
+To address these challenges, this research pursues the following three primary objectives:
+\subsection{Scalable Retrieval under Data Constraints}
+Design and implement a scalable fashion retrieval engine capable of high-precision search using restricted data inputs (primarily images and basic labels).
+
+Ensure the system's viability for \textbf{Small-to-Medium Enterprise (SME)} adoption by removing the dependency on expensive, high-quality metadata
+
+\subsection{Cost-Efficient Agentic Orchestration}
+
+Architect an Agentic Orchestrator that optimizes token consumption through intelligent intent classification and strategic tool-calling.
+
+Develop an intent-first reasoning logic that bounds per-turn LLM calls to one or two, reducing both cost-per-session and end-to-end latency compared with linear Retrieval-Augmented Generation (RAG) implementations and with multi-step ReAct loops.
+
+\subsection{Resolution of Semantic and Subjective Ambiguity}
+
+
+Leverage LLM reasoning to bridge the gap between vague user queries and precise product discovery.
+
+Enable the system to proactively clarify intent and provide context-aware suggestions, transforming subjective "style" requirements into accurate, image-based recommendations.
+
+\section{Summary of Contributions}
+
+The primary contributions of this thesis include the development of the Clothie Agent Framework, which represents a novel integration of a single-LLM intent-first agent with a Hybrid RAG pipeline specifically tuned for the fashion domain --- engineered to maximise retrieval accuracy while keeping per-turn token cost and response latency within tight bounds. Additionally, this work provides a comprehensive empirical dataset that measures the relationship among user behavior, query complexity, and the resulting token expenditure across different model architectures. Finally, the research delivers a production pipeline featuring PostgreSQL persistence, BGE reranking, and a proactive clarification mechanism that gracefully handles user ambiguity.
+
+Chapter 2 reviews related work on conversational product recommendation, retrieval-augmented generation in e-commerce, agentic workflows, methods for resolving query ambiguity, and tool-augmented versus direct execution, closing with a research-gap statement that defines the target this thesis addresses. Chapter 3 presents the methodology, including dataset construction, the six-slot intent classifier and clarification gate that handle user ambiguity, the seven-stage hybrid retrieval pipeline, and deterministic tool-augmented orchestration. Chapter 4 describes the implementation, covering repository layout, technology stack, prompt artefacts, the Qdrant and PostgreSQL knowledge base, and the multimodal Flutter and Gradio interface. Chapter 5 reports the empirical results that back the Chapter 3 design, anchored to PostgreSQL telemetry across cohort integrity, knowledge-base quality, LLM call discipline, implicit relevance from user behaviour, and subjective ratings. Chapter 6 discusses the design strengths of the deployed system together with the residual operational risks and their mitigations. Chapter 7 concludes the thesis by reviewing what the empirical chapter established, listing the limitations of the present work, and outlining future-work directions for scaling the platform.

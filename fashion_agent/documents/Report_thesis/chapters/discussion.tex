@@ -9,7 +9,6 @@
     \item \textbf{Hybrid retrieval}: BM25 + FashionSigLIP + RRF leverages the strengths of both approaches.
     \item \textbf{PostgreSQL}: Persistent, scalable, supports concurrent access better than CSV.
     \item \textbf{Semantic token (caption)}: LLM-generated descriptions enable deeper embedding understanding beyond short labels.
-    \item \textbf{Query Expansion}: Gemini-powered synonym queries increase recall for short queries.
     \item \textbf{Cross-encoder Reranker}: BGE v2-m3 reranks results for higher precision.
 \end{enumerate}
 
@@ -21,8 +20,7 @@
 \toprule
 \textbf{Risk} & \textbf{Severity} & \textbf{Mitigation}\\
 \midrule
-High latency (multiple Gemini calls) & High   & Parallel tool calls, cached expansion\\
-LLM hallucination                    & High   & RAGAS faithfulness $\geq$0.87, fallback templates\\
+
 BM25 rebuild on restart              & Low    & Serialize BM25 index to disk\\
 PostgreSQL cold start                & Low    & Connection pooling\\
 Gemini API rate limit                & Medium & Batch processing, exponential backoff\\
@@ -30,3 +28,38 @@ Gemini API rate limit                & Medium & Batch processing, exponential ba
 \end{tabular}
 \caption{Risk matrix and corresponding mitigation strategies}
 \end{table}
+
+\section{Why LLM BASIC Was Not Carried Forward}
+\label{sec:disc_llm_basic}
+
+\subsection{What LLM BASIC Refers To}
+
+In the early framing of this project, an \emph{LLM BASIC} baseline was considered: a configuration in which the user's fashion query is passed to a single LLM call without retrieval, without an indexed catalogue, and without slot extraction. The model would answer from its parametric knowledge alone, returning generic styling advice or fabricated product descriptions. This baseline is structurally cheap (one LLM call per turn, zero infrastructure beyond an API key) and is the implicit comparison point a reader has in mind when asking ``does the retrieval pipeline matter?''.
+
+\subsection{Reasons Against Carrying It Forward}
+
+Three structural reasons led the LLM BASIC baseline to be omitted from the empirical chapter rather than reported alongside the deployed agent.
+
+First, there is no catalogue grounding. The deployed system measures user behaviour against the fixed 5{,}096-item catalogue; cart-adds, will-buy intents, and click-through rates are only meaningful when each impression maps to a real product row in PostgreSQL. An LLM-only baseline, by definition, cannot return \texttt{image\_id} values that exist in the catalogue. Without that anchor the click and cart funnels have no addressable items, and the §5.5 funnel evidence cannot be replicated for the baseline.
+
+Second, the comparison would be unbalanced on surface quality even when both systems can answer. The deployed pipeline applies a hard contract --- captions, color tokens, and a label-level taxonomy enforced by the slot-completeness gate --- that an LLM-only baseline does not have access to. Hallucinated fabric, cut, or availability claims would not be visible to a reviewer, so a side-by-side rating exercise would either favour the agent for surface reasons (real product images) or favour the baseline for surface reasons (free-form prose); neither outcome speaks to retrieval quality.
+
+Third, the empirical work in this thesis is descriptive rather than comparative. As recorded in §5.1 sample-balance and the result-chapter limitations, no paired pre-deployment baseline exists, and the observed cohort sizes (209 intent calls, 26 cart-adds, 13 ratings) do not support inferential claims of the form ``RAG~$>$~LLM-only''. Reporting an unmeasured baseline alongside the deployed system would invite exactly that inferential reading.
+
+\subsection{What a Future Comparison Would Need}
+
+A defensible LLM-BASIC versus RAG-Agent comparison requires three additional elements that this thesis does not provide. The first is a labelled gold set of queries with known relevant items so that retrieval recall is directly measurable rather than inferred from clicks. The second is randomised session-level assignment that routes a fixed fraction of new sessions through the LLM-only baseline, so the two arms see comparable query distributions. The third is a paired-rating protocol in which the same user evaluates both systems on the same queries; without pairing, the small ratings cohort is too noisy to separate the two conditions. Each of these is recorded as a future-work item; none is in scope for the present submission.
+
+\section{Per-Model Comparison and Token Cost as Future Work}
+\label{sec:disc_per_model}
+
+\subsection{Hooks Already in the Codebase}
+
+The deployed system is wired for an LLM-swap experiment but does not yet exercise it. The \texttt{shared/llm.py} module exposes a single \texttt{LLMClient} Protocol with \texttt{generate()} and \texttt{stream()} methods; the live default is a Gemini implementation, and the Compose file already accepts \texttt{OPENAI\_API\_KEY} and \texttt{ANTHROPIC\_API\_KEY} as optional environment variables. A second routing layer in \texttt{agent/agentic\_orchestrator.py} carries scaffolding for Mode B (Gemini orchestrator with GPT synthesizer) and Mode C (GPT orchestrator with Claude synthesizer); the live default is \texttt{\_get\_orchestration\_mode()~==~"direct"} with Gemini for both roles, so neither alternative path receives production traffic in the current evaluation.
+
+\subsection{Metrics the Existing Telemetry Can Already Capture}
+
+Per-model token cost is already partially observable. The cost analysis in §5.4 is sourced from rows that record \texttt{input\_tokens}, \texttt{output\_tokens}, and a model identifier per call; the same aggregation already distinguishes the two legacy \texttt{orchestrator\_model} labels emitted by an earlier version of the agent. Routing a fraction of new sessions through a different \texttt{LLMClient} implementation would populate the same table with parallel rows tagged by the new model name, after which the §5.4 aggregation could be split by model with no schema change at all. The existing fields are sufficient for two of the three quantities a per-model study needs: total tokens per turn, and the input/output split that drives cost.
+
+
+

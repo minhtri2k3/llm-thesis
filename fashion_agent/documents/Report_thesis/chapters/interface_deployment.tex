@@ -5,9 +5,9 @@ def create_gradio_app(app):
     """Create Gradio UI integrated with FastAPI."""
     with gr.Blocks(
         theme=gr.themes.Monochrome(),
-        title="Fashion Agent v2.0"
+        title="Fashion Agent"
     ) as demo:
-        gr.Markdown("## Fashion Agent v2.0")
+        gr.Markdown("## Fashion Agent")
         session_state = gr.State({"session_id": None})
         chatbot = gr.Chatbot(label="Fashion Assistant",
                              height=500)

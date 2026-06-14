@@ -28,6 +28,7 @@
 \usepackage{enumitem}
 \usepackage{float}
 \usepackage{tcolorbox}
+\tcbuselibrary{breakable,skins}
 \usepackage{longtable}
 \usepackage{array}
 \usepackage{lipsum}
@@ -64,9 +65,28 @@
   {0.5em}
   {}
 
+% Tighten spacing around section headings (before/after) to remove
+% the large gaps that titlesec defaults produce under onehalfspacing.
+\titlespacing*{\section}      {0pt}{1.6ex plus 0.4ex minus 0.2ex}{0.8ex plus 0.2ex}
+\titlespacing*{\subsection}   {0pt}{1.4ex plus 0.4ex minus 0.2ex}{0.6ex plus 0.2ex}
+\titlespacing*{\subsubsection}{0pt}{1.2ex plus 0.3ex minus 0.2ex}{0.5ex plus 0.2ex}
+
 \setlength{\parindent}{1.5em}
 \setlength{\headheight}{15pt}
 \onehalfspacing
+
+% Allow pages to end naturally instead of stretching vertical glue
+% between paragraphs / floats / headings to fill the page bottom.
+% This is the main fix for the very large gaps caused by twoside+flushbottom.
+\raggedbottom
+
+% Tighten spacing around floats (figure, table, algorithm) so they do
+% not push surrounding text away with double-line gaps.
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\setlength{\dbltextfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\dblfloatsep}{8pt plus 2pt minus 2pt}
 
 \makeatletter
 \newcommand\AppendixName{Appendix}
@@ -229,16 +249,27 @@ for Dynamic Decision Support in Product Suggestion}\par
 \chapter*{Acknowledgements}
 
 \noindent
-I would like to express my sincere gratitude to my advisor, \textbf{[Advisor Name]}, for the invaluable guidance, patience, and continuous support throughout the development of this thesis. Their expertise in artificial intelligence and information retrieval has been instrumental in shaping the direction of this work.
+I would like to express my sincere gratitude to my advisor, \textbf{Prof. Tran Thanh Tung}, for his invaluable guidance, patience, and continuous support throughout the development of this thesis. His expertise in artificial intelligence and information retrieval was instrumental in shaping the direction of this work. Beyond his academic mentorship, I am deeply grateful for his understanding of my professional commitments; despite the demands of my work at the company, he remained remarkably patient with my schedule. Most importantly, I want to thank him for his unwavering encouragement when I chose to pivot my research topic with only six months remaining. His belief in my vision gave me the confidence to pursue this new path and see it through to completion.
 
 \noindent
-I am also deeply thankful to the faculty and staff of the School of Computer Science and Engineering at the International University -- VNU-HCM for providing a stimulating academic environment and the technical resources that made this project possible.
+I am also deeply thankful to the faculty and staff of the \textbf{International University - HCMIU} for providing a stimulating academic environment and the technical resources that made this project possible.
+
 
 \noindent
-I extend my appreciation to my classmates and friends for their constructive feedback during our discussions, and to the open-source community --- particularly the maintainers of Marqo-FashionSigLIP, BGE Reranker, Qdrant, and the broader Hugging Face ecosystem --- whose tools form the technical foundation of this work.
+I would also like to extend my sincere thanks to the many developers and technical mentors who generously shared their time and expertise. Whether answering my questions regarding complex technical intricacies or guiding me through the nuances of the deployment process, your willingness to share your knowledge was invaluable. Your practical insights helped bridge the gap between academic theory and production-ready software, and for that, I am truly grateful.
 
 \noindent
-Finally, I am profoundly grateful to my family for their unconditional love, encouragement, and sacrifice throughout my academic journey.
+I extend my appreciation to my classmates and friends for their constructive feedback during our discussions, and to the open-source community- particularly the maintainers of Marqo-FashionSigLIP, BGE Reranker, Qdrant, and the broader Hugging Face ecosystem --- whose tools form the technical foundation of this work.
+
+\noindent
+I would like to express my deepest gratitude to \textbf{Carrots} for their unwavering support throughout this project. I am particularly grateful for the trust they placed in me by providing the API tokens and resources essential to my work; without their generosity, this endeavor would not have been possible.
+
+Furthermore, I thank my colleagues across the three companies I have had the privilege to work with. To every individual who lent their expertise, thank you for your patience during the testing phases and for sharing your invaluable insights on production expectations. This work is as much a reflection of your mentorship as it is of my own efforts.
+
+\noindent
+Finally, I am profoundly grateful to my family for their unconditional love, encouragement, and sacrifice throughout my academic journey. 
+
+\newpage
 
 % =====================================================================
 % TABLE OF CONTENTS
@@ -283,43 +314,19 @@ Finally, I am profoundly grateful to my family for their unconditional love, enc
 \addchaptertoc{Abstract}
 
 \noindent
-This thesis presents \textit{Fashion Agent Multimodal}, an intelligent fashion search
-system that addresses the limitations of conventional keyword-based product retrieval
-in e-commerce. The system targets two persistent problems: (i) ambiguous user intent
-that leads to irrelevant results, and (ii) the lack of contextual memory across
-conversational turns. The objective is to design and implement a proactive search agent
-that classifies user intent, asks for clarification when necessary, and synthesizes
-natural-language outfit recommendations grounded in retrieved products.
+This thesis presents \textit{Clothie}, an intelligent fashion search and recommendation system designed to achieve high precision and rapid response times through the synergy of a modular processing pipeline and Large Language Model (LLM) orchestration. Unlike conventional RAG systems that handle structured text retrieval, \textit{Clothie} tackles the inherent subjectivity of image-based fashion discovery. The system specifically addresses two fundamental "uncertainty" challenges:
 
-The work uses the public \textit{Clothing Dataset Full} from Kaggle, comprising fashion
-product images with category labels. Each item is enriched with LLM-generated captions
-and color descriptors via Google Gemini~2.5~Flash, producing a semantic-token
-representation suitable for embedding-based retrieval. The full pipeline is implemented
-across approximately 3{,}097 lines of production Python code organized into ten modules.
+\noindent
+(i) The Specification Gap: when a user identifies a specific product category (e.g., "a jacket") but lacks the precise attributes—such as material, fit, or stylistic nuances—required for an accurate search. \textit{Clothie} acts as a proactive agent to clarify these hidden preferences, ensuring the retrieved results align with the user's exact vision.
 
-The system is built in two iterations. \textit{RAG~v1.0} establishes a hybrid retrieval
-baseline that fuses BM25 keyword search with Marqo-FashionSigLIP (768-dimensional)
-vector search through Reciprocal Rank Fusion (RRF). \textit{Agent~v2.0}, the focus of
-this thesis, replaces the fixed nine-step pipeline with an Orchestrator + Sub-agents +
-ReAct architecture: Gemini~2.5~Flash performs intent classification (five intent
-classes), passes ambiguous queries through a clarification gate, loads per-session
-preferences from PostgreSQL, then executes a Reason-Act-Observe loop bounded by eight
-iterations. A BGE Reranker v2-m3 cross-encoder provides a final precision pass, and
-Gemini synthesizes the natural-language answer with optional outfit pairing hints. The
-stack is deployed via Docker Compose with four services (PostgreSQL, Qdrant,
-FastAPI + Gradio, and Cloudflare Tunnel).
+\noindent
+(ii) The Contextual Indecision: when a user has a situational need (e.g., "attending a summer wedding") but is uncertain about which type of apparel to seek. In these cases, the system leverages LLM reasoning to bridge the gap between a vague scenario and concrete, contextually relevant product suggestions.
 
-On the evaluation set, Agent~v2.0 achieves Recall@5 $\geq 88\%$, MRR $\geq 0.80$,
-Hit-Rate@5 $\geq 93\%$, task-completion $\geq 95\%$, and RAGAS faithfulness
-$\geq 0.87$, while keeping P95 latency under 15~seconds. These figures represent
-consistent improvements over RAG~v1.0 on every retrieval metric. Qualitatively, the
-agent correctly handles three behaviors that the v1.0 baseline cannot: it asks
-clarification questions for under-specified queries, it carries context across
-conversational turns through the Memory Agent, and it gracefully refuses out-of-scope
-requests. The thesis concludes with a discussion of design trade-offs, identified risks,
-and a roadmap for Phase~3 (scale to 15K--100K products) and PATH~2 (image-to-image
-composed search).
+\noindent
+The work utilizes the public \textit{Clothing Dataset Full} from Kaggle, where each item is enriched with vision-language descriptors via Google Gemini~2.5~Flash. The implementation comprises a robust Python-based pipeline, evolving from a hybrid retrieval baseline (\textit{Hybrid RAG}) to a single-LLM, intent-first deterministically routed agent (\textit{Fashion Agent}). The agent uses Gemini~2.5~Flash as the orchestrator: it performs intent classification with six-slot extraction in one call, applies a deterministic clarification gate when slots are insufficient, and otherwise invokes a seven-stage tool chain (BM25, FashionSigLIP image and text vectors, RRF fusion, fuzzy filtering, and a BGE Reranker v2-m3 cross-encoder). Each turn issues only one or two LLM calls --- replacing a multi-step ReAct loop --- to maximise retrieval accuracy under tight cost and latency budgets.
 
+\noindent
+Empirical evaluation against the deployed PostgreSQL telemetry shows that the agent issues exactly one or two LLM calls per turn --- confirming that no multi-step ReAct loop runs in production --- and that users actively engage with the displayed results in PATH~1, with a click-through rate of 31.9\% and a cart-add rate of 8.3\% of impressions. These signals, together with the intent-first clarification logic of the single-LLM agent detailed in \textbf{Methodology (Chapter 3)}, demonstrate that the agent can navigate ambiguous fashion queries while keeping per-turn computational cost bounded. Qualitatively, the agent resolves uncertain user states through proactive clarification and maps complex lifestyle contexts to high-quality product suggestions.
 % ===========================================================================
 % MAIN CHAPTERS
 % ===========================================================================
@@ -329,13 +336,10 @@ composed search).
 \input{chapters/introduction}
 
 \chapter{RELATED WORK}
-\input{chapters/work}
+\input{chapters/related_work}
 
 \chapter{METHODOLOGY}
 \input{chapters/methodology}
-
-\chapter{PROTOTYPING}
-\input{chapters/prototyping}
 
 \chapter{IMPLEMENTATION}
 \input{chapters/implementation}
