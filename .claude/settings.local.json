@@ -53,7 +53,27 @@
       "Bash(tee /tmp/clothie-build.log)",
       "Bash(curl -sI http://localhost:3000/)",
       "Bash(curl -s http://localhost:3000/main.dart.js)",
-      "Bash(curl -s -X POST http://localhost:8000/api/sessions -H 'Content-Type: application/json' -d '{\"orchestration_mode\":\"react\"}')"
+      "Bash(curl -s -X POST http://localhost:8000/api/sessions -H 'Content-Type: application/json' -d '{\"orchestration_mode\":\"react\"}')",
+      "Bash(chmod +x ~/migrate_antigravity_to_vscode.sh)",
+      "Bash(sed -E 's/-[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\(-[a-z-]+\\)?$//')",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://api.github.com/repos/minhtri2k3/set_up_tools)",
+      "Bash(curl -s https://api.github.com/repos/minhtri2k3/set_up_tools)",
+      "Bash(chmod +x /Users/tringuyen/set_up_tool/install.sh)",
+      "Bash(curl -s -o /dev/null -w \"GitHub API: HTTP %{http_code}\\\\n\" https://api.github.com/repos/minhtri2k3/set_up_tools)",
+      "Bash(ssh-add -l)",
+      "Bash(GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\" git ls-remote origin)",
+      "Bash(flutter --version)",
+      "Bash(dart --version)",
+      "Bash(fvm --version)",
+      "Bash(fvm list *)",
+      "Bash(flutter doctor *)",
+      "Bash(~/fvm/default/bin/flutter --version)",
+      "Bash(yes)",
+      "Bash(chmod +x /Users/tringuyen/set_up_tool/flutter/install.sh)",
+      "Bash(uv run *)",
+      "mcp__tavily__tavily_research"
     ]
   }
 }

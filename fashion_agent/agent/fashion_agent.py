@@ -23,6 +23,7 @@ from typing import Generator, Optional, Union
 from agent.utils import (
     parse_llm_json, fallback_text_response, format_history_text,
     SUPPORTED_CATEGORIES, _find_category_suggestions,
+    normalize_category, expand_category_query_terms,
 )
 from agent.prompts import (
     SYNTHESIS_PROMPT,
@@ -324,6 +325,42 @@ def _empty_ranked_slots() -> dict[str, str]:
 
 def _normalize_slot_text(value: Optional[str]) -> str:
     return (value or "").strip()
+
+
+def _is_category_list_query(query: str) -> bool:
+    normalized = query.strip().lower()
+    if not normalized:
+        return False
+    category_terms = (
+        "category", "categories", "catalog", "catalogue", "what do you have",
+        "what you have", "available", "danh mục", "loại đồ", "loại trang phục",
+        "categorías", "categorias", "catálogo", "catalogo",
+    )
+    return any(term in normalized for term in category_terms) and not any(
+        term in normalized for term in ("find", "search", "show me", "i need", "i want")
+    )
+
+
+def _build_category_list_response(query: str) -> str:
+    categories = ", ".join(sorted(SUPPORTED_CATEGORIES))
+    lang = detect_language(query)
+    if lang == "vi":
+        return f"Danh mục hiện có: {categories}."
+    if lang == "es":
+        return f"Categorías disponibles: {categories}."
+    return f"Our catalog includes: {categories}."
+
+
+def _canonicalize_filter_category(intent_result: ClassifiedIntent) -> None:
+    filters = intent_result.filters or {}
+    category = _normalize_slot_text(filters.get("category"))
+    if not category:
+        intent_result.filters = filters
+        return
+    normalized = normalize_category(category)
+    if normalized.resolved:
+        filters["category"] = normalized.category
+    intent_result.filters = filters
 
 
 def _merge_ranked_slots(
@@ -640,7 +677,25 @@ def _resolve_search_query(
         follow-up turn.
     """
     if intent in ("text_search", "follow_up", "outfit_request"):
+        raw_category = _normalize_slot_text(intent_result.extracted_slots.category) or _normalize_slot_text(
+            (intent_result.filters or {}).get("category")
+        )
         new_slots = intent_result.extracted_slots
+        category_normalization = normalize_category(raw_category)
+        if raw_category and category_normalization.resolved:
+            new_slots = ExtractedSlots(
+                category=category_normalization.category,
+                color=new_slots.color,
+                fabric=new_slots.fabric,
+                fit=new_slots.fit,
+                construction=new_slots.construction,
+                aesthetic=new_slots.aesthetic,
+                selected_numbers=new_slots.selected_numbers,
+            )
+            filters = intent_result.filters or {}
+            filters["category"] = category_normalization.category
+            intent_result.filters = filters
+
         accumulated = _session_accumulated_slots.get(session_id, ExtractedSlots())
         did_reset = False
         if intent == "text_search" and should_reset_slots(accumulated, new_slots):
@@ -688,13 +743,17 @@ def _resolve_search_query(
             return "", question, accumulated
 
         # Build ranked query from high-value slots once readiness checks pass.
+        category_terms = expand_category_query_terms(
+            raw_category,
+            _normalize_slot_text(ranked_slots.get("category")),
+        )
         ranked_parts = [
             _normalize_slot_text(ranked_slots.get("color")),
             _normalize_slot_text(ranked_slots.get("style")),
             _normalize_slot_text(ranked_slots.get("occasion")),
-            _normalize_slot_text(ranked_slots.get("category")),
+            *category_terms,
         ]
-        search_query = " ".join([p for p in ranked_parts if p])
+        search_query = " ".join(dict.fromkeys([p for p in ranked_parts if p]))
         if not search_query:
             search_query = compose_refined_query_from_slots(accumulated)
         if not search_query:
@@ -780,6 +839,20 @@ def _orchestrate_stream(
     add_message(session_id, "user", query)
     history = get_history(session_id, limit=20)
 
+    if _is_category_list_query(query):
+        msg_text = _build_category_list_response(query)
+        add_message(session_id, "assistant", msg_text)
+        yield ThinkingEvent("done", f"Category list — {time.time() - start_time:.1f}s")
+        yield OrchestrateResult(
+            intent="category_list",
+            session_id=session_id,
+            clarification=msg_text,
+            reasoning="Returned supported catalog categories.",
+            history=history,
+            filters={},
+        )
+        return
+
     # --- Product selection: keyword confirm/reject check (0 LLM calls) ---
     if session_id in _session_pending_selection:
         normalized = query.strip().lower()
@@ -807,6 +880,7 @@ def _orchestrate_stream(
     # Step 1: Intent classification (1 LLM call)
     yield ThinkingEvent("classify", "Classifying intent...")
     intent_result = classify_intent(query, history=history)
+    _canonicalize_filter_category(intent_result)
     intent = intent_result.intent
 
     slots_detail = ""
