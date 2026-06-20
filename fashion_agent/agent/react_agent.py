@@ -1,24 +1,22 @@
-"""
-ReAct Agent — baseline pipeline for thesis comparison.
+"""Pipeline ReAct làm baseline để so sánh trong luận văn.
 
-Architecture (ReAct baseline — Reason + Act loop):
-  1. classify_intent     → single Gemini call (intent + confidence)
-  2. _react_gate()       → skip loop if out_of_scope / unclear / low confidence
-  3. orchestrate_with_gemini() → Gemini native function-calling loop (1–4 iterations)
-  4. _log_react_traces() → persist per-tool-call telemetry to react_traces table
-  5. Synthesis           → Gemini synthesis (same prompt as Direct pipeline)
+Kiến trúc (ReAct baseline — Reason + Act loop):
+  1. classify_intent     → 1 lần gọi Gemini (intent + confidence)
+  2. _react_gate()       → bỏ qua loop nếu out_of_scope / unclear / confidence thấp
+  3. orchestrate_with_gemini() → vòng lặp function calling của Gemini (1–4 vòng)
+  4. _log_react_traces() → lưu telemetry theo từng tool call vào bảng react_traces
+  5. Synthesis           → Gemini tổng hợp (cùng prompt với direct pipeline)
 
-Key differences from Direct pipeline (fashion_agent.py):
-  - No slot accumulation (no TTLCache session state shared across turns)
-  - No clarification gate (question-asking before search)
-  - Gemini decides WHAT tools to call and HOW MANY times (ReAct reasoning)
-  - Costs 2 + N LLM calls (1 classify + N orchestrator iterations + 1 synthesize)
+Khác biệt so với direct pipeline (fashion_agent.py):
+  - Không tích lũy slot giữa các lượt chat
+  - Không có clarification gate trước khi search
+  - Gemini tự quyết định gọi tool nào và bao nhiêu lần
+  - Chi phí thường là 2 + N lần gọi LLM
 
-Design invariant:
-  - This module is COMPLETELY INDEPENDENT from fashion_agent.py.
-  - No shared in-memory state (no TTLCache imports from fashion_agent).
-  - fashion_agent.py is NEVER imported here.
-  - Both modules coexist; api/main.py dispatches to one or the other.
+Ràng buộc thiết kế:
+  - Module này độc lập hoàn toàn với fashion_agent.py.
+  - Không chia sẻ state in-memory với direct pipeline.
+  - api/main.py sẽ chọn một trong hai module tùy orchestration mode.
 """
 
 from __future__ import annotations
@@ -85,6 +83,8 @@ _OUT_OF_SCOPE_RESPONSES = {
 
 @dataclass
 class ProductResult:
+    """Kết quả sản phẩm chuẩn hóa cho pipeline ReAct."""
+
     image_id: str
     image_path: str
     label: str
@@ -95,6 +95,8 @@ class ProductResult:
 
 @dataclass
 class AgentResponse:
+    """Phản hồi cuối cùng của agent trong pipeline ReAct."""
+
     answer: str
     products: list[ProductResult] = field(default_factory=list)
     styling_suggestion: str = ""
@@ -103,6 +105,7 @@ class AgentResponse:
     intent: str = ""
 
     def to_dict(self) -> dict:
+        """Chuyển AgentResponse sang dict để serialize."""
         return asdict(self)
 
 
@@ -112,14 +115,7 @@ class AgentResponse:
 
 
 def _react_gate(classified: ClassifiedIntent) -> bool:
-    """Return False if the query should skip the Gemini tool-calling loop.
-
-    Blocks when:
-    - intent is 'out_of_scope' or 'unclear' (no search makes sense)
-    - confidence is below REACT_CONFIDENCE_THRESHOLD (default 0.50)
-
-    When False, the caller synthesizes a direct (no-search) response.
-    """
+    """Quyết định query có nên bỏ qua vòng tool-calling của Gemini hay không."""
     if classified.intent in ("out_of_scope", "unclear"):
         return False
     if classified.confidence < REACT_CONFIDENCE_THRESHOLD:
@@ -137,10 +133,7 @@ def _log_react_traces(
     query_text: str,
     result: AgenticOrchestrationResult,
 ) -> None:
-    """Insert one react_traces row per tool call for telemetry.
-
-    Non-fatal — any DB error is silently logged so it never disrupts the stream.
-    """
+    """Lưu một dòng react_traces cho mỗi tool call nhằm phục vụ telemetry."""
     if not result.tool_calls:
         return
     try:
@@ -178,7 +171,7 @@ def _log_react_traces(
 
 
 def _sse(event: str, data: dict) -> str:
-    """Format a single Server-Sent Event string."""
+    """Định dạng một chuỗi Server-Sent Event."""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
@@ -193,10 +186,7 @@ def _build_synthesis_context(
     history: list[Message],
     session_id: Optional[str] = None,
 ) -> dict[str, str]:
-    """Build synthesis context dict compatible with SYNTHESIS_PROMPT / STREAM_SYNTHESIS_PROMPT.
-
-    Products are dicts (from agentic_orchestrator) rather than NodeWithScore objects.
-    """
+    """Tạo context cho prompt synthesis, tương thích với dict sản phẩm."""
     lines = []
     for i, p in enumerate(products, 1):
         lines.append(
@@ -240,7 +230,7 @@ def _build_synthesis_context(
 
 
 def _extract_styling_from_text(full_text: str) -> str:
-    """Extract styling suggestion appended after '💡 Styling tip:' marker."""
+    """Tách phần styling suggestion được nối sau marker `💡 Styling tip:`."""
     for marker in ("💡 Styling tip:",):
         if marker in full_text:
             return full_text.split(marker, 1)[1].strip()
@@ -256,17 +246,7 @@ def chat(
     query: str,
     session_id: Optional[str] = None,
 ) -> AgentResponse:
-    """ReAct baseline non-streaming entry point.
-
-    Flow:
-      1. classify_intent (1 LLM call)
-      2. _react_gate() — skip Gemini loop if blocked
-      3. orchestrate_with_gemini() — Gemini tool-calling loop (up to 4 calls)
-      4. _log_react_traces()
-      5. synthesize (1 LLM call)
-
-    Total LLM calls: 2 + len(tool_calls), typically 3–6.
-    """
+    """Entrypoint không streaming của baseline ReAct."""
     t0 = time.perf_counter()
 
     # ── Session setup ────────────────────────────────────────────────────────
@@ -407,19 +387,7 @@ def chat_stream(
     query: str,
     session_id: Optional[str] = None,
 ) -> Generator:
-    """Streaming variant of chat() — yields SSE-formatted events.
-
-    Emits the same event types as fashion_agent.chat_stream() for full UI compatibility:
-    - event: thinking_start   → {"text": "..."}
-    - event: thinking_step    → {"step": "...", "detail": "..."}
-    - event: thinking_end     → {"duration_ms": ..., "input_tokens": ..., "output_tokens": ...}
-    - event: products         → {"products": [...]}
-    - event: token            → {"text": "..."}
-    - event: clarification    → {"text": "...", "intent": "..."}
-    - event: done             → {"session_id": ..., "intent": ..., "styling": ..., "orchestration_mode": "react"}
-
-    The ReAct loop runs synchronously before streaming synthesis begins.
-    """
+    """Phiên bản streaming của `chat()` và yield các SSE event."""
     orchestrate_start = time.time()
 
     # ── Session setup ────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""Session memory backed by PostgreSQL."""
+"""Bộ nhớ phiên được lưu trên PostgreSQL."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from contextlib import contextmanager
 
 @dataclass
 class Message:
+    """Một message trong lịch sử hội thoại của session."""
+
     role: str  # "user" or "assistant"
     content: str
     timestamp: str = ""
@@ -23,6 +25,8 @@ class Message:
 
 @dataclass
 class Session:
+    """Thông tin cơ bản của một session hội thoại."""
+
     session_id: str
     messages: list[Message] = field(default_factory=list)
     created_at: str = ""
@@ -36,7 +40,7 @@ _pool = None  # type: SimpleConnectionPool | None  (lazy import)
 
 
 def _get_pool():
-    """Return (and lazily create) the module-level connection pool."""
+    """Lấy (và khởi tạo lười) connection pool ở cấp module."""
     from psycopg2.pool import SimpleConnectionPool
 
     global _pool
@@ -57,7 +61,7 @@ def _get_pool():
 
 @contextmanager
 def _db_conn():
-    """Context manager that borrows a connection and always returns it."""
+    """Context manager mượn một connection và luôn trả lại pool."""
     pool = _get_pool()
     conn = pool.getconn()
     try:
@@ -67,7 +71,7 @@ def _db_conn():
 
 
 def init_memory_tables() -> None:
-    """Create session tables if they don't exist."""
+    """Tạo các bảng memory nếu chúng chưa tồn tại."""
     ddl = """
     CREATE TABLE IF NOT EXISTS user_sessions (
         session_id TEXT PRIMARY KEY,
@@ -534,15 +538,15 @@ def create_session(
     gender_hint_enabled: bool | None = None,
     orchestration_mode: str = "direct",
 ) -> str:
-    """Create a new session and return its ID.
+    """Tạo session mới và trả về session ID.
 
-    Args:
-        user_name: Optional display name for the user (stored for evaluation).
-        year_of_birth: Optional birth year for demographic research.
-        gender: Optional gender ('male' | 'female') for demographic research.
-        preferred_model: LLM chosen for the session.
-        gender_hint_enabled: A/B control flag. If None, set True when gender is provided, False otherwise.
-        orchestration_mode: Pipeline mode for the session ('direct' | 'react'). Default 'direct'.
+    Tham số:
+        user_name: Tên hiển thị tùy chọn của người dùng.
+        year_of_birth: Năm sinh tùy chọn cho nghiên cứu nhân khẩu học.
+        gender: Giới tính tùy chọn (`male` | `female`).
+        preferred_model: Model LLM được gán cho session.
+        gender_hint_enabled: Cờ A/B. Nếu None thì bật khi gender có giá trị.
+        orchestration_mode: Chế độ pipeline của session (`direct` | `react`).
     """
     session_id = str(uuid.uuid4())
     # Always enable gender filter when user declared a gender
@@ -567,10 +571,7 @@ def create_session(
 
 
 def get_session_orchestration_mode(session_id: str) -> str:
-    """Return the orchestration_mode for a given session.
-
-    Returns 'direct' as a safe fallback for unknown or legacy sessions.
-    """
+    """Trả về orchestration_mode của session, fallback là `direct`."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -584,7 +585,7 @@ def get_session_orchestration_mode(session_id: str) -> str:
 
 
 def get_session_model(session_id: str) -> str:
-    """Return the preferred_model for a given session."""
+    """Trả về preferred_model của session."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT preferred_model FROM user_sessions WHERE session_id = %s;", (session_id,))
@@ -595,12 +596,7 @@ def get_session_model(session_id: str) -> str:
 
 
 def get_session_gender(session_id: str) -> tuple[str | None, bool]:
-    """Return (gender, gender_hint_enabled) for a session.
-
-    Returns:
-        Tuple of (gender str or None, gender_hint_enabled bool).
-        gender is 'male', 'female', or None if not set.
-    """
+    """Trả về `(gender, gender_hint_enabled)` của session."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -614,7 +610,7 @@ def get_session_gender(session_id: str) -> tuple[str | None, bool]:
 
 
 def session_exists(session_id: str) -> bool:
-    """Check if a session exists."""
+    """Kiểm tra session có tồn tại hay không."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -625,7 +621,7 @@ def session_exists(session_id: str) -> bool:
 
 
 def add_message(session_id: str, role: str, content: str) -> None:
-    """Add a message to conversation history."""
+    """Thêm message vào lịch sử hội thoại."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -643,7 +639,7 @@ def add_message(session_id: str, role: str, content: str) -> None:
 
 
 def get_history(session_id: str, limit: int = 20) -> list[Message]:
-    """Retrieve recent conversation history for a session."""
+    """Lấy lịch sử hội thoại gần nhất của session."""
     with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
@@ -680,7 +676,7 @@ def log_query(
     intent: str,
     filters: dict,
 ) -> None:
-    """Append a query entry to the session's query_history JSONB array."""
+    """Ghi một query mới vào mảng `query_history` của session."""
     entry = json.dumps({
         "query": query,
         "intent": intent,
@@ -713,7 +709,7 @@ def log_query(
 
 
 def add_liked_item(session_id: str, image_id: str) -> None:
-    """Append an image_id to the session's liked_items JSONB array."""
+    """Thêm `image_id` vào mảng `liked_items` của session."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -730,15 +726,7 @@ def add_liked_item(session_id: str, image_id: str) -> None:
 
 
 def get_preferences(session_id: str) -> dict:
-    """Analyze query_history and liked_items to extract user preferences.
-
-    Returns dict like:
-        {
-            "preferred_colors": ["white", "navy"],
-            "preferred_categories": ["Shirt", "Dress"],
-            "preferred_styles": ["formal"],
-        }
-    """
+    """Phân tích `query_history` và `liked_items` để suy ra preferences."""
     with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
@@ -798,11 +786,7 @@ def get_preferences(session_id: str) -> dict:
 
 
 def save_selected_items(session_id: str, items: list[dict]) -> int:
-    """Save confirmed product selections to the database.
-
-    Uses INSERT ... ON CONFLICT DO NOTHING to skip duplicates.
-    Returns the count of newly inserted rows.
-    """
+    """Lưu các sản phẩm đã được xác nhận vào database."""
     if not items:
         return 0
 
@@ -835,7 +819,7 @@ def save_selected_items(session_id: str, items: list[dict]) -> int:
 
 
 def get_selected_items(session_id: str) -> list[dict]:
-    """Retrieve all selected items for a session, ordered by selection time."""
+    """Lấy toàn bộ sản phẩm đã chọn của session theo thứ tự thời gian."""
     with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
@@ -866,7 +850,7 @@ def get_selected_items(session_id: str) -> list[dict]:
 
 
 def log_cart_removal(session_id: str, image_id: str) -> bool:
-    """Remove item from selections and log the cart removal event."""
+    """Xóa item khỏi danh sách đã chọn và ghi lại sự kiện removal."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             # First, check if the item actually exists
@@ -909,19 +893,7 @@ def log_token_usage(
     orchestrator_input_tokens: int = 0,
     orchestrator_output_tokens: int = 0,
 ) -> None:
-    """Persist one LLM call's token counts + orchestration metadata to the database.
-
-    This is intentionally fire-and-log — callers should wrap in try/except
-    so a DB error never disrupts the chat stream.
-
-    Args:
-        orchestration_mode: 'direct' for Mode A, 'agentic' for Modes B/C.
-        orchestrator_model: Model ID used as orchestrator, or 'fixed' for Mode A.
-        synthesizer_model: Model ID used for synthesis (if different from model_name).
-        tool_calls_json: List of tool call dicts [{tool, args, result_count, duration_ms}].
-        orchestrator_input_tokens: Token count for orchestrator calls (Modes B/C).
-        orchestrator_output_tokens: Token count for orchestrator calls (Modes B/C).
-    """
+    """Lưu token count của một LLM call cùng metadata orchestration."""
     import json as _json
     tool_calls_str = _json.dumps(tool_calls_json or [])
     with _db_conn() as conn:
@@ -944,13 +916,7 @@ def log_token_usage(
 
 
 def get_token_analytics() -> list[dict]:
-    """Return per-session token aggregates ordered by date and total tokens.
-
-    Reads the session_token_summary view.
-    Returns a list of dicts with keys:
-      session_id, user_name, model_name,
-      total_input_tokens, total_output_tokens, total_tokens, session_date.
-    """
+    """Trả về số liệu token tổng hợp theo session từ view `session_token_summary`."""
     with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
@@ -983,11 +949,7 @@ def get_token_analytics() -> list[dict]:
 
 
 def log_impression_batch(session_id: str, items: list[dict]) -> int:
-    """Batch-insert product impressions shown in a search result.
-
-    Each item dict: {image_id, search_query, position}
-    Returns count of rows inserted.
-    """
+    """Ghi hàng loạt impression của sản phẩm đã hiển thị trong kết quả tìm kiếm."""
     if not items:
         return 0
     inserted = 0
@@ -1020,7 +982,7 @@ def log_click(
     search_query: str = "",
     path_mode: str = "path1",
 ) -> None:
-    """Log a product card tap (click event)."""
+    """Ghi lại sự kiện click vào thẻ sản phẩm."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1035,7 +997,7 @@ def log_click(
 
 
 def get_last_click_position(session_id: str, image_id: str, path_mode: str = "path1") -> int:
-    """Return the position from the latest click for this image in the session."""
+    """Lấy vị trí từ lần click gần nhất của image này trong session."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1059,7 +1021,7 @@ def log_intent(
     reason: str = "",
     path_mode: str = "path1",
 ) -> None:
-    """Log a purchase intent signal ('will_buy' | 'not_for_me'). Idempotent."""
+    """Ghi tín hiệu purchase intent (`will_buy` | `not_for_me`)."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1075,10 +1037,7 @@ def log_intent(
 
 
 def save_order(session_id: str, phone: str, address: str, path_mode: str | None = None) -> int:
-    """Save a simulated order and mark the session as ended by order.
-
-    Returns the auto-generated order id.
-    """
+    """Lưu một đơn hàng mô phỏng và đánh dấu session kết thúc bởi order."""
     with _db_conn() as conn:
         with conn.cursor() as cur:
             if not path_mode:
@@ -1116,13 +1075,7 @@ def save_order(session_id: str, phone: str, address: str, path_mode: str | None 
 
 
 def get_session_funnel(session_id: str) -> dict:
-    """Return full funnel stats for one session.
-
-    Returns a dict with:
-        impressions, clicks, cart_adds, will_buy, not_for_me, converted,
-        ctr, cart_rate, intent_rate, precision_at_k,
-        model_name, total_tokens
-    """
+    """Trả về funnel stats đầy đủ cho một session."""
     with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(
@@ -1211,7 +1164,7 @@ def _evaluate_funnel_integrity(
     not_for_me: int,
     converted: bool,
 ) -> dict:
-    """Evaluate machine-readable integrity checks for one funnel segment."""
+    """Đánh giá các kiểm tra tính nhất quán cho một đoạn funnel."""
     issues: list[str] = []
     if clicks > 0 and impressions == 0:
         issues.append("clicks_without_impressions")
@@ -1225,7 +1178,7 @@ def _evaluate_funnel_integrity(
 
 
 def get_session_funnel_by_path(session_id: str) -> list[dict]:
-    """Return path-segmented funnel metrics for one session."""
+    """Trả về funnel metrics theo từng path cho một session."""
     with _db_conn() as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute(

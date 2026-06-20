@@ -1,14 +1,13 @@
-"""
-Fashion Agent — main orchestrator.
+"""Bộ điều phối chính của Fashion Agent.
 
-Ties together intent classification, slot-based clarification, memory, search, and
-Gemini synthesis into a single `chat()` function.
+File này nối intent classification, slot-based clarification, memory, search
+và Gemini synthesis thành một luồng `chat()` duy nhất.
 
-Architecture (v2 — direct routing, no ReAct loop):
-  1. classify_intent → single LLM call for intent + slots
-  2. slot gate → template clarification if incomplete (0 LLM)
-  3. _route_and_execute → deterministic routing to search/clarify
-  4. _synthesize_response → Gemini synthesis (1 LLM call)
+Kiến trúc (v2 — direct routing, không dùng ReAct loop):
+  1. classify_intent → 1 lần gọi LLM để lấy intent + slot
+  2. slot gate → hỏi làm rõ bằng template nếu chưa đủ thông tin (0 LLM)
+  3. _route_and_execute → định tuyến deterministic tới search/clarify
+  4. _synthesize_response → Gemini synthesis (1 lần gọi LLM)
 """
 
 from __future__ import annotations
@@ -78,6 +77,8 @@ _FEMALE_CATEGORIES: frozenset[str] = frozenset({
 
 @dataclass
 class ProductResult:
+    """Kết quả sản phẩm đã được chuẩn hóa để trả ra cho UI."""
+
     image_id: str
     image_path: str
     label: str
@@ -88,6 +89,8 @@ class ProductResult:
 
 @dataclass
 class AgentResponse:
+    """Phản hồi cuối cùng của agent cho một lượt chat."""
+
     answer: str
     products: list[ProductResult] = field(default_factory=list)
     styling_suggestion: str = ""
@@ -96,12 +99,13 @@ class AgentResponse:
     intent: str = ""
 
     def to_dict(self) -> dict:
+        """Chuyển phản hồi sang dict để serialize."""
         return asdict(self)
 
 
 @dataclass
 class ThinkingEvent:
-    """Emitted during orchestration to show pipeline progress to the user."""
+    """Sự kiện trung gian dùng để hiển thị tiến trình pipeline cho người dùng."""
 
     step: str        # e.g. "start", "classify_done", "search_done"
     detail: str      # human-readable detail text
@@ -111,14 +115,14 @@ class ThinkingEvent:
 
 @dataclass
 class ThinkingToken:
-    """Gemini model thinking content (thought=True)."""
+    """Token suy nghĩ của Gemini (thought=True)."""
 
     text: str
 
 
 @dataclass
 class ResponseToken:
-    """Gemini model response content (regular text)."""
+    """Token nội dung phản hồi thường của Gemini."""
 
     text: str
 
@@ -139,12 +143,7 @@ def _build_synthesis_context(
     preferences: Optional[dict] = None,
     session_id: Optional[str] = None,
 ) -> dict[str, str]:
-    """Format products, history, preferences, language, and gender context for synthesis.
-
-    Returns:
-        Dict with keys: ``products_text``, ``history_text``, ``preferences_text``,
-        ``language``, ``gender_context``, ``num_results``, ``cta_example``.
-    """
+    """Định dạng sản phẩm, lịch sử, preferences và ngữ cảnh giới tính cho synthesis."""
     # Format products
     products_lines = []
     for i, p in enumerate(products, 1):
@@ -214,7 +213,7 @@ def _synthesize_response(
     preferences: Optional[dict] = None,
     session_id: Optional[str] = None,
 ) -> tuple[str, str]:
-    """Use Gemini/GPT/Claude to synthesize a natural response from search results."""
+    """Tổng hợp câu trả lời tự nhiên từ kết quả tìm kiếm bằng LLM."""
     ctx = _build_synthesis_context(query, products, history, preferences, session_id)
     prompt = SYNTHESIS_PROMPT.format(query=query, **ctx)
     try:
@@ -238,7 +237,7 @@ def _synthesize_response_stream(
     preferences: Optional[dict] = None,
     session_id: Optional[str] = None,
 ) -> Generator:
-    """Streaming version of synthesis — yields ``SynthesisChunk`` instances."""
+    """Phiên bản streaming của synthesis — yield từng `SynthesisChunk`."""
     ctx = _build_synthesis_context(query, products, history, preferences, session_id)
     prompt = STREAM_SYNTHESIS_PROMPT.format(query=query, **ctx)
     try:
@@ -259,7 +258,7 @@ def _synthesize_response_stream(
 
 
 def _extract_styling_from_text(full_text: str) -> str:
-    """Extract styling suggestion from streamed text."""
+    """Tách phần gợi ý styling khỏi text stream hoàn chỉnh."""
     for marker in ("💡 Styling tip:",):
         if marker in full_text:
             return full_text.split(marker, 1)[1].strip()
@@ -307,7 +306,7 @@ _session_pending_selection: TTLCache = TTLCache(maxsize=1000, ttl=300)  # 5 min
 
 
 def _get_search_confidence_threshold() -> float:
-    """Return configured confidence threshold for pre-search gating."""
+    """Lấy ngưỡng confidence cấu hình cho bước chặn trước khi tìm kiếm."""
     raw = os.getenv(
         "SEARCH_CONFIDENCE_THRESHOLD",
         str(DEFAULT_SEARCH_CONFIDENCE_THRESHOLD),
@@ -320,14 +319,17 @@ def _get_search_confidence_threshold() -> float:
 
 
 def _empty_ranked_slots() -> dict[str, str]:
+    """Tạo bộ ranked slots rỗng cho một lượt xử lý."""
     return {"category": "", "color": "", "style": "", "occasion": ""}
 
 
 def _normalize_slot_text(value: Optional[str]) -> str:
+    """Chuẩn hóa giá trị slot về chuỗi rỗng nếu không có dữ liệu."""
     return (value or "").strip()
 
 
 def _is_category_list_query(query: str) -> bool:
+    """Kiểm tra query có đang hỏi danh mục hiện có hay không."""
     normalized = query.strip().lower()
     if not normalized:
         return False
@@ -342,6 +344,7 @@ def _is_category_list_query(query: str) -> bool:
 
 
 def _build_category_list_response(query: str) -> str:
+    """Tạo phản hồi liệt kê các category đang có trong catalog."""
     categories = ", ".join(sorted(SUPPORTED_CATEGORIES))
     lang = detect_language(query)
     if lang == "vi":
@@ -352,6 +355,7 @@ def _build_category_list_response(query: str) -> str:
 
 
 def _canonicalize_filter_category(intent_result: ClassifiedIntent) -> None:
+    """Chuẩn hóa category trong filters của intent_result nếu resolve được."""
     filters = intent_result.filters or {}
     category = _normalize_slot_text(filters.get("category"))
     if not category:
@@ -370,6 +374,7 @@ def _merge_ranked_slots(
     *,
     reset: bool = False,
 ) -> dict[str, str]:
+    """Gộp ranked slots từ intent hiện tại và trạng thái session."""
     base = _empty_ranked_slots() if reset else {
         **_empty_ranked_slots(),
         **(_session_ranked_slots.get(session_id) or {}),
@@ -401,6 +406,7 @@ def _merge_ranked_slots(
 
 
 def _ranked_slot_score(ranked_slots: dict[str, str]) -> int:
+    """Tính điểm mức độ đầy đủ của ranked slots."""
     return sum(
         weight
         for slot, weight in _RANKED_SLOT_WEIGHTS.items()
@@ -409,6 +415,7 @@ def _ranked_slot_score(ranked_slots: dict[str, str]) -> int:
 
 
 def _readiness_missing_slots(intent: str, ranked_slots: dict[str, str]) -> list[str]:
+    """Xác định các slot còn thiếu trước khi cho phép search."""
     has_category = bool(_normalize_slot_text(ranked_slots.get("category")))
     has_color = bool(_normalize_slot_text(ranked_slots.get("color")))
     has_style = bool(_normalize_slot_text(ranked_slots.get("style")))
@@ -436,6 +443,7 @@ def _readiness_missing_slots(intent: str, ranked_slots: dict[str, str]) -> list[
 
 
 def _is_query_ready(intent: str, ranked_slots: dict[str, str]) -> tuple[bool, list[str]]:
+    """Kiểm tra query đã đủ điều kiện để search hay chưa."""
     missing = _readiness_missing_slots(intent, ranked_slots)
     if missing:
         return False, missing
@@ -456,6 +464,7 @@ def _build_ranked_clarification_question(
     *,
     low_confidence: bool = False,
 ) -> str:
+    """Tạo câu hỏi làm rõ theo intent và các slot còn thiếu."""
     lang = detect_language(query)
     missing = set(missing_slots)
 
@@ -515,7 +524,7 @@ def _build_ranked_clarification_question(
 
 @dataclass
 class PendingSelection:
-    """Items awaiting user confirmation before saving."""
+    """Các item đang chờ người dùng xác nhận trước khi lưu."""
     items: list[ProductResult]
     search_query: str
     numbers: list[int]
@@ -527,7 +536,7 @@ def cache_external_results(
     path_mode: str,
     products: list[dict],
 ) -> None:
-    """Cache externally produced products (e.g. PATH 2 endpoint) for selection flow."""
+    """Cache kết quả sinh từ bên ngoài (ví dụ PATH 2) cho luồng chọn sản phẩm."""
     normalized_mode = "path2" if path_mode == "path2" else "path1"
     cached_products = [
         ProductResult(
@@ -571,17 +580,7 @@ def _route_and_execute(
     filters: Optional[dict] = None,
     preferences: Optional[dict] = None,  # NEW: soft personalisation hints
 ) -> tuple[list[NodeWithScore], str]:
-    """Deterministic routing based on intent — no planner LLM call.
-
-    Routes:
-    - text_search / follow_up → ``hybrid_search``
-    - outfit_request → search + outfit hint via LLM
-    - out_of_scope → empty products + template message
-    - unclear → empty products (caller handles clarification)
-
-    Returns:
-        (products, reasoning_text)
-    """
+    """Định tuyến deterministic theo intent mà không gọi planner LLM."""
     # Soft preference injection: append top colour/category as hints
     if preferences:
         pref_hints: list[str] = []
@@ -628,12 +627,7 @@ def _filter_by_gender(
     products: list[NodeWithScore],
     session_id: Optional[str],
 ) -> list[NodeWithScore]:
-    """Post-search label filter: remove gender-inappropriate products.
-
-    - Skips filtering when ``gender_hint_enabled`` is False or gender is None.
-    - Safety net: if filtering leaves 0 results, returns original list.
-    - Non-fatal: any exception returns original products unchanged.
-    """
+    """Lọc hậu tìm kiếm để bỏ các sản phẩm không phù hợp với giới tính."""
     if not session_id:
         return products
     try:
@@ -663,19 +657,7 @@ def _resolve_search_query(
     history: list[Message],
     query: str = "",
 ) -> tuple[str, str, "ExtractedSlots"]:
-    """Resolve the search query for the current turn.
-
-    Applies pre-search readiness checks for search-like intents so the
-    system asks clarifying questions before retrieval when confidence or
-    slot completeness is insufficient.
-
-    Returns:
-        (search_query, clarification_message, accumulated_slots)
-        ``clarification_message`` is non-empty when the caller should
-        return early with a clarification question.
-        ``accumulated_slots`` is the merged slot state for use in the
-        follow-up turn.
-    """
+    """Giải quyết search query cho lượt hiện tại và áp dụng slot gate."""
     if intent in ("text_search", "follow_up", "outfit_request"):
         raw_category = _normalize_slot_text(intent_result.extracted_slots.category) or _normalize_slot_text(
             (intent_result.filters or {}).get("category")
@@ -778,11 +760,7 @@ def _resolve_search_query(
 
 @dataclass
 class OrchestrateResult:
-    """Intermediate result from ``_orchestrate()``.
-
-    If ``clarification`` is non-empty, the caller should return early
-    with the clarification text and skip synthesis.
-    """
+    """Kết quả trung gian từ `_orchestrate()` trước bước synthesis."""
 
     intent: str
     session_id: str
@@ -799,12 +777,7 @@ def _orchestrate(
     query: str,
     session_id: Optional[str] = None,
 ) -> OrchestrateResult:
-    """Batch orchestration — consumes stream, returns final result.
-
-    Internally delegates to ``_orchestrate_stream()`` and discards
-    intermediate ``ThinkingEvent`` objects, keeping only the final
-    ``OrchestrateResult``.
-    """
+    """Chạy orchestration dạng batch và chỉ lấy kết quả cuối cùng."""
     result = None
     for event in _orchestrate_stream(query, session_id):
         if isinstance(event, OrchestrateResult):
@@ -818,12 +791,7 @@ def _orchestrate_stream(
     query: str,
     session_id: Optional[str] = None,
 ) -> Generator:
-    """Streaming orchestration — yields ThinkingEvent then OrchestrateResult.
-
-    Same logic as _orchestrate() but emits thinking events between steps
-    so the UI can show live progress. The final yield is always an
-    OrchestrateResult.
-    """
+    """Chạy orchestration dạng streaming và yield các ThinkingEvent."""
     start_time = time.time()
 
     # Immediate: yield thinking_start BEFORE any blocking work
@@ -1069,7 +1037,7 @@ def _handle_product_select(
     search_query: str,
     query: str,
 ) -> Generator:
-    """Validate selections against cached results and create pending confirmation."""
+    """Kiểm tra lựa chọn của người dùng và tạo bước xác nhận lưu."""
     lang = detect_language(query)
     cached_entry_raw = _session_last_results.get(session_id)
     if isinstance(cached_entry_raw, dict):
@@ -1192,7 +1160,7 @@ def _handle_product_select(
 
 
 def _handle_confirm(session_id: str, query: str) -> Generator:
-    """Save pending items to DB and clear pending state."""
+    """Lưu các item đang chờ xác nhận vào DB rồi xóa trạng thái pending."""
     lang = detect_language(query)
     pending = _session_pending_selection.pop(session_id, None)
     if not pending:
@@ -1276,7 +1244,7 @@ def _handle_confirm(session_id: str, query: str) -> Generator:
 
 
 def _handle_reject(session_id: str, query: str) -> Generator:
-    """Discard pending selection."""
+    """Hủy lựa chọn đang chờ và hiển thị lại kết quả gần nhất."""
     lang = detect_language(query)
     _session_pending_selection.pop(session_id, None)
 
@@ -1316,7 +1284,7 @@ def _handle_reject(session_id: str, query: str) -> Generator:
 
 
 def _handle_ambiguous_response(session_id: str, query: str) -> Generator:
-    """Handle ambiguous responses when pending selection exists — ask for confirmation."""
+    """Xử lý phản hồi mơ hồ khi đang có lựa chọn chờ xác nhận."""
     lang = detect_language(query)
     pending = _session_pending_selection.get(session_id)
     
@@ -1360,7 +1328,7 @@ def _handle_ambiguous_response(session_id: str, query: str) -> Generator:
 
 
 def _handle_view_selections(session_id: str, query: str) -> Generator:
-    """Retrieve and display all saved selections for the session."""
+    """Lấy và hiển thị toàn bộ sản phẩm đã lưu của phiên hiện tại."""
     lang = detect_language(query)
     items = get_selected_items(session_id)
     
@@ -1400,7 +1368,7 @@ def _handle_view_selections(session_id: str, query: str) -> Generator:
 
 
 def _handle_offer_declined(session_id: str) -> Generator:
-    """Handle the __offer_declined__ sentinel from the frontend offer dialog."""
+    """Xử lý sentinel `__offer_declined__` từ hộp thoại offer ở frontend."""
     try:
         gender, _ = get_session_gender(session_id)
     except Exception:
@@ -1431,13 +1399,7 @@ def _handle_offer_declined(session_id: str) -> Generator:
 
 
 def _get_orchestration_mode(model_id: str) -> tuple[str, str, str]:
-    """Map a session model ID to (mode, orchestrator_model, synthesizer_model).
-
-    Gemini-only: direct routing + Gemini synthesis.
-
-    Returns:
-        Tuple of (mode, orchestrator_model, synthesizer_model).
-    """
+    """Ánh xạ model của session sang mode và hai model orchestration/synthesis."""
     return "direct", "gemini-2.5-flash", model_id
 
 
@@ -1449,11 +1411,7 @@ def chat(
     query: str,
     session_id: Optional[str] = None,
 ) -> AgentResponse:
-    """Main agent entry point — direct routing orchestrator.
-
-    Orchestrates: intent → slot gate → route & search → synthesize.
-    Typically costs 1-2 LLM calls (intent + synthesis).
-    """
+    """Entrypoint chính của agent theo kiến trúc direct routing."""
     result = _orchestrate(query, session_id)
 
     # Early return for clarification / out-of-scope
@@ -1503,7 +1461,7 @@ def chat(
 
 
 def _count_clarification_turns(history: list[Message]) -> int:
-    """Count consecutive clarification turns (assistant messages that are questions)."""
+    """Đếm số lượt clarification liên tiếp trong lịch sử hội thoại."""
     count = 0
     for msg in reversed(history):
         if msg.role == "assistant":
@@ -1524,18 +1482,7 @@ def chat_stream(
     query: str,
     session_id: Optional[str] = None,
 ) -> Generator:
-    """Streaming variant of ``chat()`` — yields SSE-formatted events.
-
-    Event types:
-    - ``event: thinking_start``  → ``data: {"text": "..."}``
-    - ``event: thinking_step``   → ``data: {"step": "...", "detail": "..."}``
-    - ``event: thinking_end``    → ``data: {"duration_ms": ...}``
-    - ``event: model_thinking``  → ``data: {"text": "..."}``
-    - ``event: token``           → ``data: {"text": "..."}``
-    - ``event: clarification``   → ``data: {"text": "...", "intent": "..."}``
-    - ``event: products``        → ``data: {"products": [...]}``
-    - ``event: done``            → ``data: {"session_id": "...", "intent": "...", "styling": "..."}``
-    """
+    """Phiên bản streaming của `chat()` và trả về các SSE event."""
     orchestrate_start = time.time()
     result = None
     intent_tokens = TokenUsage()  # collect intent tokens
@@ -1680,5 +1627,5 @@ def chat_stream(
 
 
 def _sse(event: str, data: dict) -> str:
-    """Format a single Server-Sent Event line."""
+    """Định dạng một dòng Server-Sent Event."""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

@@ -1,10 +1,8 @@
-"""Shared utility helpers for the fashion agent modules.
+"""Các helper dùng chung cho các mô-đun của Fashion Agent.
 
-- ``parse_llm_json``: Extract JSON from an LLM response that may be wrapped
-  in markdown code‑fences.
-- ``fallback_text_response``: Generate a plain‑text product summary when the
-  LLM is unavailable.
-- Category validation constants and helpers for unsupported category detection.
+- `parse_llm_json`: tách JSON từ phản hồi LLM có thể được bọc trong code fence.
+- `fallback_text_response`: tạo câu trả lời text dự phòng khi LLM không khả dụng.
+- Các hằng số và helper cho việc kiểm tra category không được hỗ trợ.
 """
 
 from __future__ import annotations
@@ -97,6 +95,8 @@ FUZZY_CATEGORY_THRESHOLD = 80
 
 @dataclass(frozen=True)
 class CategoryNormalization:
+    """Kết quả chuẩn hóa category người dùng sang label catalog."""
+
     raw: str
     category: str = ""
     method: str = "unresolved"
@@ -105,6 +105,7 @@ class CategoryNormalization:
 
     @property
     def resolved(self) -> bool:
+        """Cho biết category đã được resolve thành label chuẩn hay chưa."""
         return bool(self.category)
 
 
@@ -140,11 +141,13 @@ UNSUPPORTED_CATEGORY_SUGGESTIONS: dict[str, list[str]] = {
 
 
 def _normalize_category_key(category: str) -> str:
+    """Chuẩn hóa category về key đơn giản để so khớp chính xác hơn."""
     normalized = re.sub(r"[^a-z0-9]+", " ", category.strip().lower())
     return re.sub(r"\s+", " ", normalized).strip()
 
 
 def normalize_category(category: str) -> CategoryNormalization:
+    """Chuẩn hóa category người dùng sang label catalog chính thức nếu có thể."""
     raw = (category or "").strip()
     normalized = _normalize_category_key(raw)
     if not normalized:
@@ -212,6 +215,7 @@ def normalize_category(category: str) -> CategoryNormalization:
 
 
 def expand_category_query_terms(raw_category: str, canonical_category: str) -> list[str]:
+    """Tạo các term query gồm category chuẩn và category gốc khi phù hợp."""
     terms: list[str] = []
     raw = (raw_category or "").strip()
     canonical = (canonical_category or "").strip()
@@ -223,7 +227,7 @@ def expand_category_query_terms(raw_category: str, canonical_category: str) -> l
 
 
 def _find_category_suggestions(category: str) -> list[str]:
-    """Find supported category suggestions for an unsupported category."""
+    """Tìm các category được hỗ trợ để gợi ý cho category không hợp lệ."""
     normalized = _normalize_category_key(category)
     if not normalized:
         return []
@@ -252,14 +256,14 @@ def _find_category_suggestions(category: str) -> list[str]:
 
 
 def parse_llm_json(text: str) -> dict[str, Any]:
-    """Parse a JSON object from raw LLM output.
+    """Parse một object JSON từ output thô của LLM.
 
-    Handles common patterns:
-    - Raw JSON string
-    - JSON wrapped in ```json ... ``` or ``` ... ``` code blocks
-    - Leading/trailing whitespace
+    Hàm xử lý các kiểu phổ biến:
+    - Chuỗi JSON thô
+    - JSON bọc trong ```json ... ``` hoặc ``` ... ``` code block
+    - Khoảng trắng ở đầu/cuối chuỗi
 
-    Returns an empty dict on any parse failure.
+    Nếu parse thất bại, hàm trả về dict rỗng.
     """
     cleaned = text.strip()
 
@@ -293,11 +297,10 @@ def parse_llm_json(text: str) -> dict[str, Any]:
 
 
 def fallback_text_response(products: list) -> str:
-    """Build a simple Vietnamese text response listing products.
+    """Tạo câu trả lời text dự phòng để liệt kê sản phẩm.
 
-    Used as a fallback when the Gemini synthesis LLM is unavailable.
-    Each product is expected to have a ``.label`` attribute (or be a dict
-    with a ``label`` key).
+    Dùng khi LLM tổng hợp không khả dụng. Mỗi product được kỳ vọng có thuộc
+    tính `.label` hoặc là dict có khóa `label`.
     """
     if not products:
         return "No matching products found."
@@ -319,18 +322,18 @@ def format_history_text(
     limit: int = 4,
     truncate: int = 100,
 ) -> str:
-    """Format conversation history into text for prompt context.
+    """Định dạng lịch sử hội thoại thành text để đưa vào prompt.
 
-    Shared helper used by intent classification, clarification gate,
-    and synthesis context builder — replacing 3 copy-pasted blocks.
+    Helper dùng chung cho intent classification, clarification gate và
+    synthesis context builder, thay cho nhiều đoạn lặp lại.
 
-    Args:
-        history:  List of message objects (with ``.role`` and ``.content``).
-        limit:    Number of recent messages to include.
-        truncate: Max characters per message content.
+    Tham số:
+        history: Danh sách message object (có `.role` và `.content`).
+        limit: Số message gần nhất cần lấy.
+        truncate: Số ký tự tối đa cho mỗi message.
 
-    Returns:
-        Formatted history text, or ``"No prior conversation."`` if empty.
+    Trả về:
+        Text lịch sử đã định dạng, hoặc `No prior conversation.` nếu rỗng.
     """
     if not history:
         return "No prior conversation."

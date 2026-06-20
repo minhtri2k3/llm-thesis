@@ -1,8 +1,7 @@
-"""Tool functions exposed to the agentic orchestrators (Mode B and Mode C).
+"""Các hàm tool được xuất cho các orchestrator ở Mode B và Mode C.
 
-These are thin wrappers around the existing search engine that return
-plain dicts instead of NodeWithScore objects, making them easy to serialize
-and pass through LLM function calling.
+Đây là lớp bao mỏng quanh search engine hiện có. Hàm trả về plain dict thay vì
+NodeWithScore để dễ serialize và truyền qua cơ chế function calling của LLM.
 """
 from __future__ import annotations
 
@@ -21,18 +20,18 @@ def run_search_tool(
     category: str = "",
     color: str = "",
 ) -> list[dict]:
-    """Execute a hybrid fashion search and return plain dicts.
+    """Chạy tìm kiếm thời trang hybrid và trả về danh sách dict đơn giản.
 
-    Args:
-        query: Natural language search query.
-        top_k: Max number of results.
-        gender: Optional gender filter ('male', 'female', 'unisex', '').
-        category: Optional category filter.
-        color: Optional color filter.
+    Tham số:
+        query: Query tìm kiếm tự nhiên bằng ngôn ngữ người dùng.
+        top_k: Số kết quả tối đa.
+        gender: Bộ lọc giới tính tùy chọn (`male`, `female`, `unisex`, `""`).
+        category: Bộ lọc category tùy chọn.
+        color: Bộ lọc màu sắc tùy chọn.
 
-    Returns:
-        List of product dicts with keys: image_id, image_path, label, color, caption, score.
-        If category is unsupported, returns error dict instead.
+    Trả về:
+        Danh sách product dict với các khóa `image_id`, `image_path`, `label`,
+        `color`, `caption`, `score`. Nếu category không hợp lệ, trả về dict lỗi.
     """
     from search.search_engine import search as hybrid_search
 
@@ -77,18 +76,19 @@ def run_recommend_tool(
     gender: str = "",
     top_k: int = 3,
 ) -> list[dict]:
-    """Execute a recommendation search for a style or occasion.
+    """Chạy tìm kiếm gợi ý outfit theo style hoặc dịp sử dụng.
 
-    Constructs a synthetic query and delegates to hybrid_search.
+    Hàm ghép một query tổng hợp từ `style` và `occasion`, rồi chuyển xuống
+    `hybrid_search` giống như một truy vấn tìm kiếm thông thường.
 
-    Args:
-        style: Target style (e.g. casual, formal, bohemian).
-        occasion: Target occasion (e.g. office, wedding).
-        gender: Optional gender filter.
-        top_k: Max products per search.
+    Tham số:
+        style: Phong cách mục tiêu, ví dụ casual hoặc formal.
+        occasion: Dịp sử dụng, ví dụ office hoặc wedding.
+        gender: Bộ lọc giới tính tùy chọn.
+        top_k: Số sản phẩm tối đa mỗi lượt tìm.
 
-    Returns:
-        List of product dicts.
+    Trả về:
+        Danh sách product dict.
     """
     from search.search_engine import search as hybrid_search
 

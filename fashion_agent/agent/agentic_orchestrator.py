@@ -1,14 +1,14 @@
-"""Agentic orchestration layer for Mode B (Gemini→GPT) and Mode C (GPT→Claude).
+"""Tầng điều phối agentic cho Mode B (Gemini→GPT) và Mode C (GPT→Claude).
 
-Design:
-    Each orchestrator is passed a set of tool schemas (search, recommend, filter) and
-    executes a multi-turn tool-calling loop until it signals it's ready to synthesize.
-    The raw search results are captured for synthesis, and tool-call metadata is returned
-    for analytics logging.
+Thiết kế:
+    Mỗi orchestrator nhận vào một bộ tool schema (search, recommend, filter)
+    và chạy vòng lặp gọi tool nhiều lượt cho đến khi sẵn sàng tổng hợp.
+    Kết quả search thô được giữ lại để synthesize, còn metadata tool-call
+    được trả về cho mục đích logging và phân tích.
 
-Supported modes:
-    - Mode B: Gemini orchestrates (google.generativeai function calling), GPT-4o synthesizes.
-    - Mode C: GPT-4o orchestrates (openai function calling), Claude synthesizes.
+Các mode được hỗ trợ:
+    - Mode B: Gemini điều phối (google.generativeai function calling), GPT-4o tổng hợp.
+    - Mode C: GPT-4o điều phối (openai function calling), Claude tổng hợp.
 """
 from __future__ import annotations
 
@@ -28,13 +28,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ToolCall:
-    """Record of a single tool invocation by the orchestrator."""
+    """Ghi lại một lần orchestrator gọi tool."""
     tool: str
     args: dict
     result_count: int = 0
     duration_ms: float = 0.0
 
     def to_dict(self) -> dict:
+        """Chuyển tool call sang dict để dễ serialize và log."""
         return {
             "tool": self.tool,
             "args": self.args,
@@ -45,7 +46,7 @@ class ToolCall:
 
 @dataclass
 class AgenticOrchestrationResult:
-    """Outputs from one agentic orchestration loop."""
+    """Kết quả của một vòng điều phối agentic."""
     # Aggregated products across all tool calls (flat list of product dicts)
     products: list[dict] = field(default_factory=list)
     # FORMATTED string of all product results for use in the synthesis prompt
@@ -164,10 +165,10 @@ _TOOL_DEFINITIONS_GEMINI = [
 # ---------------------------------------------------------------------------
 
 def _execute_tool(tool_name: str, args: dict) -> tuple[list[dict], str]:
-    """Execute a tool call and return (products_list, formatted_text).
+    """Thực thi một tool call và trả về danh sách sản phẩm cùng text đã format.
 
-    Delegates to the existing search and recommendation pipelines.
-    Returns an empty list + error text on failure.
+    Hàm này ủy quyền xuống pipeline search/recommend hiện có. Nếu lỗi xảy ra,
+    hàm trả về danh sách rỗng kèm text lỗi thay vì làm hỏng toàn bộ orchestration.
     """
     from agent.tools import run_search_tool, run_recommend_tool  # lazy import
 
@@ -206,6 +207,7 @@ def _execute_tool(tool_name: str, args: dict) -> tuple[list[dict], str]:
 
 # Returns (products, text, elapsed_ms) — 3-tuple
 def _exec(tool_name: str, args: dict) -> tuple[list[dict], str, float]:
+    """Wrapper mỏng để giữ kiểu trả về 3 phần cho các orchestrator."""
     return _execute_tool(tool_name, args)  # type: ignore[return-value]
 
 
@@ -220,9 +222,10 @@ def orchestrate_with_gemini(
     gender_hint: bool = False,
     max_iterations: int = 4,
 ) -> AgenticOrchestrationResult:
-    """Run Gemini as an agentic orchestrator using native function calling.
+    """Chạy Gemini như một orchestrator agentic bằng native function calling.
 
-    Returns an AgenticOrchestrationResult with aggregated products and tool_calls.
+    Trả về `AgenticOrchestrationResult` chứa sản phẩm đã gộp và danh sách
+    `tool_calls` đã thực thi.
     """
     import google.generativeai as genai  # type: ignore[import]
 
@@ -357,9 +360,10 @@ def orchestrate_with_gpt(
     gender_hint: bool = False,
     max_iterations: int = 4,
 ) -> AgenticOrchestrationResult:
-    """Run GPT-4o as an agentic orchestrator using native function calling.
+    """Chạy GPT-4o như một orchestrator agentic bằng native function calling.
 
-    Returns an AgenticOrchestrationResult with aggregated products and tool_calls.
+    Trả về `AgenticOrchestrationResult` chứa sản phẩm đã gộp và danh sách
+    `tool_calls` đã thực thi.
     """
     import openai
 

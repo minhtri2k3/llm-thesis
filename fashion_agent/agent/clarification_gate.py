@@ -1,4 +1,26 @@
-"""Clarification gate: LLM-based clarification for vague/unclear queries."""
+"""Cổng clarification: tạo câu hỏi làm rõ cho query mơ hồ hoặc không rõ ý định.
+
+Mục đích tổng thể:
+- File này quyết định câu hỏi cần hỏi lại khi bước phân loại intent trước đó
+  cho biết query chưa rõ hoặc confidence thấp.
+- File này không nên chịu trách nhiệm parse JSON intent chính từ intent_classifier.py.
+- Input của file này nên là dữ liệu đã được chuẩn hóa bởi các bước trước trong pipeline.
+- Khi được gọi, file này giả định rằng hệ thống đã cần clarification và chỉ tập trung
+  tạo câu hỏi follow-up hữu ích cho người dùng.
+
+Các object và method chính:
+- ClarificationResult: object kết quả nhỏ được pipeline chat sử dụng. Nó cho biết
+  có cần clarification hay không và câu hỏi nào sẽ được hiển thị cho người dùng.
+- check_clarification(): function public chính. Nó phát hiện ngôn ngữ của query,
+  chuẩn bị câu hỏi fallback, gọi Gemini để tạo câu hỏi clarification động,
+  parse JSON clarification, và trả về ClarificationResult. Nếu Gemini không khả dụng
+  hoặc parse lỗi, nó trả về câu hỏi fallback theo ngôn ngữ.
+
+Quan hệ trong pipeline:
+- intent_classifier.py xử lý JSON thô từ Gemini cho intent và slot extraction.
+- clarification_gate.py chỉ xử lý câu hỏi clarification sau khi hệ thống đã xác định
+  query mơ hồ, confidence thấp, hoặc unclear.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +33,8 @@ from shared.llm import get_model
 
 @dataclass
 class ClarificationResult:
+    """Kết quả của bước hỏi lại khi query còn mơ hồ."""
+
     needs_clarification: bool
     question: str = ""
 
@@ -19,11 +43,11 @@ def check_clarification(
     query: str,
     history: list | None = None,
 ) -> ClarificationResult:
-    """LLM-based clarification gate for unclear intents.
+    """Tạo câu hỏi làm rõ bằng LLM cho những intent chưa rõ.
 
-    Generates a dynamic clarification question using Gemini when the query
-    is too vague. Always returns ``needs_clarification=True`` since this
-    function is only called when confidence < 0.6 or intent == "unclear".
+    Hàm này dùng Gemini để sinh câu hỏi follow-up ngắn gọn khi query quá mơ hồ.
+    Nếu LLM không sẵn sàng hoặc JSON trả về lỗi, hàm sẽ dùng câu hỏi dự phòng
+    theo ngôn ngữ của người dùng.
     """
     lang = detect_language(query)
     fallback_q = FALLBACK_QUESTION.get(lang, FALLBACK_QUESTION["en"])

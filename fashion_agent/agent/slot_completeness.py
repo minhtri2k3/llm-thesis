@@ -1,4 +1,4 @@
-"""Slot-based completeness check and targeted clarification questions."""
+"""Kiểm tra độ đầy đủ của slot và tạo câu hỏi làm rõ theo mẫu."""
 
 from __future__ import annotations
 
@@ -14,17 +14,17 @@ from agent.intent_classifier import ExtractedSlots
 def check_slot_completeness(
     slots: ExtractedSlots,
 ) -> tuple[bool, list[str]]:
-    """Check if extracted slots meet the search threshold.
+    """Kiểm tra các slot đã đủ để bắt đầu tìm kiếm hay chưa.
 
-    Search threshold (updated):
-    - ``category`` is filled AND
-    - ``color`` is filled AND
-    - at least one of ``fabric`` or ``fit`` is filled
+    Ngưỡng tìm kiếm hiện tại:
+    - `category` đã có giá trị
+    - `color` đã có giá trị
+    - ít nhất một trong `fabric` hoặc `fit` đã có giá trị
 
-    ``construction`` and ``aesthetic`` are *bonus* slots — the agent may
-    suggest them in the response text but they never block a search.
+    `construction` và `aesthetic` là slot bổ sung: hệ thống có thể gợi ý thêm,
+    nhưng chúng không chặn truy vấn tìm kiếm.
 
-    Returns:
+    Trả về:
         (is_complete, missing_slot_names)
     """
     missing: list[str] = []
@@ -59,18 +59,18 @@ def build_template_question(
     slots: ExtractedSlots,
     query: str = "",
 ) -> str:
-    """Build a clarification question from templates (0 LLM calls).
+    """Tạo câu hỏi làm rõ từ template có sẵn mà không cần gọi LLM.
 
-    Selects the best pre-built template based on which slots are missing,
-    then interpolates any known slot values for personalisation.
+    Hàm chọn template phù hợp nhất theo các slot còn thiếu, rồi chèn các giá trị
+    slot đã biết để câu hỏi tự nhiên hơn.
 
-    Args:
-        missing_slots: List of missing slot names from ``check_slot_completeness``.
-        slots: Current accumulated slot data (used for template interpolation).
-        query: The original user query, used for language detection.
+    Tham số:
+        missing_slots: Danh sách slot còn thiếu từ `check_slot_completeness`.
+        slots: Dữ liệu slot đang tích lũy để điền vào template.
+        query: Query gốc của người dùng, dùng để nhận diện ngôn ngữ.
 
-    Returns:
-        A friendly clarification question string in the user's language.
+    Trả về:
+        Một câu hỏi làm rõ thân thiện bằng ngôn ngữ của người dùng.
     """
     lang = detect_language(query)
     missing_key = frozenset(missing_slots)
@@ -116,11 +116,7 @@ def merge_slots(
     accumulated: ExtractedSlots,
     new: ExtractedSlots,
 ) -> ExtractedSlots:
-    """Merge new slots into accumulated. Non-null new values override old.
-
-    This supports multi-turn conversations where the user progressively
-    provides more information.
-    """
+    """Gộp slot mới vào slot đã tích lũy, ưu tiên giá trị mới nếu có."""
     return ExtractedSlots(
         category=new.category or accumulated.category,
         color=new.color or accumulated.color,
@@ -135,11 +131,7 @@ def should_reset_slots(
     accumulated: ExtractedSlots,
     new: ExtractedSlots,
 ) -> bool:
-    """Determine if slots should be reset (new topic detected).
-
-    Reset when the new query has a DIFFERENT category from the accumulated one,
-    indicating the user is starting a completely new search.
-    """
+    """Xác định có cần reset slot hay không khi người dùng đổi chủ đề."""
     if not accumulated.category or not new.category:
         return False
     return (
@@ -148,12 +140,7 @@ def should_reset_slots(
 
 
 def compose_refined_query_from_slots(slots: ExtractedSlots) -> str:
-    """Compose a rich refined query from filled slots.
-
-    This produces a query like:
-    "white cotton slim fit formal shirt"
-    which aligns closely with indexed caption + metadata.
-    """
+    """Ghép các slot đã có thành một refined query giàu ngữ cảnh."""
     parts = []
     if slots.color:
         parts.append(slots.color)

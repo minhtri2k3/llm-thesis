@@ -1,26 +1,25 @@
-"""
-Centralized prompt templates for the Fashion Agent.
+"""Kho prompt tập trung cho Fashion Agent.
 
-All LLM prompt instructions and user-facing message templates live here.
-Language: English — LLM auto-adapts output to user's language via instructions.
+Tất cả chỉ dẫn gửi cho LLM và template message cho người dùng đều nằm ở đây.
+Các prompt nội dung vẫn giữ tiếng Anh để không đổi hành vi của mô hình, còn
+docstring và comment được viết bằng tiếng Việt để dễ tra cứu trong source.
 
-WARNING: Do NOT define new prompts inline in other modules.
-         Add them here so every template is reviewable in one place.
+Cảnh báo: không khai báo prompt mới trực tiếp ở module khác.
+Hãy thêm vào đây để mọi template đều có thể review ở một chỗ.
 """
 
 import re
 
 def detect_language(text: str) -> str:
-    """Detects the language of the user's message. Returns 'vi', 'es', or 'en'.
+    """Nhận diện ngôn ngữ của tin nhắn người dùng và trả về `vi`, `es` hoặc `en`.
 
-    Detection order:
-    1. Vietnamese — unique diacritics (tones + ă/â/đ/ơ/ư) not found in Spanish
-    2. Spanish — ñ, ¿, ¡, or UNAMBIGUOUSLY Spanish words (not shared with English)
-    3. English — default fallback
+    Thứ tự nhận diện:
+    1. Tiếng Việt — các dấu đặc trưng không xuất hiện trong tiếng Tây Ban Nha
+    2. Tiếng Tây Ban Nha — ñ, ¿, ¡ hoặc các từ khóa không mơ hồ
+    3. Tiếng Anh — fallback mặc định
 
-    NOTE: Short common words like 'el', 'la', 'un', 'una', 'es', 'son' are
-    intentionally EXCLUDED because they appear frequently in English text
-    (e.g. "I want a lace dress in unique style") and cause false positives.
+    Lưu ý: các từ ngắn phổ biến như `el`, `la`, `un`, `una`, `es`, `son`
+    được cố ý loại trừ để giảm false positive khi văn bản là tiếng Anh.
     """
     if not text or not text.strip():
         return "en"
@@ -45,7 +44,7 @@ def detect_language(text: str) -> str:
     return "en"
 
 def get_template(template_store: dict, key: any, lang: str) -> str:
-    """Helper to safely fetch a bilingual template string."""
+    """Lấy an toàn một template song ngữ từ kho template."""
     item = template_store.get(key)
     if not item:
         return ""
@@ -89,15 +88,15 @@ UNSUPPORTED_CATEGORY_NO_SUGGESTIONS = {
 
 
 def build_unsupported_category_message(category: str, suggestions: list[str], lang: str) -> str:
-    """Build a multilingual refusal message for an unsupported category.
+    """Tạo thông báo từ chối đa ngôn ngữ cho category không được hỗ trợ.
 
-    Args:
-        category: The unsupported category name the user requested.
-        suggestions: List of suggested alternatives (may be empty).
-        lang: Language code ('en', 'vi', 'es').
+    Tham số:
+        category: Tên category mà người dùng đã yêu cầu.
+        suggestions: Danh sách lựa chọn thay thế gợi ý (có thể rỗng).
+        lang: Mã ngôn ngữ (`en`, `vi`, `es`).
 
-    Returns:
-        Formatted refusal message string.
+    Trả về:
+        Chuỗi thông báo đã được định dạng.
     """
     if suggestions:
         template = UNSUPPORTED_CATEGORY_RESPONSE.get(lang, UNSUPPORTED_CATEGORY_RESPONSE["en"])
