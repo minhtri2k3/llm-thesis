@@ -851,8 +851,12 @@ Step~4 of the pipeline is the place where the orchestrator commits to an action.
     \If{a pending product selection is staged for $sid$}
         \State Resolve via confirm / reject / ambiguous handlers and \Return
     \EndIf
+    \If{$Q$ asks for the supported category list}
+        \State Reply with the canonical catalogue labels and \Return
+    \EndIf
     \State \textbf{Yield} \texttt{ThinkingEvent("classify")}
     \State $r \gets \textsc{ClassifyIntent}(Q, history)$ \Comment{Algorithm~\ref{alg:intent_class}}
+    \State Canonicalise $r.\text{filters.category}$ when it resolves to a supported catalogue label
     \State \textbf{Yield} \texttt{ThinkingEvent("classify\_done", tokens)}
     \If{$r.\text{intent} = \text{out\_of\_scope}$}
         \State Reply with the multilingual refusal template and \Return
@@ -901,6 +905,11 @@ $\text{confidence} < 0.6$ \emph{or} \texttt{unclear} & 1 (clarifier) & Fall back
 \Ensure Triple $(query, clarification, accumulated\_slots)$ where exactly one of $query$ and $clarification$ is non-empty for search-like intents
 \Function{ResolveSearchQuery}{$I, r, sid, H, Q$}
     \If{$I \in \{\text{text\_search}, \text{follow\_up}, \text{outfit\_request}\}$}
+        \State $raw\_cat \gets r.\text{slots.category}$ or $r.\text{filters.category}$
+        \State $norm \gets \textsc{NormalizeCategory}(raw\_cat)$ using exact, synonym, then fuzzy matching
+        \If{$norm$ resolves}
+            \State Replace $r.\text{slots.category}$ and $r.\text{filters.category}$ with $norm.\text{category}$
+        \EndIf
         \State Merge $r.\text{extracted\_slots}$ into the accumulated six-slot record (with topic-change reset on \texttt{category} switch)
         \State Project the accumulated record into the four-slot ranked view $S$
         \If{$S.\text{category}$ is set and not in \texttt{SUPPORTED\_CATEGORIES}}
@@ -928,6 +937,8 @@ $\text{confidence} < 0.6$ \emph{or} \texttt{unclear} & 1 (clarifier) & Fall back
 \EndFunction
 \end{algorithmic}
 \end{algorithm}
+
+The category slot is treated as an ontology-constrained value rather than a free-text keyword. Gemini still performs the semantic extraction step, but the extracted category is normalised deterministically before it can reach the retrieval layer. The resolver first checks exact catalogue labels, then a conservative synonym table for common user vocabulary such as trousers, tee, sneakers, jacket, and jeans, and finally a high-threshold fuzzy match for spelling errors such as \texttt{panst}. If this process resolves the term, both the accumulated slots and the search filters store the canonical catalogue label, for example \texttt{Pants}. If it does not resolve, the existing unsupported-category refusal remains active and hybrid retrieval is not executed. This keeps the database ontology authoritative while allowing user-facing language to differ from the raw dataset labels. When the raw term is useful for lexical recall, the generated retrieval query may retain it alongside the canonical label, but the filter passed to hybrid search remains canonical.
 
 \begin{algorithm}[H]
 \caption{Filter Products by Recorded Session Gender}\label{alg:filter_gender}

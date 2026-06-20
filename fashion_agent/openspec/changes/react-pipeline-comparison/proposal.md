@@ -15,6 +15,7 @@ The ReAct pipeline is implemented as a **completely separate module** (`react_ag
 - **New DB tables** — `react_traces` (per-iteration logging), `eval_queries` (ground truth set), `eval_results` (offline metric results)
 - **New columns** — `llm_token_usage.response_latency_ms`, `llm_token_usage.llm_call_count`
 - **Evaluation runner** — `evaluation/run_comparison.py` executes both pipelines against the same `eval_queries` set and populates `eval_results` for offline analysis
+- **Smoke-test harness** — a tiny `test_tool.py` pilot runner exercises a short query set before the full benchmark so DB/LLM/routing issues fail fast
 - **Ground truth dataset** — `evaluation/eval_queries.json` with 40 annotated queries (easy/medium/hard, EN/VI) seeded into `eval_queries` via `evaluation/seed_eval_queries.py`
 - **Notebook extension** — `analysis/thesis_evaluation.ipynb` extended with Section 7 (Direct vs ReAct: offline + online + efficiency comparison)
 
@@ -51,3 +52,5 @@ The ReAct pipeline is implemented as a **completely separate module** (`react_ag
 - `analysis/thesis_evaluation.ipynb` — Section 7 added
 
 **No breaking changes** — `orchestration_mode` defaults to `"direct"` everywhere; existing sessions and API callers are unaffected.
+
+**Stability guarantee** — benchmark tooling is isolated from the production chat path. The full run is always preceded by an idempotent seed step and a pilot smoke test, and benchmark sessions are created fresh per query to avoid cache/history bleed.

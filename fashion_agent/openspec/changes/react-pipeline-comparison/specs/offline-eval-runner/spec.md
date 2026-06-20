@@ -66,6 +66,16 @@ for query in load_eval_queries():                    # from eval_queries table
         insert_eval_result(query.id, mode, returned_ids, metrics, token_data)
 ```
 
+## Safety & Stability Guardrails
+
+- Run `test_tool.py` on a 5–10 query pilot set before any full benchmark.
+- Prefer `--dry-run` first; it must succeed before any DB writes are accepted as valid.
+- Create a fresh throwaway session for every query and every mode; do not reuse history or caches across comparisons.
+- Keep benchmark writes isolated to evaluation tables (`eval_queries`, `eval_results`, and related trace tables).
+- Seed data idempotently so repeated runs do not duplicate queries.
+- Fail loudly on missing DB, Qdrant, or LLM connectivity; do not hide failures behind silent fallbacks.
+- Leave the production chat path untouched; the benchmark runner is read-only with respect to live user flows.
+
 ## Summary Output (stdout)
 
 ```

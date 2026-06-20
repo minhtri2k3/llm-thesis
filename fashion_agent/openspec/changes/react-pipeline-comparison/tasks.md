@@ -99,6 +99,7 @@ docker compose -f fashion_agent/docker-compose.yml logs fashion-api --tail=20
 
 ## Phase 6: Offline Evaluation Runner
 
+- [ ] 6.0 Create `test_tool.py` as a short pilot harness (5–10 queries) that runs both pipelines with fresh sessions, prints returned IDs / latency / tokens, and exits loudly on any failure
 - [ ] 6.1 Create `evaluation/run_comparison.py` — CLI script:
   - Loads all rows from `eval_queries`
   - For each query, runs Direct pipeline: `fashion_agent.chat(query_text, fresh_session_id)`; records `returned_ids`, `latency_ms`, `total_tokens`, `llm_call_count`
@@ -109,6 +110,7 @@ docker compose -f fashion_agent/docker-compose.yml logs fashion-api --tail=20
 - [ ] 6.2 Add `--runs N` flag (default 1) to repeat the evaluation N times — enables mean ± std reporting
 - [ ] 6.3 Add `--mode [direct|react|both]` flag (default `both`) for partial re-runs
 - [ ] 6.4 Run `run_comparison.py --runs 3` on Mac Mini and verify `eval_results` is populated
+- [ ] 6.5 Run `test_tool.py` first on a pilot subset, then only proceed to the full 40-query benchmark if the smoke test is clean
 
 ## Phase 7: Notebook Extension
 
