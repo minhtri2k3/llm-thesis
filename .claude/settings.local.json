@@ -73,7 +73,8 @@
       "Bash(yes)",
       "Bash(chmod +x /Users/tringuyen/set_up_tool/flutter/install.sh)",
       "Bash(uv run *)",
-      "mcp__tavily__tavily_research"
+      "mcp__tavily__tavily_research",
+      "Bash(uv venv *)"
     ]
   }
 }
