@@ -1012,4 +1012,4 @@ Dự án phục vụ mục đích nghiên cứu và học tập.
 ## 👥 Nhóm thực hiện
 
 
-- **Giảng viên hướng dẫn**: [Tên giảng viên]
+- **Giảng viên hướng dẫn**: DR.Tran Thanh Tung
